@@ -123,6 +123,17 @@ fn ds_log_dir() -> String {
     dslog::default_log_dir().to_string_lossy().to_string()
 }
 
+/// The current values and link status, on demand.
+///
+/// The push path above is the normal one. This exists because a dashboard that quietly stops updating
+/// is worse than one that costs a few extra IPC round trips: if no pushed frame arrives shortly after
+/// launch, the frontend falls back to calling this on a timer and the driver still sees live numbers.
+#[tauri::command]
+fn nt_frame(state: tauri::State<'_, AppState>) -> Frame {
+    let (values, status) = state.nt.snapshot();
+    Frame { values, status }
+}
+
 /// Namespaces the console will not write to, whatever the frontend asks for.
 ///
 /// `/FMSInfo` is the driver station's own view of the match — alliance, station, and the control word
@@ -157,6 +168,17 @@ fn nt_set(state: tauri::State<'_, AppState>, key: String, value: serde_json::Val
 
 fn main() {
     tauri::Builder::default()
+        // Must be registered first. A second launch never gets as far as opening a window: it hands
+        // its arguments to the console that is already running, raises that window, and exits. Two
+        // consoles would mean two NT clients on one robot and a driver reading whichever happened to
+        // be on top, so double-clicking the icon again brings the real one forward instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -164,6 +186,7 @@ fn main() {
             ds_events,
             ds_samples,
             ds_log_dir,
+            nt_frame,
             nt_set,
             team_number,
             set_team_number
@@ -179,13 +202,23 @@ fn main() {
 
             // One timer, one event per tick, only when something actually changed. The webview is
             // never asked to do work on a frame where the robot said nothing new.
-            std::thread::spawn(move || loop {
-                std::thread::sleep(nt4::flush_interval());
-                if !dirty.swap(false, Ordering::Relaxed) {
-                    continue;
+            std::thread::spawn(move || {
+                let mut reported = false;
+                loop {
+                    std::thread::sleep(nt4::flush_interval());
+                    if !dirty.swap(false, Ordering::Relaxed) {
+                        continue;
+                    }
+                    let (values, status) = pump.snapshot();
+                    // A failure here means the dashboard is showing stale numbers with no way to know
+                    // it. Say so once rather than swallowing it forever.
+                    if let Err(e) = handle.emit("nt", Frame { values, status }) {
+                        if !reported {
+                            reported = true;
+                            eprintln!("[console] could not reach the webview: {e}");
+                        }
+                    }
                 }
-                let (values, status) = pump.snapshot();
-                let _ = handle.emit("nt", Frame { values, status });
             });
 
             app.manage(AppState { nt });

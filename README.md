@@ -39,6 +39,10 @@ outside what a dashboard normally does.
 
 ---
 
+**One console at a time.** Launching it again does not open a second window — the new process hands
+off to the one already running, raises it, and exits. Two consoles would mean two NetworkTables clients
+on one robot and a driver reading whichever happened to be on top.
+
 ## Running it
 
 ```bash
@@ -200,8 +204,8 @@ Add, remove, resize, and rearrange from the dock. The layout persists locally.
 
 | Component | Notes |
 | --- | --- |
-| **Match timer** | phase and countdown, with the match shape as three bars |
-| **Fuel tower** | see below |
+| **Match timer** | phase, shift name, and countdown, with the match shape as three bars |
+| **Hub activation** | see below |
 | **Gauge** | any numeric topic as an arc, dial, bar, or number |
 | **Field view** | the robot on the field in 3D, from the pose estimator |
 | **Battery** | voltage with rolling history and measured sag |
@@ -222,24 +226,40 @@ FrontLeft / FrontRight / BackLeft / BackRight rather than "Velocity" four times.
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM. Set it to 1 for a
 raw value.
 
-### The fuel tower
+### Hub activation
 
-The 2026 game gates scoring on an alliance fuel tower, so the tile answers one question from across the
-drive station: **is ours live, and how long until that changes.** Colour carries it — green while live,
-amber in the last few seconds before a change, flat grey while closed — with the countdown large
-underneath.
+In REBUILT your alliance HUB stops scoring for part of teleop, so the tile answers one question from
+across the drive station: **is ours active, and how long until that changes.** Colour carries it —
+green while active, amber in the last few seconds before a change, flat grey while inactive — with the
+countdown large underneath.
 
-It is driven by two topics you configure:
+Terminology, because the manual is specific and it matters here: the **HUB** is the fuel goal, and it
+is the thing that goes active and inactive. The **TOWER** is the climbing structure in the alliance
+wall, with its three rungs. This tile is about the hub.
 
-* a boolean that is true while *your* alliance tower is live
-* a number of seconds until it flips
+It works the schedule out itself, from the rules plus what FMS sends, rather than needing the robot to
+tell it. Teleop runs 140 s in six segments (2026 Game Manual, Table 6-2):
 
-If the countdown topic is absent, the tile falls back to a local estimate from the match clock using a
-period and on-time you set, and labels itself *estimated from match clock* while it does. If the
-boolean is absent too, it says **No data** and tells you which topic to publish.
+| Segment | Time remaining | Hubs |
+| --- | --- | --- |
+| Transition shift | 2:20 – 2:10 | both active |
+| Shift 1 | 2:10 – 1:45 | alternating |
+| Shift 2 | 1:45 – 1:20 | alternating |
+| Shift 3 | 1:20 – 0:55 | alternating |
+| Shift 4 | 0:55 – 0:30 | alternating |
+| End game | 0:30 – 0:00 | both active |
 
-That split is deliberate. The schedule has to come from the robot or the FMS, because the console
-cannot know the season's timing and a countdown that is confidently wrong is worse than no countdown.
+Through shifts 1–4 the alliance that scored **more fuel in AUTO** is inactive for shift 1 and then
+alternates. FMS relays which alliance that was in the game-specific message at the start of teleop, so
+the console reads `/FMSInfo/GameSpecificMessage` and `/FMSInfo/IsRedAlliance` and derives the rest
+exactly — no estimating.
+
+Before that message arrives it says so rather than guessing, because during shifts the answer genuinely
+depends on an auto result nothing else can infer. Auto, the transition shift and end game need no game
+data at all: both hubs are active by rule, and the tile says that.
+
+If your robot would rather compute it itself, publish a boolean and a countdown and configure the tile
+to read them — a robot-published answer always wins.
 
 ### The field view
 
@@ -247,11 +267,16 @@ The field is drawn procedurally from its dimensions — carpet, perimeter, drive
 centre and alliance lines — and the robot is drawn from the pose estimator with a heading wedge, a
 trail, and bumpers in your alliance colour. Three camera modes: chase, overhead, free orbit.
 
-It is not built from the season CAD, and that is a trade rather than a shortcut. The field assembly is
-around 900 parts and 300 MB; putting it in a driver station dashboard would cost more memory than the
-rest of the app together and would tell the driver nothing the outline does not. What matters here is
-*where the robot is*. Set **Field length** and **Field width** from the season drawings and the
-geometry is right.
+Dimensions default to the REBUILT carpet — 651.2 in × 317.7 in, or 16.54 m × 8.07 m — from the 2026
+field drawings, and both are editable in the tile settings.
+
+It is not built from the season CAD, and that is a trade rather than a shortcut. FIRST publishes the
+official field model (Onshape, with STEP for everyone else) on the
+[Playing Field page](https://www.firstinspires.org/resources/library/frc/playing-field), alongside the
+[field dimension drawings](https://firstfrc.blob.core.windows.net/frc2026/FieldAssets/2026-field-dimension-dwgs.pdf).
+It is a ~900-part assembly. Putting that in a driver station dashboard would cost more memory than the
+rest of the app together, and would tell the driver nothing the outline does not. What matters here is
+*where the robot is*.
 
 Cost control, because this shares a laptop with the Driver Station: 30 fps, no shadows, no textures, no
 post-processing, ~30 meshes, rendering stops entirely when the dashboard tab is not showing, and

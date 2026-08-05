@@ -129,15 +129,20 @@ const demo = { on: false, t0: performance.now(), timer: null };
 
 function demoTick() {
   const t = (performance.now() - demo.t0) / 1000;
-  const matchT = 150 - (t % 165);
-  const auto = matchT > 135;
+  /* A REBUILT match on repeat: 20 s auto, then teleop counting 140 down to 0. */
+  const cycle = t % 175;
+  const auto = cycle < 20;
+  const matchT = auto ? 20 - cycle : Math.max(0, 160 - cycle);
   const set = (k, tag, v) => { nt.v[k] = { t: tag, v }; };
 
-  set("/FMSInfo/FMSControlData", "num", BIT.enabled | BIT.ds | (auto ? BIT.auto : 0));
+  set("/FMSInfo/FMSControlData", "num", BIT.enabled | BIT.ds | BIT.fms | (auto ? BIT.auto : 0));
   set("/FMSInfo/IsRedAlliance", "bool", true);
   set("/FMSInfo/EventName", "str", "Demo");
   set("/FMSInfo/MatchNumber", "num", 7);
-  set("/FMSInfo/MatchTime", "num", Math.max(0, auto ? matchT - 135 : matchT));
+  set("/FMSInfo/MatchTime", "num", matchT);
+  // FMS relays which alliance scored more FUEL in auto at the start of teleop. Red, here — so the
+  // red hub sits out shifts 1 and 3, which is what the hub tile should work out on its own.
+  set("/FMSInfo/GameSpecificMessage", "str", auto ? "" : "R");
 
   const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
   set("/Catalyst/Drive/FrontLeft/Velocity", "num", drive / 60);
@@ -161,8 +166,8 @@ function demoTick() {
     (t * 0.42 + Math.PI / 2) % (Math.PI * 2),
   ]);
 
-  set("/Catalyst/Game/TowerActive", "bool", Math.sin(t * 0.35) > 0);
-  set("/Catalyst/Game/TowerSeconds", "num", Math.abs(9 - ((t * 0.35 * 9 / Math.PI) % 18)));
+  /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
+   * from the rules and the FMS game data, which is what it does on a real field. */
 
   set("/Catalyst/Alerts/Errors", "strs", []);
   set("/Catalyst/Alerts/Warnings", "strs",
@@ -336,15 +341,23 @@ define("match", {
   },
   update(body, _cfg, x) {
     const t = matchTime();
-    x.phase.textContent = ds.mode;
+    /* Name the shift rather than just the period — during teleop "Shift 3" is the thing a driver
+     * actually needs, because it decides whether their hub is scoring. */
+    const shift = t !== null && ds.enabled && !ds.auto
+      ? (SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1]).name
+      : null;
+    x.phase.textContent = shift ? `${ds.mode} · ${shift}` : ds.mode;
     x.time.textContent = clock(t);
     x.time.className = `n ${t !== null && t <= 30 && !ds.auto && ds.enabled ? "warn" : ""}`;
 
     /* Segment fill is derived from the period we are actually in — we never assume a match length the
-     * FMS has not told us about. With no match time at all, the bars stay empty. */
+     * FMS has not told us about. With no match time at all, the bars stay empty.
+     *
+     * The lengths match REBUILT as the Catalyst example models it: 20 s auto, 140 s teleop, with the
+     * last 30 s of teleop called endgame. */
     const auto = ds.auto;
     const inMatch = t !== null;
-    const autoLen = 15, teleLen = 105, endLen = 30;
+    const autoLen = 20, teleLen = 110, endLen = 30;
     let a = 0, b = 0, c = 0;
     if (inMatch && auto) {
       a = clamp01(1 - t / autoLen);
@@ -362,22 +375,43 @@ define("match", {
 
 /* --- fuel tower -------------------------------------------------------------- */
 
+/* REBUILT teleop, from the 2026 game manual (Table 6-2). Teleop runs 140 s and the match clock counts
+ * down, so each segment is expressed as the time remaining when it ends.
+ *
+ * Both HUBS are active during AUTO, the TRANSITION SHIFT and END GAME. Through shifts 1-4 they
+ * alternate: the alliance that scored more FUEL in AUTO is inactive for shift 1, and FMS relays which
+ * alliance that was in the game-specific message at the start of teleop. */
+const SHIFTS = [
+  { name: "Transition", endsAt: 130, always: true },
+  { name: "Shift 1", endsAt: 105, index: 0 },
+  { name: "Shift 2", endsAt: 80, index: 1 },
+  { name: "Shift 3", endsAt: 55, index: 2 },
+  { name: "Shift 4", endsAt: 30, index: 3 },
+  { name: "End game", endsAt: 0, always: true },
+];
+
+/** Which alliance FMS says scored more FUEL in auto, or null before that message arrives. */
+function autoFuelLeader() {
+  const raw = str("/FMSInfo/GameSpecificMessage", "") || "";
+  const text = raw.trim().toLowerCase();
+  if (!text) return null;
+  if (text.startsWith("r")) return "red";
+  if (text.startsWith("b")) return "blue";
+  return null;
+}
+
 define("tower", {
-  name: "Fuel tower",
+  name: "Hub activation",
   group: "Match",
-  desc: "Whether your alliance tower is live, and how long until that changes",
+  desc: "Whether your alliance HUB is scoring this shift, and how long until that changes",
   w: 3, h: 2,
   tileClass: "tower",
   config: [
     { key: "activeKey", label: "Active topic", type: "topic", def: "/Catalyst/Game/TowerActive",
-      hint: "Boolean the robot publishes: true while YOUR alliance tower is scoring." },
+      hint: "Optional override. A boolean the robot publishes: true while YOUR hub is active. Leave it and the console works the schedule out from FMS." },
     { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
-      hint: "Seconds until the tower flips state. Leave blank to estimate locally." },
-    { key: "period", label: "Estimated period", type: "number", def: 18,
-      hint: "Only used when no countdown topic is published — full on+off cycle, in seconds." },
-    { key: "duty", label: "Estimated on-time", type: "number", def: 9,
-      hint: "Seconds of the period your tower is live, for the local estimate." },
-    { key: "warn", label: "Warn at", type: "number", def: 3,
+      hint: "Optional override: seconds until the state flips." },
+    { key: "warn", label: "Warn at", type: "number", def: 5,
       hint: "Seconds before a change when the tile turns amber." },
   ],
   render(body) {
@@ -399,44 +433,64 @@ define("tower", {
   },
   update(body, cfg, x, tile) {
     const side = alliance();
-    x.who.textContent = side ? `${side === "red" ? "Red" : "Blue"} tower` : "Alliance unknown";
+    x.who.textContent = side ? `${side === "red" ? "Red" : "Blue"} hub` : "Alliance unknown";
     x.who.className = `who ${side || ""}`;
 
+    /* A robot that publishes its own answer wins — it may know something we do not. Otherwise the
+     * schedule comes straight out of the rules plus the FMS game data, which is exact rather than
+     * estimated. */
     let active = bool(cfg.activeKey, null);
     let left = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
-    let source = "robot";
+    let source = active !== null || left !== null ? "robot" : null;
+    let segment = null;
 
-    /* No published schedule: estimate from match time so the tile is still useful in practice. It is
-     * labelled as an estimate, because a countdown that is confidently wrong is worse than none. */
-    if (left === null) {
+    if (active === null || left === null) {
       const t = matchTime();
-      if (t !== null && cfg.period > 0) {
-        const elapsed = (150 - t + cfg.period * 1000) % cfg.period;
-        const on = elapsed < cfg.duty;
-        left = on ? cfg.duty - elapsed : cfg.period - elapsed;
-        if (active === null) active = on;
-        source = "estimated from match clock";
+      if (t !== null && !ds.auto && ds.enabled) {
+        segment = SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1];
+        if (left === null) left = Math.max(0, t - segment.endsAt);
+
+        if (active === null) {
+          if (segment.always) {
+            active = true;                       // both hubs are active here, no game data needed
+            source = "rule — both hubs active";
+          } else {
+            const leader = autoFuelLeader();
+            if (leader && side) {
+              // The alliance that scored more FUEL in AUTO is inactive for shift 1, then alternates.
+              const weLed = leader === side;
+              active = weLed ? segment.index % 2 === 1 : segment.index % 2 === 0;
+              source = `FMS · ${segment.name}`;
+            } else {
+              source = side ? "waiting for FMS game data" : "waiting for alliance";
+            }
+          }
+        }
+      } else if (t !== null && ds.auto) {
+        active = true;
+        left = null;
+        source = "rule — both hubs active in auto";
       }
     }
 
-    const soon = left !== null && left <= cfg.warn && active !== null;
+    const soon = active !== null && left !== null && left <= cfg.warn;
     tile.dataset.active = active === true && !soon ? "true" : "false";
     tile.dataset.soon = soon ? "true" : "false";
 
     if (active === null) {
-      x.status.textContent = "No data";
-      x.count.textContent = "—";
-      x.unit.textContent = "";
-      x.src.textContent = `publish ${cfg.activeKey || "a boolean topic"} to light this up`;
+      x.status.textContent = segment ? segment.name : "No data";
+      x.count.textContent = left === null ? "—" : left.toFixed(1);
+      x.unit.textContent = left === null ? "" : "s";
+      x.src.textContent = source || "no match in progress";
       return;
     }
 
     x.status.textContent = soon
       ? (active ? "CLOSING" : "OPENING")
-      : (active ? "TOWER LIVE" : "TOWER CLOSED");
+      : (active ? "HUB ACTIVE" : "HUB INACTIVE");
     x.count.textContent = left === null ? "—" : left.toFixed(1);
     x.unit.textContent = left === null ? "" : "s";
-    x.src.textContent = source;
+    x.src.textContent = source || "robot";
   },
 });
 
@@ -543,13 +597,14 @@ define("battery", {
   desc: "Bus voltage with its recent history and sag under load",
   w: 3, h: 2,
   config: [
-    { key: "topic", label: "Topic", type: "topic", def: "/Catalyst/Brownout/MeasuredVoltage",
-      hint: "Catalyst's BrownoutMonitor publishes this. Without one, log RobotController.getBatteryVoltage() yourself — WPILib does not put it on NetworkTables for you." },
+    { key: "topic", label: "Topic", type: "topic", def: "/Catalyst/Status/BatteryVolts",
+      hint: "Falls back to /Catalyst/Brownout/MeasuredVoltage when this key is absent, so a BrownoutMonitor works with no configuration. WPILib does not put battery voltage on NetworkTables by itself." },
     { key: "low", label: "Warn below", type: "number", def: 11.5 },
     { key: "crit", label: "Critical below", type: "number", def: 10.5 },
   ],
   render(body, cfg) {
     track(cfg.topic);
+    track("/Catalyst/Brownout/MeasuredVoltage");
     body.innerHTML = `
       <div class="fill">
         <div><span class="n" data-x="v" style="font-size:40px">—</span><span class="u">V</span></div>
@@ -558,11 +613,12 @@ define("battery", {
       </div>`;
   },
   update(body, cfg, x) {
-    const v = num(cfg.topic, null);
+    const key = has(cfg.topic) ? cfg.topic : "/Catalyst/Brownout/MeasuredVoltage";
+    const v = num(key, null);
     x.v.textContent = fmt(v, 2);
     x.v.className = `n ${v === null ? "" : v < cfg.crit ? "crit" : v < cfg.low ? "warn" : "ok"}`;
 
-    const h = history(cfg.topic);
+    const h = history(key);
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
@@ -935,8 +991,8 @@ define("field", {
     { key: "poseKey", label: "Pose topic", type: "topic", def: "/Catalyst/Physics/PoseArray",
       hint: "Number array [x, y, theta] in metres and radians. Physics Core publishes this alongside the Pose2d struct, which dashboards cannot all read." },
     { key: "length", label: "Field length (m)", type: "number", def: 16.54,
-      hint: "Set this from the season's field drawings. The default is the recent standard field." },
-    { key: "width", label: "Field width (m)", type: "number", def: 8.21 },
+      hint: "REBUILT carpet is 651.2 in × 317.7 in, from the 2026 field drawings." },
+    { key: "width", label: "Field width (m)", type: "number", def: 8.07 },
     { key: "trail", label: "Trail length", type: "number", def: 220,
       hint: "Poses kept in the path behind the robot. 0 turns the trail off." },
   ],
@@ -1635,17 +1691,37 @@ function refreshTopicList() {
 layout = loadLayout();
 buildBoard();
 
+let pushedFrames = 0;
+
+function applyFrame(frame) {
+  if (!frame || demo.on) return; // an explicit demo must not be overwritten by a real robot mid-look
+  const before = Object.keys(nt.v).length;
+  Object.assign(nt.v, frame.values);
+  nt.status = frame.status;
+  if (Object.keys(nt.v).length !== before) nt.keysDirty = true;
+  onFrame();
+}
+
 if (listen) {
   listen("nt", (event) => {
-    if (demo.on) return; // an explicit demo must not be overwritten by a real robot mid-look
-    const frame = event.payload;
-    const before = Object.keys(nt.v).length;
-    Object.assign(nt.v, frame.values);
-    nt.status = frame.status;
-    if (Object.keys(nt.v).length !== before) nt.keysDirty = true;
-    onFrame();
+    pushedFrames++;
+    applyFrame(event.payload);
   });
-} else {
+}
+
+if (invoke) {
+  /* The backend pushes frames; this is the safety net. If nothing has arrived a couple of seconds
+   * after launch then the push path is not working, so we pull instead. A dashboard that silently
+   * stops updating is the one failure this app cannot have — cheap insurance against it. */
+  setTimeout(() => {
+    if (pushedFrames > 0) return;
+    console.warn("no pushed frames arrived; falling back to polling");
+    setInterval(() => {
+      if (demo.on) return;
+      invoke("nt_frame").then(applyFrame).catch(() => {});
+    }, 50);
+  }, 2000);
+} else if (!listen) {
   /* Opened in a plain browser rather than the app: everything still renders, nothing connects. */
   $("#stateSrc").textContent = "no backend — open the desktop app";
 }

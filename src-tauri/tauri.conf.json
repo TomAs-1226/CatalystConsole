@@ -12,10 +12,11 @@
       {
         "label": "main",
         "title": "Catalyst Console",
-        "width": 1600,
-        "height": 900,
+        "width": 1440,
+        "height": 860,
         "minWidth": 1100,
-        "minHeight": 700,
+        "minHeight": 660,
+        "center": true,
         "resizable": true,
         "theme": "Dark"
       }

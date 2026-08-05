@@ -28,7 +28,7 @@ const FRAME_MS = 1000 / 30;
 
 export function createField(canvas, opts) {
   const length = Number(opts.length) > 1 ? Number(opts.length) : 16.54;
-  const width = Number(opts.width) > 1 ? Number(opts.width) : 8.21;
+  const width = Number(opts.width) > 1 ? Number(opts.width) : 8.07;
   const trailLen = Math.max(0, opts.trail | 0);
 
   const renderer = new THREE.WebGLRenderer({
@@ -55,6 +55,13 @@ export function createField(canvas, opts) {
   const flat = (color, opacity = 1) =>
     new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity });
   const lit = (color) => new THREE.MeshLambertMaterial({ color });
+
+  /* The venue floor the field sits on. Without it the frame above the far wall is transparent, and a
+     hard black wedge across the top of the tile reads as a rendering fault rather than as sky. */
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(length * 4, width * 6), flat(0x191b20));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.02;
+  field.add(floor);
 
   const carpet = new THREE.Mesh(new THREE.PlaneGeometry(length, width), flat(CARPET));
   carpet.rotation.x = -Math.PI / 2;
@@ -201,13 +208,16 @@ export function createField(canvas, opts) {
       desired.set(0, topHeight(), 0.01);
       look.set(0, 0, 0);
     } else if (mode === "chase") {
+      /* High and well back, looking down at the robot rather than along the carpet. A low chase
+         camera fills half the tile with sky and the other half with the square metre the robot is
+         standing on, which tells a driver nothing — what they want is where they are on the field. */
       const heading = robot.rotation.y;
-      const back = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)).multiplyScalar(-4.4);
-      desired.copy(robot.position).add(back).add(new THREE.Vector3(0, 2.6, 0));
-      look.copy(robot.position).add(new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)).multiplyScalar(2.2));
-      look.y = 0.3;
+      const forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+      desired.copy(robot.position).addScaledVector(forward, -6.5).add(new THREE.Vector3(0, 5.4, 0));
+      look.copy(robot.position).addScaledVector(forward, 2.0);
+      look.y = 0.0;
       if (!robot.visible) {
-        desired.set(-length * 0.42, 5.2, width * 0.75);
+        desired.set(-length * 0.34, 7.0, width * 1.05);
         look.set(0, 0, 0);
       }
     } else {
