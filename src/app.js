@@ -111,9 +111,16 @@ function alliance() {
   return red ? "red" : "blue";
 }
 
-/** Seconds left in the current period. Published by WPILib's Timer.getMatchTime() when on FMS. */
+/**
+ * Seconds left in the current period.
+ *
+ * The robot has to publish this. WPILib's `/FMSInfo` table carries the control word, the alliance, the
+ * event and the game-specific message — but **not** the match clock, so there is nothing to read
+ * unless robot code puts `DriverStation.getMatchTime()` somewhere. One line in `robotPeriodic`; see
+ * README. Everything here degrades to a dash without it rather than inventing a countdown.
+ */
 function matchTime() {
-  const candidates = ["/FMSInfo/MatchTime", "/SmartDashboard/MatchTime", "/Catalyst/Match/TimeLeft"];
+  const candidates = ["/Catalyst/Match/TimeLeft", "/SmartDashboard/MatchTime", "/FMSInfo/MatchTime"];
   for (const k of candidates) {
     const v = num(k, null);
     if (v !== null) return v;
@@ -139,10 +146,12 @@ function demoTick() {
   set("/FMSInfo/IsRedAlliance", "bool", true);
   set("/FMSInfo/EventName", "str", "Demo");
   set("/FMSInfo/MatchNumber", "num", 7);
-  set("/FMSInfo/MatchTime", "num", matchT);
-  // FMS relays which alliance scored more FUEL in auto at the start of teleop. Red, here — so the
-  // red hub sits out shifts 1 and 3, which is what the hub tile should work out on its own.
-  set("/FMSInfo/GameSpecificMessage", "str", auto ? "" : "R");
+  // The match clock is not in /FMSInfo on a real robot either — robot code publishes it. Demo does
+  // the same thing so the tiles are exercised through the path they will really use.
+  set("/Catalyst/Match/TimeLeft", "num", matchT);
+  // A single character naming the alliance whose hub goes inactive first, and empty until a few
+  // seconds after auto — exactly as FMS sends it. Red here, so the red hub sits out shifts 1 and 3.
+  set("/FMSInfo/GameSpecificMessage", "str", auto || cycle < 23 ? "" : "R");
 
   const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
   set("/Catalyst/Drive/FrontLeft/Velocity", "num", drive / 60);
@@ -312,6 +321,9 @@ function arcPath(cx, cy, r, a0, a1) {
 /* Every component is: a config schema, a one-time `render` that builds DOM, and an `update` called on
  * each frame. `update` must be cheap and must never throw — one bad tile cannot take out the board. */
 
+/** How long a cleared alert stays on screen, dimmed, before it is dropped. */
+const ALERT_HOLD_MS = 2500;
+
 const REGISTRY = {};
 
 function define(type, spec) {
@@ -390,11 +402,16 @@ const SHIFTS = [
   { name: "End game", endsAt: 0, always: true },
 ];
 
-/** Which alliance FMS says scored more FUEL in auto, or null before that message arrives. */
-function autoFuelLeader() {
-  const raw = str("/FMSInfo/GameSpecificMessage", "") || "";
-  const text = raw.trim().toLowerCase();
-  if (!text) return null;
+/**
+ * Which alliance's hub goes inactive first, from the FMS game-specific message.
+ *
+ * WPILib documents the 2026 message as a single character — `R` or `B` — naming the alliance whose
+ * goal goes inactive first, which is the alliance that scored more FUEL in auto. It is an empty string
+ * until roughly three seconds after auto ends, once scoring has been assessed, so null here is the
+ * normal state for the first part of a match rather than a fault.
+ */
+function inactiveFirstAlliance() {
+  const text = (str("/FMSInfo/GameSpecificMessage", "") || "").trim().toLowerCase();
   if (text.startsWith("r")) return "red";
   if (text.startsWith("b")) return "blue";
   return null;
@@ -455,11 +472,11 @@ define("tower", {
             active = true;                       // both hubs are active here, no game data needed
             source = "rule — both hubs active";
           } else {
-            const leader = autoFuelLeader();
-            if (leader && side) {
-              // The alliance that scored more FUEL in AUTO is inactive for shift 1, then alternates.
-              const weLed = leader === side;
-              active = weLed ? segment.index % 2 === 1 : segment.index % 2 === 0;
+            const inactiveFirst = inactiveFirstAlliance();
+            if (inactiveFirst && side) {
+              // Named alliance sits out shift 1, then the two alternate every shift.
+              const weSitOutFirst = inactiveFirst === side;
+              active = weSitOutFirst ? segment.index % 2 === 1 : segment.index % 2 === 0;
               source = `FMS · ${segment.name}`;
             } else {
               source = side ? "waiting for FMS game data" : "waiting for alliance";
@@ -738,10 +755,11 @@ define("alerts", {
     { key: "base", label: "Alert group", type: "topic", def: "/Catalyst/Alerts",
       hint: "Reads Errors / Warnings / Info under this path, in either capitalisation." },
   ],
-  render(body) {
+  render(body, cfg, state) {
+    state.seen = new Map();
     body.innerHTML = `<div class="fill" style="justify-content:flex-start;overflow:auto" data-x="list"></div>`;
   },
-  update(body, cfg, x) {
+  update(body, cfg, x, tile, state) {
     /* Catalyst's AlertManager publishes Errors/Warnings/Info; WPILib's own Alerts widget uses
      * errors/warnings/infos. Read whichever is there rather than making teams pick. */
     const pick = (...names) => {
@@ -756,8 +774,21 @@ define("alerts", {
       ["warn", pick("Warnings", "warnings")],
       ["info", pick("Info", "infos", "Infos")],
     ];
-    const flat = groups.flatMap(([level, items]) => items.map((text) => ({ level, text })));
-    const signature = flat.map((a) => `${a.level}:${a.text}`).join("|");
+    /* Alerts are edge-triggered on the robot, and anything driven by a measurement that sits near its
+     * threshold will raise and clear repeatedly. Rendering that verbatim gives a tile that strobes,
+     * which is worse than useless next to a driver. So an alert that goes away is held on screen for a
+     * moment, dimmed, and only removed once it has genuinely stayed gone. Nothing is hidden and nothing
+     * is invented — a flapping alert reads as one steady, slightly faded line. */
+    const now = performance.now();
+    for (const [level, items] of groups) {
+      for (const text of items) state.seen.set(`${level} ${text}`, { level, text, at: now });
+    }
+    for (const [key, entry] of state.seen) {
+      if (now - entry.at > ALERT_HOLD_MS) state.seen.delete(key);
+    }
+
+    const flat = [...state.seen.values()].map((e) => ({ ...e, stale: e.at !== now }));
+    const signature = flat.map((a) => `${a.level}:${a.text}:${a.stale}`).join("|");
     if (x.list.dataset.sig === signature) return;
     x.list.dataset.sig = signature;
 
@@ -770,7 +801,7 @@ define("alerts", {
       return;
     }
     x.list.innerHTML = flat
-      .map((a) => `<div class="al ${a.level}"><i class="b"></i><div>${escapeHtml(a.text)}</div></div>`)
+      .map((a) => `<div class="al ${a.level}"${a.stale ? ' style="opacity:.45"' : ""}><i class="b"></i><div>${escapeHtml(a.text)}</div></div>`)
       .join("");
   },
 });
@@ -785,29 +816,48 @@ define("auto", {
   name: "Auto chooser",
   group: "Match",
   desc: "Pick the autonomous routine — writes the same key SendableChooser reads",
-  w: 3, h: 2,
+  w: 3, h: 1,
   config: [
     { key: "base", label: "Chooser path", type: "topic", def: "/SmartDashboard/Auto Chooser" },
+    { key: "style", label: "Style", type: "select", def: "compact",
+      options: [["compact", "Dropdown (1 row)"], ["list", "Full list"]],
+      hint: "The dropdown fits in a single row, which is usually worth more board space than seeing every option at once." },
   ],
   render(body) {
-    body.innerHTML = `<div class="fill" style="justify-content:flex-start;gap:3px;overflow:auto" data-x="list"></div>`;
+    body.innerHTML = `<div class="fill" style="justify-content:center;gap:3px;overflow:auto" data-x="list"></div>`;
   },
   update(body, cfg, x) {
     const options = arr(`${cfg.base}/options`) || [];
     const selected = str(`${cfg.base}/selected`, null);
     const active = str(`${cfg.base}/active`, null);
-    const signature = `${options.join("|")}::${selected}::${active}`;
+    const chosen = selected ?? active;
+    const signature = `${cfg.style}::${options.join("|")}::${chosen}`;
     if (x.list.dataset.sig === signature) return;
     x.list.dataset.sig = signature;
 
     if (!options.length) {
-      x.list.innerHTML = `<div class="cap" style="padding-top:8px">No chooser published at <b>${escapeHtml(cfg.base)}</b>.</div>`;
+      x.list.innerHTML = `<div class="cap">No chooser published at <b>${escapeHtml(cfg.base)}</b>.</div>`;
       return;
     }
+
     x.list.innerHTML = "";
+    if (cfg.style === "compact") {
+      const picker = el("select");
+      picker.style.width = "100%";
+      for (const option of options) {
+        const o = el("option", null, option);
+        o.value = option;
+        picker.appendChild(o);
+      }
+      picker.value = chosen ?? options[0];
+      picker.onchange = () => ntSet(`${cfg.base}/selected`, picker.value);
+      x.list.appendChild(picker);
+      return;
+    }
+
     for (const option of options) {
       const row = el("div", "opt");
-      row.setAttribute("aria-checked", String(option === (selected ?? active)));
+      row.setAttribute("aria-checked", String(option === chosen));
       row.appendChild(el("i"));
       row.appendChild(el("span", null, option));
       row.onclick = () => ntSet(`${cfg.base}/selected`, option);
@@ -1067,21 +1117,27 @@ define("field", {
 /* ==================================================================== the board */
 
 const GRID_COLS = 12;
-const GRID_ROWS = 6;
-const STORE_KEY = "catalyst.console.layout.v1";
+/* Eight rows rather than six. The row height is what decides how small a tile is allowed to be, and at
+ * six rows the shortest possible tile was a third of the board — so a one-line control like an auto
+ * chooser had to waste the space of a graph. Eight rows buys real estate back without making anything
+ * fiddly to drag. */
+const GRID_ROWS = 8;
+const STORE_KEY = "catalyst.console.layout.v2";
 
 const DEFAULT_LAYOUT = [
   { type: "match", x: 0, y: 0, w: 3, h: 2 },
   { type: "tower", x: 3, y: 0, w: 3, h: 2 },
   { type: "health", x: 6, y: 0, w: 3, h: 2 },
   { type: "battery", x: 9, y: 0, w: 3, h: 2 },
-  { type: "field", x: 0, y: 2, w: 5, h: 4 },
-  { type: "gauge", x: 5, y: 2, w: 4, h: 2,
+  { type: "field", x: 0, y: 2, w: 5, h: 6 },
+  { type: "gauge", x: 5, y: 2, w: 4, h: 3,
     cfg: { topic: "/Catalyst/Drive/FrontLeft/Velocity,/Catalyst/Drive/FrontRight/Velocity,/Catalyst/Drive/BackLeft/Velocity,/Catalyst/Drive/BackRight/Velocity",
            title: "Drive", style: "arc", unit: "RPM", scale: 60, min: 0, max: 6000, redline: 5800, decimals: 0 } },
-  { type: "physics", x: 9, y: 2, w: 3, h: 2 },
-  { type: "alerts", x: 5, y: 4, w: 4, h: 2 },
-  { type: "auto", x: 9, y: 4, w: 3, h: 2 },
+  { type: "physics", x: 9, y: 2, w: 3, h: 3 },
+  { type: "alerts", x: 5, y: 5, w: 4, h: 3 },
+  { type: "auto", x: 9, y: 5, w: 3, h: 1 },
+  { type: "graph", x: 9, y: 6, w: 3, h: 2,
+    cfg: { topic: "/Catalyst/Loop/Robot/AverageMs", title: "Loop time", decimals: 1 } },
 ];
 
 let layout = [];

@@ -171,13 +171,16 @@ export function createField(canvas, opts) {
 
         (m.color || new THREE.Color(0x888888)).getHSL(hsl, THREE.SRGBColorSpace);
         /* Read and write in sRGB, not the linear working space. Pick these numbers linearly and the
-           output transfer curve lifts them by roughly a third on screen — which is how a "0.12"
-           lightness arrives looking like mid grey. */
+           output transfer curve lifts them by roughly a third on screen.
+
+           The band is narrow on purpose. Too light and the field is a slab of glare that pulls the eye
+           off the robot; too dark and it is a black void with no readable structure. These sit the
+           carpet and framing around #3a-#48 — clearly present, clearly behind the robot. */
         const colour = new THREE.Color().setHSL(
           hsl.h,
-          hsl.s * 0.5,
-          // Grey parts land dark and even; coloured parts keep a little more presence.
-          hsl.s < 0.15 ? 0.17 : 0.20 + hsl.s * 0.13,
+          hsl.s * 0.55,
+          // Grey parts land mid-dark and even; coloured parts keep a little more presence.
+          hsl.s < 0.15 ? 0.33 : 0.35 + hsl.s * 0.12,
           THREE.SRGBColorSpace
         );
         const flatMat = new THREE.MeshLambertMaterial({
@@ -206,37 +209,63 @@ export function createField(canvas, opts) {
   robot.visible = false;
   scene.add(robot);
 
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.16, 0.72), lit(0x33363d));
-  chassis.position.y = 0.16;
-  robot.add(chassis);
+  /* Roughly a real FRC robot: a 28 in frame inside 3 in bumpers, about 0.75 m over the bumpers with a
+     superstructure. Everything here exists to answer one question at a glance — where is it pointing —
+     so the shape is deliberately asymmetric front to back and the nose is the brightest thing on it. */
+  const FRAME = 0.71;     // 28 in
+  const BUMPER = 0.08;
+  const OUTER = FRAME + BUMPER * 2;
+
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(FRAME, 0.11, FRAME), lit(0x2b2e35));
+  belly.position.y = 0.115;
+  robot.add(belly);
+
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(FRAME * 0.94, 0.03, FRAME * 0.94), lit(0x3d424b));
+  deck.position.y = 0.19;
+  robot.add(deck);
+
+  // A low superstructure, offset back, so the front of the robot is unmistakable from above.
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.5), lit(0x30343c));
+  tower.position.set(-0.13, 0.36, 0);
+  robot.add(tower);
 
   const bumperMat = lit(BLUE);
+  const bumperTrim = lit(0xffffff);
   const bumpers = new THREE.Group();
   for (const [w, d, x, z] of [
-    [0.92, 0.1, 0, -0.41],
-    [0.92, 0.1, 0, 0.41],
-    [0.1, 0.72, -0.41, 0],
-    [0.1, 0.72, 0.41, 0],
+    [OUTER, BUMPER, 0, -(FRAME + BUMPER) / 2],
+    [OUTER, BUMPER, 0, (FRAME + BUMPER) / 2],
+    [BUMPER, FRAME, -(FRAME + BUMPER) / 2, 0],
+    [BUMPER, FRAME, (FRAME + BUMPER) / 2, 0],
   ]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.13, d), bumperMat);
-    m.position.set(x, 0.16, z);
+    m.position.set(x, 0.135, z);
     bumpers.add(m);
+    // A pale lip along the top edge: it catches the light and gives the robot a readable silhouette
+    // against both dark carpet and the pale field structures.
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(w, 0.012, d), bumperTrim);
+    lip.position.set(x, 0.202, z);
+    bumpers.add(lip);
   }
   robot.add(bumpers);
 
-  for (const [x, z] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 12), lit(0x0d0e10));
+  for (const [x, z] of [[-0.26, -0.3], [0.26, -0.3], [-0.26, 0.3], [0.26, 0.3]]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 14), lit(0x0b0c0e));
     wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.05, z);
+    wheel.position.set(x, 0.075, z);
     robot.add(wheel);
   }
 
-  /* A wedge on the nose: heading is the thing you actually read off this view. */
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.3, 4), flat(0xe94560));
+  /* The nose. Heading is what you actually read off this view, so it is the one thing on the robot
+     allowed to be brand coral, and it sits proud of the bumper where nothing can hide it. */
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 3), flat(0xe94560));
   nose.rotation.z = -Math.PI / 2;
-  nose.rotation.y = Math.PI / 4;
-  nose.position.set(0.5, 0.24, 0);
+  nose.position.set(OUTER / 2 + 0.11, 0.26, 0);
   robot.add(nose);
+
+  const noseBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34), flat(0xe94560));
+  noseBar.position.set(OUTER / 2 - 0.02, 0.26, 0);
+  robot.add(noseBar);
 
   /* ---- trail ---- */
 
@@ -278,6 +307,42 @@ export function createField(canvas, opts) {
   const look = new THREE.Vector3(0, 0, 0);
   let orbit = { yaw: -Math.PI / 2, pitch: 0.72, dist: Math.max(length, width) * 0.85 };
 
+  /* How far the chase camera has swung away from directly behind the robot to see past something.
+     Eased, never snapped: a camera that jumps the instant a truss clips the sight line is more
+     disorienting than the obstruction was. */
+  let chaseSwing = 0;
+  let swingTarget = 0;
+  let lastOcclusionCheck = 0;
+  const occluder = new THREE.Raycaster();
+  const CANDIDATE_SWINGS = [0, 0.55, -0.55, 1.15, -1.15, 1.9, -1.9, Math.PI];
+
+  /** True when something solid sits between a camera at this swing and the robot. */
+  function blockedAt(swing) {
+    const heading = robot.rotation.y + swing;
+    const forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+    const from = robot.position.clone().addScaledVector(forward, -6.5).add(new THREE.Vector3(0, 5.4, 0));
+    const toRobot = robot.position.clone().add(new THREE.Vector3(0, 0.25, 0)).sub(from);
+    const distance = toRobot.length();
+    occluder.set(from, toRobot.normalize());
+    occluder.far = distance - 0.6;   // stop short so the robot itself never counts as the blocker
+    return occluder.intersectObject(cad, true).length > 0;
+  }
+
+  /* Only meaningful once the CAD is loaded — the procedural outline has nothing tall enough to hide
+     behind, and raycasting against it every frame would be work for no answer. */
+  function updateOcclusion(now) {
+    if (!cad.visible || !robot.visible || mode !== "chase") { swingTarget = 0; return; }
+    if (now - lastOcclusionCheck < 250) return;   // four times a second is plenty and costs nothing
+    lastOcclusionCheck = now;
+
+    // Keep the current angle if it still works, so the camera settles instead of hunting.
+    if (!blockedAt(swingTarget)) return;
+    for (const swing of CANDIDATE_SWINGS) {
+      if (!blockedAt(swing)) { swingTarget = swing; return; }
+    }
+    swingTarget = 0;   // boxed in on every side: stay put rather than spin
+  }
+
   /* Overhead height that just fits the field, accounting for aspect so it does not crop on a narrow
      tile. Recomputed on resize because tiles get dragged around. */
   function topHeight() {
@@ -295,7 +360,7 @@ export function createField(canvas, opts) {
       /* High and well back, looking down at the robot rather than along the carpet. A low chase
          camera fills half the tile with sky and the other half with the square metre the robot is
          standing on, which tells a driver nothing — what they want is where they are on the field. */
-      const heading = robot.rotation.y;
+      const heading = robot.rotation.y + chaseSwing;
       const forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
       desired.copy(robot.position).addScaledVector(forward, -6.5).add(new THREE.Vector3(0, 5.4, 0));
       look.copy(robot.position).addScaledVector(forward, 2.0);
@@ -314,6 +379,9 @@ export function createField(canvas, opts) {
     }
     /* Exponential approach: fast enough to keep up with a robot, smooth enough not to be a strobe. */
     const k = 1 - Math.exp(-dt * (mode === "top" ? 6 : 4));
+    // Swing eases more slowly still — this one is a deliberate move around an obstruction, and it
+    // should read as the camera choosing a better angle rather than as a glitch.
+    chaseSwing += (swingTarget - chaseSwing) * (1 - Math.exp(-dt * 2.2));
     camera.position.lerp(desired, k);
     target.lerp(look, k);
     camera.lookAt(target);
@@ -388,6 +456,7 @@ export function createField(canvas, opts) {
     lastFrame = now;
     if (!visible()) return;
     resize();
+    updateOcclusion(now);
     placeCamera(Math.min(0.2, elapsed / 1000));
     renderer.render(scene, camera);
   }
