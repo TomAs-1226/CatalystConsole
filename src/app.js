@@ -1,0 +1,1668 @@
+/* Catalyst Console — frontend.
+ *
+ * Three rules run through everything in this file:
+ *
+ *  1. **Nothing here can impede driving.** No modal blocks the dashboard, no check gates anything, no
+ *     "you must acknowledge this first". If the console breaks, the driver is still driving. Every
+ *     failure path degrades to a dimmed number and a quiet chip, never to a dialog.
+ *  2. **The console never writes robot control.** It reads. The only writes it makes are ordinary
+ *     dashboard writes — a tunable, an auto chooser selection — the same ones Shuffleboard and Elastic
+ *     make, and the Rust side refuses anything under the control namespaces regardless.
+ *  3. **Never invent a number.** When the robot has not published a key, the tile shows a dash, not a
+ *     plausible value. Demo data exists but has to be switched on deliberately and says so on screen.
+ *
+ * Components are data-driven: each declares a config schema, the user fills it in, and the layout is
+ * persisted locally. Nothing is hard-coded to one robot or one season.
+ */
+
+const invoke = window.__TAURI__?.core?.invoke;
+const listen = window.__TAURI__?.event?.listen;
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+
+/* ------------------------------------------------------------------ NT store */
+
+const nt = {
+  v: Object.create(null),
+  status: { connected: false, address: "", rtt_ms: 0, topics: 0 },
+  keys: [],
+  keysDirty: true,
+};
+
+/** Values we keep a rolling history for. Components opt in; we do not buffer 500 topics nobody plots. */
+const tracked = new Set();
+const hist = new Map();
+const HIST_LEN = 240;
+
+function track(key) {
+  if (key) tracked.add(key);
+}
+
+function history(key) {
+  return hist.get(key) || [];
+}
+
+function raw(key) {
+  return nt.v[key];
+}
+function num(key, fallback = null) {
+  const x = nt.v[key];
+  if (!x) return fallback;
+  if (x.t === "num") return x.v;
+  if (x.t === "bool") return x.v ? 1 : 0;
+  return fallback;
+}
+function bool(key, fallback = null) {
+  const x = nt.v[key];
+  if (!x) return fallback;
+  if (x.t === "bool") return x.v;
+  if (x.t === "num") return x.v !== 0;
+  return fallback;
+}
+function str(key, fallback = null) {
+  const x = nt.v[key];
+  if (!x) return fallback;
+  if (x.t === "str") return x.v;
+  if (x.t === "num") return String(x.v);
+  return fallback;
+}
+function arr(key) {
+  const x = nt.v[key];
+  if (!x) return null;
+  if (x.t === "nums" || x.t === "strs" || x.t === "bools") return x.v;
+  return null;
+}
+function has(key) {
+  return nt.v[key] !== undefined;
+}
+
+/* --------------------------------------------------------- driver station state */
+
+/* WPILib packs the control word into /FMSInfo/FMSControlData. The bit layout is part of the DS
+ * protocol and has been stable for years, but we only ever read it. */
+const BIT = { enabled: 1, auto: 2, test: 4, estop: 8, fms: 16, ds: 32 };
+
+const ds = {
+  word: 0,
+  get enabled() { return (this.word & BIT.enabled) !== 0; },
+  get auto() { return (this.word & BIT.auto) !== 0; },
+  get test() { return (this.word & BIT.test) !== 0; },
+  get estop() { return (this.word & BIT.estop) !== 0; },
+  get fms() { return (this.word & BIT.fms) !== 0; },
+  get dsAttached() { return (this.word & BIT.ds) !== 0; },
+  get mode() {
+    if (this.estop) return "E-STOP";
+    if (!this.enabled) return "Disabled";
+    if (this.test) return "Test";
+    if (this.auto) return "Autonomous";
+    return "Teleop";
+  },
+};
+
+function alliance() {
+  const red = bool("/FMSInfo/IsRedAlliance", null);
+  if (red === null) return null;
+  return red ? "red" : "blue";
+}
+
+/** Seconds left in the current period. Published by WPILib's Timer.getMatchTime() when on FMS. */
+function matchTime() {
+  const candidates = ["/FMSInfo/MatchTime", "/SmartDashboard/MatchTime", "/Catalyst/Match/TimeLeft"];
+  for (const k of candidates) {
+    const v = num(k, null);
+    if (v !== null) return v;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------- demo data */
+
+/* A synthetic robot, for looking at the dashboard without one. It is off by default and the dock
+ * button stays lit while it runs, because a dashboard that quietly makes up telemetry is a hazard. */
+const demo = { on: false, t0: performance.now(), timer: null };
+
+function demoTick() {
+  const t = (performance.now() - demo.t0) / 1000;
+  const matchT = 150 - (t % 165);
+  const auto = matchT > 135;
+  const set = (k, tag, v) => { nt.v[k] = { t: tag, v }; };
+
+  set("/FMSInfo/FMSControlData", "num", BIT.enabled | BIT.ds | (auto ? BIT.auto : 0));
+  set("/FMSInfo/IsRedAlliance", "bool", true);
+  set("/FMSInfo/EventName", "str", "Demo");
+  set("/FMSInfo/MatchNumber", "num", 7);
+  set("/FMSInfo/MatchTime", "num", Math.max(0, auto ? matchT - 135 : matchT));
+
+  const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
+  set("/Catalyst/Drive/FrontLeft/Velocity", "num", drive / 60);
+  set("/Catalyst/Drive/FrontRight/Velocity", "num", (drive + 120) / 60);
+  set("/Catalyst/Drive/BackLeft/Velocity", "num", (drive - 90) / 60);
+  set("/Catalyst/Drive/BackRight/Velocity", "num", (drive + 40) / 60);
+  set("/Catalyst/Shooter/Velocity", "num", (4900 + 700 * Math.sin(t * 0.6)) / 60);
+  set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
+  set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
+  set("/Catalyst/Brownout/MeasuredVoltage", "num", 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - t * 0.002);
+
+  set("/Catalyst/Physics/Slip/Factor", "num", Math.max(0, 0.42 * Math.sin(t * 2.1)));
+  set("/Catalyst/Physics/TippingUsage", "num", 0.29 + 0.16 * Math.sin(t * 0.8));
+  set("/Catalyst/Physics/TractionUsage", "num", 0.5 + 0.35 * Math.abs(Math.sin(t * 1.9)));
+  set("/Catalyst/Physics/Quality/Confidence", "num", 0.86 + 0.09 * Math.sin(t * 0.4));
+
+  const radius = 2.4;
+  set("/Catalyst/Physics/PoseArray", "nums", [
+    8.2 + radius * Math.cos(t * 0.42),
+    4.1 + radius * Math.sin(t * 0.42) * 0.7,
+    (t * 0.42 + Math.PI / 2) % (Math.PI * 2),
+  ]);
+
+  set("/Catalyst/Game/TowerActive", "bool", Math.sin(t * 0.35) > 0);
+  set("/Catalyst/Game/TowerSeconds", "num", Math.abs(9 - ((t * 0.35 * 9 / Math.PI) % 18)));
+
+  set("/Catalyst/Alerts/Errors", "strs", []);
+  set("/Catalyst/Alerts/Warnings", "strs",
+    num("/Catalyst/Brownout/MeasuredVoltage") < 11.8 ? ["[Power] Battery sagging under load"] : []);
+  set("/Catalyst/Alerts/Info", "strs", ["Demo data — not a real robot"]);
+
+  if (!has(TUNABLE_MANIFEST)) {
+    set(TUNABLE_MANIFEST, "str", JSON.stringify([
+      { key: "/Catalyst/Tunables/shooter.kP", name: "Shooter kP", group: "Shooter", min: 0, max: 2, step: 0.001 },
+      { key: "/Catalyst/Tunables/shooter.target", name: "Target speed", group: "Shooter", min: 0, max: 6000, step: 25, unit: "RPM" },
+      { key: "/Catalyst/Tunables/drive.slew", name: "Slew limit", group: "Drivetrain", min: 0.5, max: 12, step: 0.1, unit: "m/s²" },
+      { key: "/Catalyst/Tunables/physics.enabled", name: "Physics advisories", group: "Physics Core" },
+    ]));
+    set("/Catalyst/Tunables/shooter.kP", "num", 0.34);
+    set("/Catalyst/Tunables/shooter.target", "num", 4900);
+    set("/Catalyst/Tunables/drive.slew", "num", 6.5);
+    set("/Catalyst/Tunables/physics.enabled", "bool", true);
+  }
+
+  set("/SmartDashboard/Auto Chooser/options", "strs",
+    ["Do nothing", "Leave line", "Two piece centre", "Three piece amp side"]);
+  if (!has("/SmartDashboard/Auto Chooser/selected")) {
+    set("/SmartDashboard/Auto Chooser/selected", "str", "Two piece centre");
+    set("/SmartDashboard/Auto Chooser/active", "str", "Two piece centre");
+  }
+
+  nt.status = { connected: false, address: "demo", rtt_ms: 3.1, topics: Object.keys(nt.v).length };
+  nt.keysDirty = true;
+  onFrame();
+}
+
+function setDemo(on) {
+  demo.on = on;
+  $("#demoBtn").setAttribute("aria-pressed", String(on));
+  if (on) {
+    demo.t0 = performance.now();
+    demo.timer = setInterval(demoTick, 50);
+  } else {
+    clearInterval(demo.timer);
+    nt.v = Object.create(null);
+    nt.keysDirty = true;
+    onFrame();
+  }
+}
+
+/* --------------------------------------------------------------- tunable writes */
+
+/* The robot declares what it will let a dashboard change, in a JSON manifest on one topic. The console
+ * shows exactly that and nothing more — it never guesses that a topic looks tunable. The schema is in
+ * README.md under "The contract with the robot". */
+const TUNABLE_MANIFEST = "/Catalyst/Tunables/.manifest";
+
+function tunables() {
+  const src = str(TUNABLE_MANIFEST, null);
+  if (!src) return [];
+  try {
+    const parsed = JSON.parse(src);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function ntSet(key, value) {
+  /* Demo mode has no robot to write to, so the write lands in the local store instead. Otherwise a
+   * slider would snap back and the demo would look broken rather than convincing. */
+  if (demo.on) {
+    nt.v[key] = typeof value === "boolean" ? { t: "bool", v: value }
+      : typeof value === "number" ? { t: "num", v: value }
+      : { t: "str", v: String(value) };
+    if (key.endsWith("/selected")) nt.v[key.replace(/\/selected$/, "/active")] = nt.v[key];
+    schedulePaint();
+    return;
+  }
+  if (!invoke) return;
+  try {
+    await invoke("nt_set", { key, value });
+  } catch (e) {
+    console.warn("nt_set failed", key, e);
+  }
+}
+
+/* ------------------------------------------------------------------- utilities */
+
+function fmt(v, decimals = 1) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return v.toFixed(decimals);
+}
+
+function clock(seconds) {
+  if (seconds === null || seconds === undefined) return "—:—";
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function leaf(key) {
+  const parts = String(key).split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : key;
+}
+
+/* Label a set of topics with the shortest thing that actually tells them apart. Four swerve modules
+ * all end in `/Velocity`, so the leaf alone would print "Velocity" four times; walking one segment
+ * further left gives FrontLeft / FrontRight / BackLeft / BackRight, which is what you wanted to read. */
+function distinctLabels(keys) {
+  const parts = keys.map((k) => String(k).split("/").filter(Boolean));
+  const deepest = Math.max(1, ...parts.map((p) => p.length));
+  for (let depth = 1; depth <= deepest; depth++) {
+    const probe = parts.map((p) => p.slice(-depth).join("/"));
+    if (new Set(probe).size === probe.length) {
+      return parts.map((p) => p[Math.max(0, p.length - depth)] ?? p[0] ?? "");
+    }
+  }
+  return keys.map((k) => leaf(k));
+}
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function sparkline(values, w, h, color) {
+  if (values.length < 2) return "";
+  let lo = Infinity, hi = -Infinity;
+  for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (hi - lo < 1e-9) { hi = lo + 1; }
+  const step = w / (values.length - 1);
+  const y = (v) => h - ((v - lo) / (hi - lo)) * h;
+  let d = `M0 ${y(values[0]).toFixed(1)}`;
+  for (let i = 1; i < values.length; i++) d += `L${(i * step).toFixed(1)} ${y(values[i]).toFixed(1)}`;
+  const fill = `${d}L${w} ${h}L0 ${h}Z`;
+  return `<path d="${fill}" fill="${color}" opacity="0.13"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+}
+
+function arcPath(cx, cy, r, a0, a1) {
+  const pt = (a) => [cx + r * Math.cos((a * Math.PI) / 180), cy + r * Math.sin((a * Math.PI) / 180)];
+  const [x0, y0] = pt(a0);
+  const [x1, y1] = pt(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+
+/* ================================================================== components */
+
+/* Every component is: a config schema, a one-time `render` that builds DOM, and an `update` called on
+ * each frame. `update` must be cheap and must never throw — one bad tile cannot take out the board. */
+
+const REGISTRY = {};
+
+function define(type, spec) {
+  REGISTRY[type] = spec;
+}
+
+/* --- match timer ------------------------------------------------------------- */
+
+define("match", {
+  name: "Match timer",
+  group: "Match",
+  desc: "Phase, time remaining, and where you are in the match",
+  w: 3, h: 2,
+  config: [],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill">
+        <div class="phase" data-x="phase">No match</div>
+        <div><span class="n" data-x="time" style="font-size:52px">—:—</span></div>
+        <div class="segs">
+          <div class="seg auto"><i data-x="s0"></i></div>
+          <div class="seg"><i data-x="s1"></i></div>
+          <div class="seg end"><i data-x="s2"></i></div>
+        </div>
+        <div class="seglab"><span>Auto</span><span>Teleop</span><span>End</span></div>
+      </div>`;
+  },
+  update(body, _cfg, x) {
+    const t = matchTime();
+    x.phase.textContent = ds.mode;
+    x.time.textContent = clock(t);
+    x.time.className = `n ${t !== null && t <= 30 && !ds.auto && ds.enabled ? "warn" : ""}`;
+
+    /* Segment fill is derived from the period we are actually in — we never assume a match length the
+     * FMS has not told us about. With no match time at all, the bars stay empty. */
+    const auto = ds.auto;
+    const inMatch = t !== null;
+    const autoLen = 15, teleLen = 105, endLen = 30;
+    let a = 0, b = 0, c = 0;
+    if (inMatch && auto) {
+      a = clamp01(1 - t / autoLen);
+    } else if (inMatch) {
+      a = 1;
+      const elapsed = teleLen + endLen - t;
+      b = clamp01(elapsed / teleLen);
+      c = clamp01((elapsed - teleLen) / endLen);
+    }
+    x.s0.style.width = `${a * 100}%`;
+    x.s1.style.width = `${b * 100}%`;
+    x.s2.style.width = `${c * 100}%`;
+  },
+});
+
+/* --- fuel tower -------------------------------------------------------------- */
+
+define("tower", {
+  name: "Fuel tower",
+  group: "Match",
+  desc: "Whether your alliance tower is live, and how long until that changes",
+  w: 3, h: 2,
+  tileClass: "tower",
+  config: [
+    { key: "activeKey", label: "Active topic", type: "topic", def: "/Catalyst/Game/TowerActive",
+      hint: "Boolean the robot publishes: true while YOUR alliance tower is scoring." },
+    { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
+      hint: "Seconds until the tower flips state. Leave blank to estimate locally." },
+    { key: "period", label: "Estimated period", type: "number", def: 18,
+      hint: "Only used when no countdown topic is published — full on+off cycle, in seconds." },
+    { key: "duty", label: "Estimated on-time", type: "number", def: 9,
+      hint: "Seconds of the period your tower is live, for the local estimate." },
+    { key: "warn", label: "Warn at", type: "number", def: 3,
+      hint: "Seconds before a change when the tile turns amber." },
+  ],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill">
+        <div>
+          <div class="who" data-x="who">Alliance unknown</div>
+          <div class="status" data-x="status">No data</div>
+        </div>
+        <div>
+          <span class="n" data-x="count">—</span>
+          <span class="u" data-x="unit">s</span>
+        </div>
+        <div>
+          <div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="cap" data-x="src" style="margin-top:6px">waiting for robot</div>
+        </div>
+      </div>`;
+  },
+  update(body, cfg, x, tile) {
+    const side = alliance();
+    x.who.textContent = side ? `${side === "red" ? "Red" : "Blue"} tower` : "Alliance unknown";
+    x.who.className = `who ${side || ""}`;
+
+    let active = bool(cfg.activeKey, null);
+    let left = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
+    let source = "robot";
+
+    /* No published schedule: estimate from match time so the tile is still useful in practice. It is
+     * labelled as an estimate, because a countdown that is confidently wrong is worse than none. */
+    if (left === null) {
+      const t = matchTime();
+      if (t !== null && cfg.period > 0) {
+        const elapsed = (150 - t + cfg.period * 1000) % cfg.period;
+        const on = elapsed < cfg.duty;
+        left = on ? cfg.duty - elapsed : cfg.period - elapsed;
+        if (active === null) active = on;
+        source = "estimated from match clock";
+      }
+    }
+
+    const soon = left !== null && left <= cfg.warn && active !== null;
+    tile.dataset.active = active === true && !soon ? "true" : "false";
+    tile.dataset.soon = soon ? "true" : "false";
+
+    if (active === null) {
+      x.status.textContent = "No data";
+      x.count.textContent = "—";
+      x.unit.textContent = "";
+      x.src.textContent = `publish ${cfg.activeKey || "a boolean topic"} to light this up`;
+      return;
+    }
+
+    x.status.textContent = soon
+      ? (active ? "CLOSING" : "OPENING")
+      : (active ? "TOWER LIVE" : "TOWER CLOSED");
+    x.count.textContent = left === null ? "—" : left.toFixed(1);
+    x.unit.textContent = left === null ? "" : "s";
+    x.src.textContent = source;
+  },
+});
+
+/* --- gauges ------------------------------------------------------------------ */
+
+/* One tile, one or more numeric topics, four ways of drawing them. This is the component the driver
+ * team actually customises: pick the device, pick the signal, pick the face. */
+define("gauge", {
+  name: "Gauge",
+  group: "Telemetry",
+  desc: "Any numeric topic as an arc, dial, bar, or plain number",
+  w: 4, h: 2,
+  config: [
+    { key: "topic", label: "Topic(s)", type: "topic", def: "/Catalyst/Shooter/Velocity",
+      hint: "One key, or several separated by commas to show them side by side." },
+    { key: "title", label: "Title", type: "text", def: "Shooter" },
+    { key: "style", label: "Face", type: "select", def: "arc",
+      options: [["arc", "Arc"], ["dial", "Dial + needle"], ["bar", "Bar"], ["number", "Number only"]] },
+    { key: "unit", label: "Unit", type: "text", def: "RPM" },
+    { key: "scale", label: "Multiply by", type: "number", def: 60,
+      hint: "Phoenix reports rotations per second; ×60 gives RPM. Use 1 to show the raw value." },
+    { key: "min", label: "Minimum", type: "number", def: 0 },
+    { key: "max", label: "Maximum", type: "number", def: 6000 },
+    { key: "redline", label: "Redline", type: "number", def: 5500,
+      hint: "Value at which the gauge turns red. Set above the maximum to disable." },
+    { key: "decimals", label: "Decimals", type: "number", def: 0 },
+  ],
+  render(body, cfg) {
+    body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div>`;
+    for (const key of String(cfg.topic).split(",").map((s) => s.trim()).filter(Boolean)) track(key);
+  },
+  update(body, cfg, x) {
+    const keys = String(cfg.topic).split(",").map((s) => s.trim()).filter(Boolean);
+    const wrap = x.wrap;
+
+    if (wrap.childElementCount !== keys.length) {
+      wrap.innerHTML = "";
+      for (const k of keys) {
+        const g = el("div", "gauge");
+        g.dataset.key = k;
+        wrap.appendChild(g);
+      }
+    }
+
+    const span = Math.max(1e-6, cfg.max - cfg.min);
+    const single = keys.length === 1;
+    const labels = single ? [cfg.unit || ""] : distinctLabels(keys);
+
+    keys.forEach((key, i) => {
+      const g = wrap.children[i];
+      const rawVal = num(key, null);
+      const value = rawVal === null ? null : rawVal * (cfg.scale || 1);
+      const frac = value === null ? 0 : clamp01((value - cfg.min) / span);
+      const hot = value !== null && value >= cfg.redline;
+      const color = hot ? "var(--crit)" : "var(--blue)";
+      const label = labels[i];
+      const text = value === null ? "—" : value.toFixed(Math.max(0, cfg.decimals | 0));
+
+      if (cfg.style === "number") {
+        g.innerHTML =
+          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 46 : 26}px">${text}</div>` +
+          `<div class="gl">${label}</div>`;
+        return;
+      }
+
+      if (cfg.style === "bar") {
+        g.innerHTML =
+          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 32 : 20}px">${text}</div>` +
+          `<div class="track" style="width:100%;margin:9px 0 4px"><i style="width:${frac * 100}%;background:${color}"></i></div>` +
+          `<div class="gl">${label}</div>`;
+        return;
+      }
+
+      const size = single ? 128 : 92;
+      const r = size / 2 - 10;
+      const a0 = 135, sweep = 270;
+      const a1 = a0 + sweep * frac;
+      const cx = size / 2, cy = size / 2;
+      const needle = cfg.style === "dial"
+        ? (() => {
+            const a = ((a0 + sweep * frac) * Math.PI) / 180;
+            return `<line x1="${cx}" y1="${cy}" x2="${(cx + (r - 6) * Math.cos(a)).toFixed(1)}" y2="${(cy + (r - 6) * Math.sin(a)).toFixed(1)}" stroke="${color}" stroke-width="2.6" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="3.5" fill="${color}"/>`;
+          })()
+        : "";
+
+      g.innerHTML =
+        `<svg width="${size}" height="${size * 0.82}" viewBox="0 0 ${size} ${size * 0.82}">` +
+        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="8" stroke-linecap="round"/>` +
+        (frac > 0.002 && cfg.style === "arc"
+          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
+          : "") +
+        needle +
+        `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="currentColor" font-family="var(--mono)" font-weight="700" font-size="${single ? 22 : 16}" ${hot ? 'class="crit"' : ""}>${text}</text>` +
+        `</svg><div class="gl">${label}</div>`;
+    });
+  },
+});
+
+/* --- battery ----------------------------------------------------------------- */
+
+define("battery", {
+  name: "Battery",
+  group: "Health",
+  desc: "Bus voltage with its recent history and sag under load",
+  w: 3, h: 2,
+  config: [
+    { key: "topic", label: "Topic", type: "topic", def: "/Catalyst/Brownout/MeasuredVoltage",
+      hint: "Catalyst's BrownoutMonitor publishes this. Without one, log RobotController.getBatteryVoltage() yourself — WPILib does not put it on NetworkTables for you." },
+    { key: "low", label: "Warn below", type: "number", def: 11.5 },
+    { key: "crit", label: "Critical below", type: "number", def: 10.5 },
+  ],
+  render(body, cfg) {
+    track(cfg.topic);
+    body.innerHTML = `
+      <div class="fill">
+        <div><span class="n" data-x="v" style="font-size:40px">—</span><span class="u">V</span></div>
+        <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
+        <div class="cap" data-x="cap">no history yet</div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const v = num(cfg.topic, null);
+    x.v.textContent = fmt(v, 2);
+    x.v.className = `n ${v === null ? "" : v < cfg.crit ? "crit" : v < cfg.low ? "warn" : "ok"}`;
+
+    const h = history(cfg.topic);
+    const box = x.spark.getBoundingClientRect();
+    const w = Math.max(40, box.width), ht = Math.max(20, box.height);
+    x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
+    const color = v !== null && v < cfg.low ? "#ff9f0a" : "#30d158";
+    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
+
+    if (h.length > 3) {
+      const recent = h.slice(-160);
+      const lo = Math.min(...recent), hi = Math.max(...recent);
+      x.cap.innerHTML = `sag <b>${(hi - lo).toFixed(2)} V</b> · low <b>${lo.toFixed(2)} V</b>`;
+    }
+  },
+});
+
+/* --- power / loop ------------------------------------------------------------ */
+
+define("health", {
+  name: "Loop & bus",
+  group: "Health",
+  desc: "Loop time, CAN utilisation, and round-trip time in one tile",
+  w: 3, h: 2,
+  config: [
+    { key: "loopKey", label: "Loop time topic", type: "topic", def: "/Catalyst/Loop/Robot/AverageMs",
+      hint: "Catalyst's LoopMonitor publishes this once you construct one." },
+    { key: "canKey", label: "CAN utilisation topic", type: "topic", def: "/Catalyst/Status/CanUtilization",
+      hint: "Nothing publishes this by default. One line in robotPeriodic: CatalystLog.log(\"Status/CanUtilization\", RobotController.getCANStatus().percentBusUtilization)." },
+    { key: "budget", label: "Loop budget (ms)", type: "number", def: 20 },
+  ],
+  render(body, cfg) {
+    track(cfg.loopKey);
+    body.innerHTML = `
+      <div class="fill">
+        <div class="m3">
+          <div><div class="mv" data-x="loop">—</div><div class="ml">Loop ms</div></div>
+          <div><div class="mv" data-x="can">—</div><div class="ml">CAN %</div></div>
+          <div><div class="mv" data-x="rtt">—</div><div class="ml">RTT ms</div></div>
+        </div>
+        <div class="track"><i data-x="bar"></i></div>
+        <div class="cap" data-x="cap">—</div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const loop = num(cfg.loopKey, null);
+    const can = num(cfg.canKey, null);
+    x.loop.textContent = fmt(loop, 1);
+    x.loop.className = `mv ${loop === null ? "" : loop > cfg.budget ? "crit" : loop > cfg.budget * 0.75 ? "warn" : "ok"}`;
+    x.can.textContent = can === null ? "—" : (can * 100).toFixed(0);
+    x.can.className = `mv ${can === null ? "" : can > 0.85 ? "crit" : can > 0.7 ? "warn" : ""}`;
+    x.rtt.textContent = nt.status.rtt_ms ? nt.status.rtt_ms.toFixed(1) : "—";
+
+    const frac = loop === null ? 0 : clamp01(loop / cfg.budget);
+    x.bar.style.width = `${frac * 100}%`;
+    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--ok)";
+    x.cap.innerHTML = loop === null
+      ? "waiting for the robot to publish loop time"
+      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
+  },
+});
+
+/* --- physics core ------------------------------------------------------------ */
+
+define("physics", {
+  name: "Physics Core",
+  group: "Catalyst",
+  desc: "Slip, tip margin, and traction headroom from the physics layer",
+  w: 3, h: 2,
+  config: [
+    { key: "slipKey", label: "Slip topic", type: "topic", def: "/Catalyst/Physics/Slip/Factor" },
+    { key: "tipKey", label: "Tipping usage topic", type: "topic", def: "/Catalyst/Physics/TippingUsage" },
+    { key: "tracKey", label: "Traction usage topic", type: "topic", def: "/Catalyst/Physics/TractionUsage" },
+    { key: "confKey", label: "Confidence topic", type: "topic", def: "/Catalyst/Physics/Quality/Confidence" },
+  ],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill">
+        <div class="m3">
+          <div><div class="mv" data-x="slip">—</div><div class="ml">Slip</div></div>
+          <div><div class="mv" data-x="tip">—</div><div class="ml">Tipping</div></div>
+          <div><div class="mv" data-x="trac">—</div><div class="ml">Traction</div></div>
+        </div>
+        <div class="track"><i data-x="bar"></i></div>
+        <div class="cap" data-x="cap">advisory only — never gates control</div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const slip = num(cfg.slipKey, null);
+    const tip = num(cfg.tipKey, null);
+    const trac = num(cfg.tracKey, null);
+    const conf = num(cfg.confKey, null);
+
+    /* Slip, tipping and traction are all "fraction of the limit in use", so higher is worse for all
+     * three. They read the same way round, which is the point. */
+    x.slip.textContent = slip === null ? "—" : slip.toFixed(2);
+    x.slip.className = `mv ${slip === null ? "" : slip > 0.4 ? "crit" : slip > 0.2 ? "warn" : "ok"}`;
+    x.tip.textContent = tip === null ? "—" : `${(tip * 100).toFixed(0)}%`;
+    x.tip.className = `mv ${tip === null ? "" : tip > 0.9 ? "crit" : tip > 0.75 ? "warn" : "ok"}`;
+    x.trac.textContent = trac === null ? "—" : `${(trac * 100).toFixed(0)}%`;
+    x.trac.className = `mv ${trac === null ? "" : trac > 0.95 ? "warn" : ""}`;
+
+    const frac = trac === null ? 0 : clamp01(trac);
+    x.bar.style.width = `${frac * 100}%`;
+    x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--brand)";
+    x.cap.innerHTML = conf === null
+      ? "advisory only — never gates control"
+      : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
+  },
+});
+
+/* --- alerts ------------------------------------------------------------------ */
+
+define("alerts", {
+  name: "Alerts",
+  group: "Catalyst",
+  desc: "Everything the robot's alert manager is currently raising",
+  w: 4, h: 2,
+  config: [
+    { key: "base", label: "Alert group", type: "topic", def: "/Catalyst/Alerts",
+      hint: "Reads Errors / Warnings / Info under this path, in either capitalisation." },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill" style="justify-content:flex-start;overflow:auto" data-x="list"></div>`;
+  },
+  update(body, cfg, x) {
+    /* Catalyst's AlertManager publishes Errors/Warnings/Info; WPILib's own Alerts widget uses
+     * errors/warnings/infos. Read whichever is there rather than making teams pick. */
+    const pick = (...names) => {
+      for (const n of names) {
+        const v = arr(`${cfg.base}/${n}`);
+        if (v) return v;
+      }
+      return [];
+    };
+    const groups = [
+      ["error", pick("Errors", "errors")],
+      ["warn", pick("Warnings", "warnings")],
+      ["info", pick("Info", "infos", "Infos")],
+    ];
+    const flat = groups.flatMap(([level, items]) => items.map((text) => ({ level, text })));
+    const signature = flat.map((a) => `${a.level}:${a.text}`).join("|");
+    if (x.list.dataset.sig === signature) return;
+    x.list.dataset.sig = signature;
+
+    if (!flat.length) {
+      const present = has(`${cfg.base}/Errors`) || has(`${cfg.base}/errors`)
+        || has(`${cfg.base}/Warnings`) || has(`${cfg.base}/warnings`);
+      x.list.innerHTML = present
+        ? `<div class="cap" style="padding-top:10px">Nothing raised.</div>`
+        : `<div class="cap" style="padding-top:10px">No alert group at <b>${escapeHtml(cfg.base)}</b>.</div>`;
+      return;
+    }
+    x.list.innerHTML = flat
+      .map((a) => `<div class="al ${a.level}"><i class="b"></i><div>${escapeHtml(a.text)}</div></div>`)
+      .join("");
+  },
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/* --- auto chooser ------------------------------------------------------------ */
+
+define("auto", {
+  name: "Auto chooser",
+  group: "Match",
+  desc: "Pick the autonomous routine — writes the same key SendableChooser reads",
+  w: 3, h: 2,
+  config: [
+    { key: "base", label: "Chooser path", type: "topic", def: "/SmartDashboard/Auto Chooser" },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill" style="justify-content:flex-start;gap:3px;overflow:auto" data-x="list"></div>`;
+  },
+  update(body, cfg, x) {
+    const options = arr(`${cfg.base}/options`) || [];
+    const selected = str(`${cfg.base}/selected`, null);
+    const active = str(`${cfg.base}/active`, null);
+    const signature = `${options.join("|")}::${selected}::${active}`;
+    if (x.list.dataset.sig === signature) return;
+    x.list.dataset.sig = signature;
+
+    if (!options.length) {
+      x.list.innerHTML = `<div class="cap" style="padding-top:8px">No chooser published at <b>${escapeHtml(cfg.base)}</b>.</div>`;
+      return;
+    }
+    x.list.innerHTML = "";
+    for (const option of options) {
+      const row = el("div", "opt");
+      row.setAttribute("aria-checked", String(option === (selected ?? active)));
+      row.appendChild(el("i"));
+      row.appendChild(el("span", null, option));
+      row.onclick = () => ntSet(`${cfg.base}/selected`, option);
+      x.list.appendChild(row);
+    }
+  },
+});
+
+/* --- topic readout ----------------------------------------------------------- */
+
+define("value", {
+  name: "Value",
+  group: "Telemetry",
+  desc: "One topic, large, whatever its type",
+  w: 2, h: 1,
+  config: [
+    { key: "topic", label: "Topic", type: "topic", def: "/Catalyst/Brownout/MeasuredVoltage" },
+    { key: "title", label: "Title", type: "text", def: "" },
+    { key: "unit", label: "Unit", type: "text", def: "" },
+    { key: "decimals", label: "Decimals", type: "number", def: 2 },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill"><div><span class="n" data-x="v" style="font-size:30px">—</span><span class="u" data-x="u"></span></div></div>`;
+  },
+  update(body, cfg, x) {
+    const value = raw(cfg.topic);
+    x.u.textContent = cfg.unit || "";
+    if (!value) { x.v.textContent = "—"; x.v.className = "n"; return; }
+    if (value.t === "num") { x.v.textContent = value.v.toFixed(Math.max(0, cfg.decimals | 0)); x.v.className = "n"; }
+    else if (value.t === "bool") { x.v.textContent = value.v ? "YES" : "NO"; x.v.className = `n ${value.v ? "ok" : "dim"}`; }
+    else if (value.t === "str") { x.v.textContent = value.v; x.v.className = "n"; }
+    else { x.v.textContent = `${value.v.length} items`; x.v.className = "n dim"; }
+  },
+});
+
+/* --- boolean lamps ----------------------------------------------------------- */
+
+define("lamps", {
+  name: "Indicators",
+  group: "Telemetry",
+  desc: "A row of boolean topics as lamps — sensors, limits, has-game-piece",
+  w: 3, h: 1,
+  config: [
+    { key: "topics", label: "Topics", type: "topic", def: "",
+      hint: "Comma separated. Each becomes a lamp labelled with the last part of its key." },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill"><div class="m3" data-x="grid" style="grid-template-columns:repeat(auto-fit,minmax(58px,1fr))"></div></div>`;
+  },
+  update(body, cfg, x) {
+    const keys = String(cfg.topics || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!keys.length) {
+      x.grid.innerHTML = `<div class="cap">Add topics in the tile settings.</div>`;
+      return;
+    }
+    if (x.grid.dataset.sig !== keys.join("|")) {
+      x.grid.dataset.sig = keys.join("|");
+      x.grid.innerHTML = keys
+        .map((k) => `<div><div class="mv" data-lamp="${escapeHtml(k)}" style="font-size:15px">—</div><div class="ml">${escapeHtml(leaf(k))}</div></div>`)
+        .join("");
+    }
+    for (const k of keys) {
+      const node = x.grid.querySelector(`[data-lamp="${CSS.escape(k)}"]`);
+      if (!node) continue;
+      const v = bool(k, null);
+      node.textContent = v === null ? "—" : v ? "ON" : "OFF";
+      node.className = `mv ${v === null ? "dim" : v ? "ok" : "dim"}`;
+    }
+  },
+});
+
+/* --- graph ------------------------------------------------------------------- */
+
+define("graph", {
+  name: "Graph",
+  group: "Telemetry",
+  desc: "Rolling plot of one numeric topic",
+  w: 4, h: 2,
+  config: [
+    { key: "topic", label: "Topic", type: "topic", def: "/Catalyst/Loop/Robot/AverageMs" },
+    { key: "title", label: "Title", type: "text", def: "" },
+    { key: "decimals", label: "Decimals", type: "number", def: 2 },
+  ],
+  render(body, cfg) {
+    track(cfg.topic);
+    body.innerHTML = `
+      <div class="fill">
+        <div><span class="n" data-x="v" style="font-size:26px">—</span></div>
+        <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
+        <div class="cap" data-x="cap"></div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const v = num(cfg.topic, null);
+    x.v.textContent = fmt(v, Math.max(0, cfg.decimals | 0));
+    const h = history(cfg.topic).slice(-220);
+    const box = x.spark.getBoundingClientRect();
+    const w = Math.max(40, box.width), ht = Math.max(20, box.height);
+    x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
+    x.spark.innerHTML = sparkline(h, w, ht, "#4d90fe");
+    if (h.length > 2) {
+      x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
+    }
+  },
+});
+
+/* --- stopwatch --------------------------------------------------------------- */
+
+define("stopwatch", {
+  name: "Stopwatch",
+  group: "Pit",
+  desc: "A timer you start yourself — cycle times, climb practice, pit work",
+  w: 2, h: 2,
+  config: [
+    { key: "autoStart", label: "Start on enable", type: "select", def: "no",
+      options: [["no", "No"], ["yes", "Yes"]],
+      hint: "Convenience only. It reads the enable state; it never affects it." },
+  ],
+  render(body, cfg, state) {
+    state.running = false;
+    state.base = 0;
+    state.acc = 0;
+    state.wasEnabled = false;
+    body.innerHTML = `
+      <div class="fill">
+        <div><span class="n" data-x="v" style="font-size:36px">0.00</span><span class="u">s</span></div>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button class="dk" data-x="go" style="height:34px;flex:1;background:var(--tile-2);justify-content:center">Start</button>
+          <button class="dk" data-x="rst" style="height:34px;background:var(--tile-2)">Reset</button>
+        </div>
+      </div>`;
+    const toggle = () => {
+      if (state.running) { state.acc += performance.now() - state.base; state.running = false; }
+      else { state.base = performance.now(); state.running = true; }
+      body.querySelector("[data-x=go]").textContent = state.running ? "Stop" : "Start";
+    };
+    body.querySelector("[data-x=go]").onclick = toggle;
+    body.querySelector("[data-x=rst]").onclick = () => {
+      state.running = false; state.acc = 0;
+      body.querySelector("[data-x=go]").textContent = "Start";
+    };
+    state.toggle = toggle;
+  },
+  update(body, cfg, x, tile, state) {
+    if (cfg.autoStart === "yes") {
+      if (ds.enabled && !state.wasEnabled && !state.running) { state.acc = 0; state.toggle(); }
+      state.wasEnabled = ds.enabled;
+    }
+    const ms = state.acc + (state.running ? performance.now() - state.base : 0);
+    x.v.textContent = (ms / 1000).toFixed(2);
+  },
+});
+
+/* --- note -------------------------------------------------------------------- */
+
+define("note", {
+  name: "Note",
+  group: "Pit",
+  desc: "Free text that stays with the layout — setup reminders, a checklist",
+  w: 3, h: 2,
+  config: [
+    { key: "text", label: "Text", type: "text", def: "Check bumper numbers\nRadio power\nBattery > 12.4 V" },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill" style="justify-content:flex-start"><div class="cap" data-x="t" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></div></div>`;
+  },
+  update(body, cfg, x) {
+    if (x.t.dataset.sig !== cfg.text) { x.t.dataset.sig = cfg.text; x.t.textContent = cfg.text; }
+  },
+});
+
+/* --- 3D field ---------------------------------------------------------------- */
+
+define("field", {
+  name: "Field view",
+  group: "Catalyst",
+  desc: "The robot on the field in 3D, drawn from the pose estimator",
+  w: 5, h: 4,
+  tileClass: "pad0",
+  config: [
+    { key: "poseKey", label: "Pose topic", type: "topic", def: "/Catalyst/Physics/PoseArray",
+      hint: "Number array [x, y, theta] in metres and radians. Physics Core publishes this alongside the Pose2d struct, which dashboards cannot all read." },
+    { key: "length", label: "Field length (m)", type: "number", def: 16.54,
+      hint: "Set this from the season's field drawings. The default is the recent standard field." },
+    { key: "width", label: "Field width (m)", type: "number", def: 8.21 },
+    { key: "trail", label: "Trail length", type: "number", def: 220,
+      hint: "Poses kept in the path behind the robot. 0 turns the trail off." },
+  ],
+  render(body, cfg, state) {
+    track(cfg.poseKey);
+    body.innerHTML = `
+      <canvas class="fieldcanvas" data-x="canvas"></canvas>
+      <div class="fieldlab">Field</div>
+      <div class="fieldchips">
+        <div class="fc">x <b data-x="fx">—</b> m</div>
+        <div class="fc">y <b data-x="fy">—</b> m</div>
+        <div class="fc">θ <b data-x="ft">—</b>°</div>
+      </div>
+      <div class="fieldbtns">
+        <button class="fbtn" data-x="mChase" aria-pressed="true">Chase</button>
+        <button class="fbtn" data-x="mTop">Top</button>
+        <button class="fbtn" data-x="mFree">Free</button>
+      </div>`;
+
+    const canvas = body.querySelector("[data-x=canvas]");
+    state.scene = null;
+    state.mode = "chase";
+
+    /* three.js is ~675 KB. It is only fetched when a field tile actually exists, so a layout without
+     * one never pays for it. */
+    import("./field3d.js")
+      .then((mod) => {
+        state.scene = mod.createField(canvas, {
+          length: cfg.length,
+          width: cfg.width,
+          trail: Math.max(0, cfg.trail | 0),
+        });
+        state.scene.setMode(state.mode);
+      })
+      .catch((err) => {
+        console.warn("field view unavailable", err);
+        body.querySelector(".fieldlab").textContent = "Field view unavailable";
+      });
+
+    const setMode = (mode, button) => {
+      state.mode = mode;
+      state.scene?.setMode(mode);
+      for (const b of body.querySelectorAll(".fbtn")) b.setAttribute("aria-pressed", "false");
+      button.setAttribute("aria-pressed", "true");
+    };
+    body.querySelector("[data-x=mChase]").onclick = (e) => setMode("chase", e.currentTarget);
+    body.querySelector("[data-x=mTop]").onclick = (e) => setMode("top", e.currentTarget);
+    body.querySelector("[data-x=mFree]").onclick = (e) => setMode("free", e.currentTarget);
+  },
+  update(body, cfg, x, tile, state) {
+    const pose = arr(cfg.poseKey);
+    const valid = Array.isArray(pose) && pose.length >= 3 && pose.every((n) => Number.isFinite(n));
+    x.fx.textContent = valid ? pose[0].toFixed(2) : "—";
+    x.fy.textContent = valid ? pose[1].toFixed(2) : "—";
+    x.ft.textContent = valid ? ((pose[2] * 180) / Math.PI).toFixed(0) : "—";
+    state.scene?.update({
+      pose: valid ? pose : null,
+      alliance: alliance(),
+      enabled: ds.enabled,
+    });
+  },
+  onShow(state) {
+    state.scene?.redraw();
+  },
+  dispose(state) {
+    state.scene?.dispose();
+    state.scene = null;
+  },
+});
+
+/* ==================================================================== the board */
+
+const GRID_COLS = 12;
+const GRID_ROWS = 6;
+const STORE_KEY = "catalyst.console.layout.v1";
+
+const DEFAULT_LAYOUT = [
+  { type: "match", x: 0, y: 0, w: 3, h: 2 },
+  { type: "tower", x: 3, y: 0, w: 3, h: 2 },
+  { type: "health", x: 6, y: 0, w: 3, h: 2 },
+  { type: "battery", x: 9, y: 0, w: 3, h: 2 },
+  { type: "field", x: 0, y: 2, w: 5, h: 4 },
+  { type: "gauge", x: 5, y: 2, w: 4, h: 2,
+    cfg: { topic: "/Catalyst/Drive/FrontLeft/Velocity,/Catalyst/Drive/FrontRight/Velocity,/Catalyst/Drive/BackLeft/Velocity,/Catalyst/Drive/BackRight/Velocity",
+           title: "Drive", style: "arc", unit: "RPM", scale: 60, min: 0, max: 6000, redline: 5800, decimals: 0 } },
+  { type: "physics", x: 9, y: 2, w: 3, h: 2 },
+  { type: "alerts", x: 5, y: 4, w: 4, h: 2 },
+  { type: "auto", x: 9, y: 4, w: 3, h: 2 },
+];
+
+let layout = [];
+const live = new Map(); // id -> {spec, tile, body, cfg, refs, state}
+let nextId = 1;
+
+function defaults(spec) {
+  const cfg = {};
+  for (const field of spec.config) cfg[field.key] = field.def;
+  return cfg;
+}
+
+function loadLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch { /* corrupt storage is not worth a dialog; fall through to defaults */ }
+  return DEFAULT_LAYOUT.map((c) => ({ ...c }));
+}
+
+function saveLayout() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(layout));
+  } catch { /* private mode or quota — the board still works, it just will not persist */ }
+}
+
+function buildBoard() {
+  for (const entry of live.values()) entry.spec.dispose?.(entry.state);
+  live.clear();
+  const board = $("#board");
+  board.innerHTML = "";
+  board.style.gridTemplateColumns = `repeat(${GRID_COLS}, 1fr)`;
+  board.style.gridTemplateRows = `repeat(${GRID_ROWS}, 1fr)`;
+
+  for (const item of layout) {
+    const spec = REGISTRY[item.type];
+    if (!spec) continue;
+    if (!item.id) item.id = `c${nextId++}`;
+    item.cfg = { ...defaults(spec), ...(item.cfg || {}) };
+
+    const tile = el("div", `t ${spec.tileClass || ""}`);
+    tile.dataset.id = item.id;
+    tile.style.gridColumn = `${item.x + 1} / span ${item.w}`;
+    tile.style.gridRow = `${item.y + 1} / span ${item.h}`;
+
+    const head = el("div", "h");
+    head.appendChild(el("span", null, item.cfg.title || spec.name));
+    const sub = el("span", "s");
+    head.appendChild(sub);
+    if (!spec.tileClass?.includes("pad0")) tile.appendChild(head);
+
+    const tools = el("div", "tools");
+    const cfgBtn = el("button", "tbtn cfg", "⚙");
+    cfgBtn.title = "Configure";
+    cfgBtn.onclick = (e) => { e.stopPropagation(); openConfig(item); };
+    const delBtn = el("button", "tbtn del", "×");
+    delBtn.title = "Remove";
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      layout = layout.filter((i) => i !== item);
+      saveLayout();
+      buildBoard();
+    };
+    tools.append(cfgBtn, delBtn);
+    tile.appendChild(tools);
+
+    const body = el("div", spec.tileClass?.includes("pad0") ? "" : "fillhost");
+    body.style.cssText = "flex:1;min-height:0;display:flex;flex-direction:column";
+    tile.appendChild(body);
+
+    const state = {};
+    try {
+      spec.render(body, item.cfg, state);
+    } catch (err) {
+      console.warn(`component ${item.type} failed to render`, err);
+      body.innerHTML = `<div class="cap" style="padding-top:10px">This tile failed to load.</div>`;
+    }
+
+    const refs = {};
+    for (const node of body.querySelectorAll("[data-x]")) refs[node.dataset.x] = node;
+
+    board.appendChild(tile);
+    live.set(item.id, { item, spec, tile, body, refs, state, sub });
+    installDrag(tile, item);
+  }
+  paint();
+}
+
+/* Drag to rearrange: tiles swap places. Simpler than free placement and impossible to get into a
+ * broken layout with, which matters more than pixel-perfect packing five minutes before a match. */
+let dragging = null;
+
+function installDrag(tile, item) {
+  tile.draggable = true;
+  tile.addEventListener("dragstart", (e) => {
+    if (app.dataset.edit !== "true") { e.preventDefault(); return; }
+    dragging = item;
+    tile.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  tile.addEventListener("dragend", () => {
+    dragging = null;
+    tile.classList.remove("dragging");
+    for (const t of document.querySelectorAll(".dropTarget")) t.classList.remove("dropTarget");
+  });
+  tile.addEventListener("dragover", (e) => {
+    if (!dragging || dragging === item) return;
+    e.preventDefault();
+    tile.classList.add("dropTarget");
+  });
+  tile.addEventListener("dragleave", () => tile.classList.remove("dropTarget"));
+  tile.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (!dragging || dragging === item) return;
+    const a = dragging, b = item;
+    [a.x, b.x] = [b.x, a.x];
+    [a.y, b.y] = [b.y, a.y];
+    [a.w, b.w] = [b.w, a.w];
+    [a.h, b.h] = [b.h, a.h];
+    saveLayout();
+    buildBoard();
+  });
+}
+
+/* ---------------------------------------------------------------- config modal */
+
+let configTarget = null;
+
+function openConfig(item) {
+  const spec = REGISTRY[item.type];
+  configTarget = item;
+  $("#cfgTitle").textContent = spec.name;
+  $("#cfgDesc").textContent = spec.desc;
+  const bodyEl = $("#cfgBody");
+  bodyEl.innerHTML = "";
+
+  const add = (label, control, hint) => {
+    const row = el("div", "cfgrow");
+    const wrap = el("div");
+    wrap.appendChild(control);
+    if (hint) wrap.appendChild(el("div", "hint", hint));
+    row.append(el("label", null, label), wrap);
+    bodyEl.appendChild(row);
+  };
+
+  for (const field of spec.config) {
+    let control;
+    if (field.type === "select") {
+      control = el("select");
+      for (const [value, text] of field.options) {
+        const o = el("option", null, text);
+        o.value = value;
+        control.appendChild(o);
+      }
+      control.value = item.cfg[field.key];
+    } else if (field.type === "number") {
+      control = el("input");
+      control.type = "number";
+      control.step = "any";
+      control.value = item.cfg[field.key];
+    } else {
+      control = el("input");
+      control.type = "text";
+      control.value = item.cfg[field.key] ?? "";
+      if (field.type === "topic") control.setAttribute("list", "ntkeys");
+    }
+    control.oninput = () => {
+      item.cfg[field.key] = field.type === "number" ? Number(control.value) : control.value;
+    };
+    add(field.label, control, field.hint);
+  }
+
+  const size = el("div");
+  size.style.cssText = "display:flex;gap:8px";
+  const mk = (label, value, max, apply) => {
+    const s = el("select");
+    for (let i = 1; i <= max; i++) {
+      const o = el("option", null, `${label} ${i}`);
+      o.value = String(i);
+      s.appendChild(o);
+    }
+    s.value = String(value);
+    s.onchange = () => apply(Number(s.value));
+    size.appendChild(s);
+  };
+  mk("Width", item.w, GRID_COLS, (v) => { item.w = v; });
+  mk("Height", item.h, GRID_ROWS, (v) => { item.h = v; });
+  add("Tile size", size, "Columns and rows out of the 12 × 6 board.");
+
+  $("#cfgModal").dataset.open = "true";
+}
+
+$("#cfgClose").onclick = () => {
+  $("#cfgModal").dataset.open = "false";
+  if (configTarget) { saveLayout(); buildBoard(); configTarget = null; }
+};
+
+/* ---------------------------------------------------------------- picker modal */
+
+function openPicker() {
+  const bodyEl = $("#pickBody");
+  bodyEl.innerHTML = "";
+  const groups = new Map();
+  for (const [type, spec] of Object.entries(REGISTRY)) {
+    if (!groups.has(spec.group)) groups.set(spec.group, []);
+    groups.get(spec.group).push([type, spec]);
+  }
+  for (const [group, items] of groups) {
+    bodyEl.appendChild(el("div", "pg", group));
+    const grid = el("div", "cat");
+    for (const [type, spec] of items) {
+      const btn = el("button", `item ${group === "Catalyst" ? "own" : ""}`);
+      btn.innerHTML = `<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
+      btn.onclick = () => {
+        const spot = findSpace(spec.w, spec.h);
+        layout.push({ type, x: spot.x, y: spot.y, w: spec.w, h: spec.h, cfg: defaults(spec) });
+        saveLayout();
+        buildBoard();
+      };
+      grid.appendChild(btn);
+    }
+    bodyEl.appendChild(grid);
+  }
+  $("#pickModal").dataset.open = "true";
+}
+
+/* First free rectangle, scanning row-major. If the board is genuinely full we drop the tile in the
+ * bottom-left rather than refusing — the user can move it, and refusing is a worse answer. */
+function findSpace(w, h) {
+  const occupied = Array.from({ length: GRID_ROWS }, () => new Array(GRID_COLS).fill(false));
+  for (const item of layout) {
+    for (let y = item.y; y < Math.min(GRID_ROWS, item.y + item.h); y++)
+      for (let x = item.x; x < Math.min(GRID_COLS, item.x + item.w); x++) occupied[y][x] = true;
+  }
+  for (let y = 0; y + h <= GRID_ROWS; y++) {
+    for (let x = 0; x + w <= GRID_COLS; x++) {
+      let free = true;
+      for (let dy = 0; dy < h && free; dy++)
+        for (let dx = 0; dx < w; dx++) if (occupied[y + dy][x + dx]) { free = false; break; }
+      if (free) return { x, y };
+    }
+  }
+  return { x: 0, y: Math.max(0, GRID_ROWS - h) };
+}
+
+$("#pickClose").onclick = () => { $("#pickModal").dataset.open = "false"; };
+$("#addBtn").onclick = openPicker;
+
+/* ------------------------------------------------------------------ tabs/sheets */
+
+const app = $("#app");
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.onclick = () => {
+    for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", "false");
+    tab.setAttribute("aria-selected", "true");
+    for (const v of document.querySelectorAll(".view")) {
+      v.dataset.active = String(v.dataset.view === tab.dataset.view);
+    }
+    if (tab.dataset.view === "logs") refreshSessions();
+    if (tab.dataset.view === "tune") paintTune();
+    if (tab.dataset.view === "topics") paintTopics();
+    if (tab.dataset.view === "board") {
+      paint();
+      for (const entry of live.values()) entry.spec.onShow?.(entry.state);
+    }
+  };
+}
+
+$("#editBtn").onclick = () => {
+  const on = app.dataset.edit !== "true";
+  app.dataset.edit = String(on);
+  $("#editBtn").setAttribute("aria-pressed", String(on));
+};
+
+$("#resetBtn").onclick = () => {
+  layout = DEFAULT_LAYOUT.map((c) => ({ ...c }));
+  saveLayout();
+  buildBoard();
+};
+
+$("#demoBtn").onclick = () => setDemo(!demo.on);
+
+/* ------------------------------------------------------------------ team number */
+
+$("#linkChip").onclick = async () => {
+  const input = $("#teamInput");
+  const hint = $("#teamHint");
+  if (!invoke) {
+    hint.textContent = "Only settable in the desktop app.";
+    input.disabled = true;
+  } else {
+    input.value = await invoke("team_number").catch(() => "");
+  }
+  $("#teamModal").dataset.open = "true";
+  input.focus();
+};
+
+$("#teamClose").onclick = async () => {
+  const team = Number($("#teamInput").value);
+  if (invoke && Number.isInteger(team) && team > 0 && team < 10000) {
+    try {
+      await invoke("set_team_number", { team });
+    } catch (e) {
+      $("#teamHint").textContent = String(e);
+      return;
+    }
+  }
+  $("#teamModal").dataset.open = "false";
+};
+
+/* ------------------------------------------------------------------- tune sheet */
+
+function paintTune() {
+  const sheet = $("#tuneSheet");
+  const items = tunables();
+
+  if (!items.length) {
+    sheet.innerHTML = `
+      <div class="sh">Live tuning</div>
+      <div class="empty">The robot has not published a tunable manifest.</div>
+      <div class="note">
+        <b>How the robot declares what is tunable.</b> Publish a JSON string on
+        <code>${TUNABLE_MANIFEST}</code> — an array of
+        <code>{ "key", "name", "group", "min", "max", "step", "unit" }</code>. The console shows exactly
+        what is in that list and writes back to each entry's <code>key</code>. Nothing is inferred, so a
+        topic you did not declare can never be changed from here.
+      </div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const t of items) {
+    const g = t.group || "General";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(t);
+  }
+
+  sheet.innerHTML = "";
+  for (const [group, entries] of groups) {
+    sheet.appendChild(el("div", "sh", group));
+    for (const t of entries) {
+      const row = el("div", "tr");
+      const name = el("div", "nm");
+      name.appendChild(el("span", null, t.name || leaf(t.key)));
+      name.appendChild(el("small", null, t.key));
+      row.appendChild(name);
+
+      const current = num(t.key, null);
+      const isBool = raw(t.key)?.t === "bool";
+
+      if (isBool) {
+        const btn = el("button", "dk");
+        btn.style.cssText = "height:34px;background:var(--tile-2)";
+        btn.textContent = bool(t.key) ? "On" : "Off";
+        btn.onclick = () => ntSet(t.key, !bool(t.key));
+        row.appendChild(btn);
+        row.appendChild(el("div", "v", bool(t.key) ? "ON" : "OFF"));
+      } else {
+        const slider = el("input");
+        slider.type = "range";
+        slider.min = String(t.min ?? 0);
+        slider.max = String(t.max ?? 1);
+        slider.step = String(t.step ?? 0.01);
+        slider.value = String(current ?? t.min ?? 0);
+        /* Show exactly as many decimals as the step can resolve: a 25 RPM step printed to three
+         * places is noise, and a 0.001 gain printed to one is unusable. */
+        const step = Number(t.step ?? 0.01);
+        const places = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
+        const readout = el("div", "v", `${fmt(current, places)}${t.unit ? ` ${t.unit}` : ""}`);
+        slider.oninput = () => {
+          readout.textContent = `${Number(slider.value).toFixed(places)}${t.unit ? ` ${t.unit}` : ""}`;
+        };
+        slider.onchange = () => ntSet(t.key, Number(slider.value));
+        row.append(slider, readout);
+      }
+      sheet.appendChild(row);
+    }
+  }
+  sheet.appendChild(
+    Object.assign(el("div", "note"), {
+      innerHTML:
+        "Values are written straight to NetworkTables, exactly as Shuffleboard or Elastic would. " +
+        "Persist anything you like on the robot — the console does not, and a reboot returns to code defaults.",
+    })
+  );
+}
+
+/* ------------------------------------------------------------------- logs sheet */
+
+let sessions = [];
+
+async function refreshSessions() {
+  const sheet = $("#logSheet");
+  if (!invoke) { sheet.innerHTML = `<div class="empty">Driver Station logs need the desktop app.</div>`; return; }
+
+  try {
+    sessions = await invoke("ds_sessions", { dir: null });
+  } catch (e) {
+    console.warn(e);
+    sessions = [];
+  }
+
+  const dir = await invoke("ds_log_dir").catch(() => "");
+  sheet.innerHTML = `<div class="sh">Driver Station logs</div>`;
+
+  if (!sessions.length) {
+    sheet.insertAdjacentHTML(
+      "beforeend",
+      `<div class="empty">No sessions in <code>${escapeHtml(dir)}</code>.<br>The NI Driver Station writes these itself — once it has run a match on this machine they show up here.</div>`
+    );
+    return;
+  }
+
+  const row = el("div", "pickrow");
+  const picker = el("select");
+  sessions.forEach((s, i) => {
+    const o = el("option", null, `${s.name}${s.has_log ? "" : " (events only)"}`);
+    o.value = String(i);
+    picker.appendChild(o);
+  });
+  picker.onchange = () => openSession(sessions[Number(picker.value)]);
+  row.append(picker);
+  sheet.appendChild(row);
+  sheet.appendChild(el("div", null)).id = "sessionBody";
+  openSession(sessions[0]);
+}
+
+async function openSession(session) {
+  const host = $("#sessionBody");
+  if (!host || !session) return;
+  host.innerHTML = `<div class="empty">Reading…</div>`;
+
+  const [events, samples] = await Promise.all([
+    invoke("ds_events", { path: session.path }).catch(() => []),
+    invoke("ds_samples", { path: session.path }).catch(() => ({ parsed: false, note: "read failed" })),
+  ]);
+
+  host.innerHTML = "";
+
+  if (samples.parsed && samples.battery.length) {
+    const w = 900, h = 90;
+    const stat = (v) => `${Math.min(...v).toFixed(2)} – ${Math.max(...v).toFixed(2)}`;
+    host.insertAdjacentHTML(
+      "beforeend",
+      `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
+       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+         <div><div class="ml">Battery ${stat(samples.battery)} V</div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, "#30d158")}</svg></div>
+         <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, "#4d90fe")}</svg></div>
+         <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, "#ff9f0a")}</svg></div>
+       </div>`
+    );
+  } else if (!samples.parsed) {
+    host.insertAdjacentHTML(
+      "beforeend",
+      `<div class="note">No telemetry from this session: <b>${escapeHtml(samples.note || "unreadable")}</b>. The event log below is unaffected.</div>`
+    );
+  }
+
+  host.insertAdjacentHTML("beforeend", `<div class="sh" style="margin-top:20px">Events</div>`);
+  if (!events.length) {
+    host.insertAdjacentHTML("beforeend", `<div class="empty">No events recorded.</div>`);
+    return;
+  }
+
+  const grid = el("div", "lg");
+  for (const e of events) {
+    grid.insertAdjacentHTML(
+      "beforeend",
+      `<div class="lt">${clock(e.t)}</div><div class="rl ${e.level}"><i></i></div><div class="le">${escapeHtml(e.text)}</div>`
+    );
+  }
+  host.appendChild(grid);
+}
+
+/* ----------------------------------------------------------------- topics sheet */
+
+let topicFilter = "";
+
+function paintTopics() {
+  const sheet = $("#topicSheet");
+  if (!sheet.dataset.built) {
+    sheet.dataset.built = "1";
+    sheet.innerHTML = `
+      <div class="sh">NetworkTables</div>
+      <div class="pickrow"><input type="text" id="topicSearch" placeholder="filter topics…" style="min-width:280px"></div>
+      <div id="topicList"></div>`;
+    $("#topicSearch").oninput = (e) => { topicFilter = e.target.value.toLowerCase(); paintTopics(); };
+  }
+  const list = $("#topicList");
+  const keys = Object.keys(nt.v).filter((k) => k.toLowerCase().includes(topicFilter)).sort();
+  if (!keys.length) {
+    list.innerHTML = `<div class="empty">${Object.keys(nt.v).length ? "Nothing matches that filter." : "No topics — the console is not connected to a robot."}</div>`;
+    return;
+  }
+  list.innerHTML = keys
+    .slice(0, 400)
+    .map((k) => {
+      const v = nt.v[k];
+      const shown = v.t === "num" ? v.v.toFixed(4)
+        : v.t === "bool" ? (v.v ? "true" : "false")
+        : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
+        : String(v.v).slice(0, 90);
+      return `<div class="tr" style="grid-template-columns:1fr 70px 200px"><div class="nm"><small style="font-size:11.5px">${escapeHtml(k)}</small></div><div class="cap">${v.t}</div><div class="v" style="font-size:12px">${escapeHtml(shown)}</div></div>`;
+    })
+    .join("");
+  if (keys.length > 400) {
+    list.insertAdjacentHTML("beforeend", `<div class="empty">…and ${keys.length - 400} more. Narrow the filter.</div>`);
+  }
+}
+
+/* -------------------------------------------------------------------- top strip */
+
+function paintHeader() {
+  const linked = nt.status.connected || demo.on;
+  app.dataset.linked = String(linked);
+  app.dataset.live = String(ds.enabled && !ds.estop);
+  app.dataset.estop = String(ds.estop);
+
+  const side = alliance();
+  const event = str("/FMSInfo/EventName", "");
+  const match = num("/FMSInfo/MatchNumber", null);
+  const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
+  $("#ident").innerHTML = `Catalyst<span> · ${side ? (side === "red" ? "Red" : "Blue") : "no"} alliance · ${escapeHtml(where)}</span>`;
+
+  $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
+  $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";
+  $("#dDs").className = `d ${ds.dsAttached ? "ok" : ""}`;
+  $("#dFms").className = `d ${ds.fms ? "ok" : ""}`;
+
+  const loop = num("/Catalyst/Loop/Robot/AverageMs", null);
+  $("#dLoop").className = `d ${loop === null ? "" : loop > 20 ? "bad" : loop > 15 ? "warn" : "ok"}`;
+  $("#loopText").textContent = loop === null ? "— ms" : `${loop.toFixed(1)} ms`;
+  $("#rttChip").textContent = nt.status.rtt_ms ? `RTT ${nt.status.rtt_ms.toFixed(1)} ms` : "RTT —";
+
+  $("#stateName").textContent = linked ? ds.mode : "No robot";
+  $("#stateSrc").textContent = demo.on
+    ? "demo data — not a robot"
+    : nt.status.connected
+      ? `${ds.fms ? "FMS" : ds.dsAttached ? "Driver Station" : "no DS"} · ${nt.status.topics} topics`
+      : `looking for ${nt.status.address || "a robot"}…`;
+}
+
+/* --------------------------------------------------------------------- painting */
+
+let pendingFrame = 0;
+
+function paint() {
+  if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
+  paintHeader();
+
+  for (const entry of live.values()) {
+    try {
+      entry.spec.update(entry.body, entry.item.cfg, entry.refs, entry.tile, entry.state);
+    } catch (err) {
+      /* One misbehaving tile must not stop the rest of the board painting. */
+      console.warn(`component ${entry.item.type} update failed`, err);
+    }
+  }
+
+  const active = document.querySelector('.view[data-active="true"]')?.dataset.view;
+  if (active === "topics") paintTopics();
+}
+
+/* Coalesce bursts of NT frames into one paint. `paint` clears the handle itself, so the heartbeat
+ * below can pre-empt a pending frame rather than waiting on it. */
+function schedulePaint() {
+  if (pendingFrame) return;
+  pendingFrame = requestAnimationFrame(() => { pendingFrame = 0; paint(); });
+}
+
+function onFrame() {
+  for (const key of tracked) {
+    const v = num(key, null);
+    if (v === null) continue;
+    let buf = hist.get(key);
+    if (!buf) { buf = []; hist.set(key, buf); }
+    buf.push(v);
+    if (buf.length > HIST_LEN) buf.shift();
+  }
+  ds.word = num("/FMSInfo/FMSControlData", 0) | 0;
+  if (nt.keysDirty) {
+    nt.keysDirty = false;
+    refreshTopicList();
+  }
+  schedulePaint();
+}
+
+/* The datalist behind every topic field in the config modal, so picking a motor is a matter of typing
+ * three letters rather than remembering a path. */
+function refreshTopicList() {
+  let list = $("#ntkeys");
+  if (!list) {
+    list = el("datalist");
+    list.id = "ntkeys";
+    document.body.appendChild(list);
+  }
+  const keys = Object.keys(nt.v).sort();
+  if (list.childElementCount === keys.length) return;
+  list.innerHTML = keys.map((k) => `<option value="${escapeHtml(k)}"></option>`).join("");
+}
+
+/* -------------------------------------------------------------------- lifecycle */
+
+layout = loadLayout();
+buildBoard();
+
+if (listen) {
+  listen("nt", (event) => {
+    if (demo.on) return; // an explicit demo must not be overwritten by a real robot mid-look
+    const frame = event.payload;
+    const before = Object.keys(nt.v).length;
+    Object.assign(nt.v, frame.values);
+    nt.status = frame.status;
+    if (Object.keys(nt.v).length !== before) nt.keysDirty = true;
+    onFrame();
+  });
+} else {
+  /* Opened in a plain browser rather than the app: everything still renders, nothing connects. */
+  $("#stateSrc").textContent = "no backend — open the desktop app";
+}
+
+/* A 10 Hz heartbeat, so clocks and the stopwatch move while the robot is quiet.
+ *
+ * It calls `paint` directly rather than going through `requestAnimationFrame`, and that is the point:
+ * Chromium stops firing rAF for a window it considers hidden, and it considers a *fully occluded*
+ * window hidden. Park the Driver Station on top of the console and an rAF-only dashboard freezes with
+ * stale numbers on screen — which is precisely the failure this app must not have. Ten small DOM
+ * updates a second cost nothing; the expensive part is the 3D view, and that keeps its own guard. */
+setInterval(paint, 100);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    for (const id of ["#pickModal", "#cfgModal", "#teamModal"]) $(id).dataset.open = "false";
+  }
+});
+
+window.addEventListener("resize", schedulePaint);

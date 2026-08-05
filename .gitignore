@@ -1,0 +1,5 @@
+node_modules/
+src-tauri/target/
+
+# Vendored at build time by `npm run vendor`, not checked in — it is a copy of a dependency.
+src/vendor/

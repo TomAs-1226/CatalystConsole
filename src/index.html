@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Catalyst Console</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app" data-live="false" data-edit="false" data-linked="false" data-estop="false">
+
+    <header class="top">
+      <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+      <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
+      <button class="chip" id="linkChip" title="Set team number"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
+      <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
+      <span class="chip"><i class="d" id="dFms"></i>FMS</span>
+      <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
+      <div class="grow"></div>
+      <nav class="tabs" aria-label="Views">
+        <button class="tab" data-view="board" aria-selected="true">Dashboard</button>
+        <button class="tab" data-view="tune" aria-selected="false">Tune</button>
+        <button class="tab" data-view="logs" aria-selected="false">Logs</button>
+        <button class="tab" data-view="topics" aria-selected="false">Topics</button>
+      </nav>
+    </header>
+
+    <div class="views">
+      <div class="view board" data-view="board" data-active="true" id="board"></div>
+
+      <div class="view sheetwrap" data-view="tune">
+        <div class="sheet" id="tuneSheet"></div>
+      </div>
+
+      <div class="view sheetwrap" data-view="logs">
+        <div class="sheet" id="logSheet"></div>
+      </div>
+
+      <div class="view sheetwrap" data-view="topics">
+        <div class="sheet" id="topicSheet"></div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="state">
+        <i class="lamp"></i>
+        <div class="txt">
+          <b id="stateName">No robot</b>
+          <small id="stateSrc">Searching…</small>
+        </div>
+      </div>
+      <button class="dk" id="editBtn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+        Edit layout
+      </button>
+      <button class="dk" id="addBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Add component
+      </button>
+      <button class="dk" id="resetBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Reset
+      </button>
+      <div class="grow"></div>
+      <span class="chip" id="rttChip">RTT —</span>
+      <button class="dk" id="demoBtn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v18l15-9z"/></svg>
+        Demo data
+      </button>
+    </div>
+  </div>
+
+  <!-- component palette -->
+  <div class="modal" id="pickModal">
+    <div class="picker">
+      <h3>Add a component</h3>
+      <p>Each one binds to NetworkTables keys you choose, so nothing here is hard-coded to a season or a robot.</p>
+      <div id="pickBody"></div>
+      <button class="close" id="pickClose">Done</button>
+    </div>
+  </div>
+
+  <!-- which robot to look for -->
+  <div class="modal" id="teamModal">
+    <div class="picker" style="max-width:420px">
+      <h3>Team number</h3>
+      <p>The console tries localhost, then <code>roborio-TEAM-frc.local</code>, then the pit static IP,
+         then the USB tether — cycling until one answers.</p>
+      <div class="cfgrow">
+        <label for="teamInput">Team</label>
+        <div>
+          <input type="number" id="teamInput" min="1" max="9999" step="1" />
+          <div class="hint" id="teamHint">Applies on the next connection attempt.</div>
+        </div>
+      </div>
+      <button class="close" id="teamClose">Done</button>
+    </div>
+  </div>
+
+  <!-- per-component configuration -->
+  <div class="modal" id="cfgModal">
+    <div class="picker" style="max-width:560px">
+      <h3 id="cfgTitle">Configure</h3>
+      <p id="cfgDesc"></p>
+      <div id="cfgBody"></div>
+      <button class="close" id="cfgClose">Done</button>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

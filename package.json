@@ -1,0 +1,16 @@
+{
+  "name": "catalyst-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Driver station companion dashboard for FrcCatalyst",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "serve": "node scripts/serve.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "three": "^0.170.0"
+  }
+}
