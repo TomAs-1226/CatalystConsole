@@ -1024,6 +1024,7 @@ define("field", {
           length: cfg.length,
           width: cfg.width,
           trail: Math.max(0, cfg.trail | 0),
+          onModel: () => { body.querySelector(".fieldlab").textContent = "Field · REBUILT"; },
         });
         state.scene.setMode(state.mode);
       })

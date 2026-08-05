@@ -12,7 +12,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = resolve(root, "src/vendor");
 mkdirSync(out, { recursive: true });
 
-const files = [["node_modules/three/build/three.module.min.js", "three.module.min.js"]];
+const files = [
+  ["node_modules/three/build/three.module.min.js", "three.module.min.js"],
+  // Only needed when a field model is present; harmless otherwise. Both resolve bare "three" through
+  // the import map in index.html.
+  ["node_modules/three/examples/jsm/loaders/GLTFLoader.js", "GLTFLoader.js"],
+  ["node_modules/three/examples/jsm/utils/BufferGeometryUtils.js", "BufferGeometryUtils.js"],
+];
 
 for (const [from, to] of files) {
   copyFileSync(resolve(root, from), resolve(out, to));

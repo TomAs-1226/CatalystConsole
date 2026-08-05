@@ -267,16 +267,41 @@ The field is drawn procedurally from its dimensions — carpet, perimeter, drive
 centre and alliance lines — and the robot is drawn from the pose estimator with a heading wedge, a
 trail, and bumpers in your alliance colour. Three camera modes: chase, overhead, free orbit.
 
-Dimensions default to the REBUILT carpet — 651.2 in × 317.7 in, or 16.54 m × 8.07 m — from the 2026
-field drawings, and both are editable in the tile settings.
+There are two versions of it, and the app picks whichever it can.
 
-It is not built from the season CAD, and that is a trade rather than a shortcut. FIRST publishes the
-official field model (Onshape, with STEP for everyone else) on the
-[Playing Field page](https://www.firstinspires.org/resources/library/frc/playing-field), alongside the
-[field dimension drawings](https://firstfrc.blob.core.windows.net/frc2026/FieldAssets/2026-field-dimension-dwgs.pdf).
-It is a ~900-part assembly. Putting that in a driver station dashboard would cost more memory than the
-rest of the app together, and would tell the driver nothing the outline does not. What matters here is
-*where the robot is*.
+**The real field.** The KOP CAD download ships a glTF binary alongside the SolidWorks assembly, so no
+STEP conversion is needed — but it is 223 MB and 6.8 million vertices, which is a fine marketing asset
+and a terrible dashboard one. Bake it down once:
+
+```bash
+npm run field-cad
+```
+
+That finds `Field_2026.zip` in your Downloads (or takes a path), pulls the `.glb` out, and decimates it
+to about **190k vertices and 6 MB** — a 36× reduction that still reads as the REBUILT field, hubs,
+towers and fuel included. It lands in `src/vendor/field.glb` and is deliberately **not committed**: it
+is FIRST's model rather than ours, and every team already has the download.
+
+Materials are re-grounded on load rather than used as shipped. The KOP model is lit for a render, so
+its unpainted parts arrive near-white — a slab of glare in a dark cockpit that pulls your eye away from
+the robot. Each material keeps its hue, so alliance red and blue still read, but saturation and
+lightness come right down and the field recedes behind the thing you are actually watching.
+
+**The outline.** With no baked model the view draws the field procedurally from its dimensions —
+carpet, perimeter, driver station glass, centre and alliance lines. That is not a placeholder to
+apologise for: it is what renders on a machine that has never seen the CAD, and it is the version that
+always works.
+
+Either way dimensions default to the REBUILT carpet — 651.2 in × 317.7 in, or 16.54 m × 8.07 m, from
+the
+[2026 field drawings](https://firstfrc.blob.core.windows.net/frc2026/FieldAssets/2026-field-dimension-dwgs.pdf) —
+and both are editable in the tile settings. The official model lives on FIRST's
+[Playing Field page](https://www.firstinspires.org/resources/library/frc/playing-field).
+
+The robot is still drawn procedurally. The KitBot CAD in the same download is SolidWorks-only with no
+glTF beside it, so there is nothing to convert without SolidWorks on the machine — and a bumpered box
+with a heading wedge tells a driver where they are pointing better than a faithful mesh would at this
+size.
 
 Cost control, because this shares a laptop with the Driver Station: 30 fps, no shadows, no textures, no
 post-processing, ~30 meshes, rendering stops entirely when the dashboard tab is not showing, and

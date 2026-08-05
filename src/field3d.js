@@ -42,26 +42,42 @@ export function createField(canvas, opts) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(46, 16 / 9, 0.1, 120);
 
-  scene.add(new THREE.HemisphereLight(0xdfe6f0, 0x101114, 1.15));
+  scene.add(new THREE.HemisphereLight(0xc8d4e4, 0x0a0b0d, 0.85));
   const key = new THREE.DirectionalLight(0xffffff, 0.55);
   key.position.set(6, 12, 8);
   scene.add(key);
+  // A second, weaker light from the opposite side so the far half of the field is not a silhouette.
+  const fill = new THREE.DirectionalLight(0x8fa8c8, 0.3);
+  fill.position.set(-8, 6, -7);
+  scene.add(fill);
 
-  /* ---- field geometry. Built centred on the origin; poses are translated in. ---- */
+  /* ---- field geometry. Built centred on the origin; poses are translated in. ----
+   *
+   * Two layers. `field` is the procedural outline, drawn from the season's dimensions. `cad` is the
+   * official model, loaded only if someone has run `npm run field-cad` to bake one — when it arrives
+   * the outline hides and the real field takes over. The outline is not a placeholder to be ashamed
+   * of: it is what renders on a machine that has no model, and it is the thing that always works. */
 
   const field = new THREE.Group();
   scene.add(field);
+
+  const cad = new THREE.Group();
+  cad.visible = false;
+  scene.add(cad);
 
   const flat = (color, opacity = 1) =>
     new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity });
   const lit = (color) => new THREE.MeshLambertMaterial({ color });
 
   /* The venue floor the field sits on. Without it the frame above the far wall is transparent, and a
-     hard black wedge across the top of the tile reads as a rendering fault rather than as sky. */
+     hard black wedge across the top of the tile reads as a rendering fault rather than as sky. It sits
+     outside `field` because it is wanted under the CAD model too. */
+  const backdrop = new THREE.Group();
+  scene.add(backdrop);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(length * 4, width * 6), flat(0x191b20));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
-  field.add(floor);
+  backdrop.add(floor);
 
   const carpet = new THREE.Mesh(new THREE.PlaneGeometry(length, width), flat(CARPET));
   carpet.rotation.x = -Math.PI / 2;
@@ -114,6 +130,74 @@ export function createField(canvas, opts) {
     stripe(0, 0xffffff, 0.35);
     stripe(-length / 2 + 2.0, BLUE, 0.5);
     stripe(length / 2 - 2.0, RED, 0.5);
+  }
+
+  /* ---- the official field model, when one has been baked ---- */
+
+  /* SolidWorks exports Z-up, so the model needs the usual quarter turn to sit in three.js's Y-up
+     world. Everything else — where the origin is, how far off-centre the driver stations push the
+     bounding box — is measured from the model itself rather than assumed, because the exporter's datum
+     is not something to guess at. */
+  async function loadFieldModel() {
+    const response = await fetch("./vendor/field.glb", { method: "HEAD" }).catch(() => null);
+    if (!response || !response.ok) return false;
+
+    const { GLTFLoader } = await import("./vendor/GLTFLoader.js");
+    const gltf = await new GLTFLoader().loadAsync("./vendor/field.glb");
+    const model = gltf.scene;
+    model.rotation.x = -Math.PI / 2;
+    model.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const centre = box.getCenter(new THREE.Vector3());
+    // Centre it horizontally and stand it on the carpet plane.
+    model.position.set(-centre.x, -box.min.y, -centre.z);
+
+    /* The KOP model is lit for a marketing render: unpainted parts come through as near-white, which
+       in a dark cockpit is a slab of glare that the eye goes to instead of the robot. Every material
+       is re-grounded into this dashboard's world — hue kept so alliance red and blue still read,
+       saturation and lightness pulled right down so the field recedes and the robot stands out.
+       This is the whole reason it looks like part of the console rather than a CAD viewer. */
+    const hsl = { h: 0, s: 0, l: 0 };
+    const remapped = new Map();
+
+    model.traverse((obj) => {
+      if (!obj.isMesh) return;
+      obj.frustumCulled = true;
+      const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const next = materials.map((m) => {
+        if (!m) return m;
+        if (remapped.has(m.uuid)) return remapped.get(m.uuid);
+
+        (m.color || new THREE.Color(0x888888)).getHSL(hsl, THREE.SRGBColorSpace);
+        /* Read and write in sRGB, not the linear working space. Pick these numbers linearly and the
+           output transfer curve lifts them by roughly a third on screen — which is how a "0.12"
+           lightness arrives looking like mid grey. */
+        const colour = new THREE.Color().setHSL(
+          hsl.h,
+          hsl.s * 0.5,
+          // Grey parts land dark and even; coloured parts keep a little more presence.
+          hsl.s < 0.15 ? 0.17 : 0.20 + hsl.s * 0.13,
+          THREE.SRGBColorSpace
+        );
+        const flatMat = new THREE.MeshLambertMaterial({
+          color: colour,
+          transparent: m.transparent,
+          opacity: m.opacity,
+          side: m.side,
+        });
+        remapped.set(m.uuid, flatMat);
+        m.dispose();
+        return flatMat;
+      });
+      obj.material = Array.isArray(obj.material) ? next : next[0];
+    });
+
+    cad.add(model);
+    cad.visible = true;
+    field.visible = false;   // the outline steps aside for the real thing
+    backdrop.visible = true; // but the venue floor stays: the model stops at the field edge
+    return true;
   }
 
   /* ---- the robot ---- */
@@ -281,6 +365,12 @@ export function createField(canvas, opts) {
   let raf = 0;
   let lastFrame = performance.now();
   let disposed = false;
+
+  /* Kick the model load off now. It is deliberately not awaited: the outline is already on screen and
+     the field must never be blank while a 6 MB file decodes. */
+  loadFieldModel()
+    .then((ok) => { if (ok && !disposed) opts.onModel?.(true); })
+    .catch((err) => console.warn("field model unavailable, keeping the outline", err));
 
   function visible() {
     /* Cheapest possible test, and the one that matters: is the dashboard tab even showing? */
