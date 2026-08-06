@@ -242,9 +242,23 @@ for (let cy = 0; cy < rows; cy++) {
     if (cy > cropHiY) cropHiY = cy;
   }
 }
-// Step inside the wall itself, so cell (0,0) is carpet the robot can legally occupy.
-const inset = Math.round(0.05 / CELL);
-cropLoX += inset; cropHiX -= inset; cropLoY += inset; cropHiY -= inset;
+/* The wall ring alone is not the playing surface either: driver station structure sits outside the
+   carpet and is taller than the threshold, so the detected box comes out around 18.0 x 10.4 m against
+   a 16.54 x 8.07 carpet. Detection gets us the *centre* reliably — the field is symmetric about it —
+   and the carpet size is a published number, so take the centre from the model and the size from the
+   drawings. Guessing at either alone is what produced an offset map. */
+const FIELD_LENGTH = Number(process.env.FIELD_LENGTH || 16.54);
+const FIELD_WIDTH = Number(process.env.FIELD_WIDTH || 8.07);
+
+const centreX = (cropLoX + cropHiX) / 2;
+const centreY = (cropLoY + cropHiY) / 2;
+const halfCols = Math.round(FIELD_LENGTH / CELL / 2);
+const halfRows = Math.round(FIELD_WIDTH / CELL / 2);
+
+cropLoX = Math.max(0, Math.round(centreX - halfCols));
+cropHiX = Math.min(cols - 1, cropLoX + halfCols * 2 - 1);
+cropLoY = Math.max(0, Math.round(centreY - halfRows));
+cropHiY = Math.min(rows - 1, cropLoY + halfRows * 2 - 1);
 
 const outCols = cropHiX - cropLoX + 1;
 const outRows = cropHiY - cropLoY + 1;
