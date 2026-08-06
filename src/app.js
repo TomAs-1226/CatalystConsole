@@ -744,6 +744,102 @@ define("physics", {
   },
 });
 
+/* --- impacts ----------------------------------------------------------------- */
+
+/* Physics Core records collisions it could not explain any other way. Nothing surfaced them, which
+ * made the most interesting thing the physics layer knows invisible during a match. */
+define("impacts", {
+  name: "Impacts",
+  group: "Catalyst",
+  desc: "Contacts Physics Core detected, with how hard and how long ago",
+  w: 3, h: 2,
+  config: [
+    { key: "base", label: "Collision group", type: "topic", def: "/Catalyst/Physics/Collision" },
+    { key: "hard", label: "Hard hit (m/s²)", type: "number", def: 25,
+      hint: "Above this the tile goes red. A firm push is a few m/s²; a real collision is tens." },
+  ],
+  render(body, cfg, state) {
+    state.log = [];
+    state.lastStamp = null;
+    body.innerHTML = `
+      <div class="fill">
+        <div><span class="n" data-x="mag" style="font-size:30px">—</span><span class="u">m/s²</span></div>
+        <div class="cap" data-x="when">no contact recorded</div>
+        <div class="cap" data-x="hist" style="margin-top:8px"></div>
+      </div>`;
+  },
+  update(body, cfg, x, tile, state) {
+    const stamp = num(`${cfg.base}/Timestamp`, null);
+    const magnitude = num(`${cfg.base}/MpsSq`, null);
+    const newtons = num(`${cfg.base}/Newtons`, null);
+
+    if (stamp === null || magnitude === null) {
+      x.mag.textContent = "—";
+      x.when.textContent = has(`${cfg.base}/Timestamp`) ? "no contact recorded" : `nothing at ${cfg.base}`;
+      return;
+    }
+
+    // A new timestamp means a new hit rather than the same one still being reported.
+    if (stamp !== state.lastStamp) {
+      state.lastStamp = stamp;
+      state.log.unshift({ stamp, magnitude, newtons, at: performance.now() });
+      state.log.length = Math.min(state.log.length, 4);
+    }
+
+    const age = (performance.now() - state.log[0].at) / 1000;
+    x.mag.textContent = magnitude.toFixed(1);
+    x.mag.className = `n ${magnitude >= cfg.hard ? "crit" : magnitude >= cfg.hard / 2 ? "warn" : ""}`;
+    x.when.innerHTML = `<b>${age < 1 ? "just now" : `${age.toFixed(0)} s ago`}</b>`
+      + (newtons ? ` · peak <b>${newtons.toFixed(0)} N</b>` : "");
+    x.hist.innerHTML = state.log.length > 1
+      ? `${state.log.length} contacts · worst ${Math.max(...state.log.map((h) => h.magnitude)).toFixed(1)} m/s²`
+      : "";
+  },
+});
+
+/* --- swerve ------------------------------------------------------------------ */
+
+define("swerve", {
+  name: "Swerve modules",
+  group: "Telemetry",
+  desc: "Four module angles and speeds, drawn as they are actually pointing",
+  w: 3, h: 2,
+  config: [
+    { key: "topic", label: "Module states topic", type: "topic", def: "/Catalyst/Drive/ModuleStates",
+      hint: "The WPILib convention: a number array of [angleRad, speedMps] per module, four modules." },
+    { key: "max", label: "Max speed (m/s)", type: "number", def: 5.0 },
+  ],
+  render(body) {
+    body.innerHTML = `<div class="fill"><svg data-x="svg" viewBox="0 0 120 120" style="width:100%;height:100%;max-height:none"></svg></div>`;
+  },
+  update(body, cfg, x) {
+    const states = arr(cfg.topic);
+    const spots = [[34, 34], [86, 34], [34, 86], [86, 86]];
+
+    if (!Array.isArray(states) || states.length < 8) {
+      x.svg.innerHTML = `<text x="60" y="62" text-anchor="middle" fill="#63656b" font-size="8" font-family="var(--sans)">no module states</text>`;
+      return;
+    }
+
+    let out = "";
+    for (let i = 0; i < 4; i++) {
+      const angle = states[i * 2];
+      const speed = states[i * 2 + 1];
+      const [cx, cy] = spots[i];
+      const frac = clamp01(Math.abs(speed) / Math.max(0.1, cfg.max));
+      // Screen y grows downward and the field's +y is to the left, so the angle is negated.
+      const dx = Math.cos(-angle) * 16 * (speed < 0 ? -1 : 1);
+      const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
+      const colour = frac > 0.92 ? "#ff453a" : frac > 0.7 ? "#ff9f0a" : "#4d90fe";
+      out +=
+        `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="#2c2e34" stroke-width="3"/>` +
+        `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
+        `<text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="#9a9ba1" font-size="7.5" font-family="var(--mono)">${speed.toFixed(1)}</text>`;
+    }
+    x.svg.innerHTML = out;
+  },
+});
+
 /* --- alerts ------------------------------------------------------------------ */
 
 define("alerts", {

@@ -169,6 +169,17 @@ These are what `PhysicsCore` publishes on its own once you construct one — no 
 Slip, tipping and traction are all "fraction of the limit in use", so all three read the same way
 round: higher is worse.
 
+The Impacts tile reads the collision group Physics Core writes when it detects a contact it cannot
+explain any other way:
+
+| Topic | Type |
+| --- | --- |
+| `/Catalyst/Physics/Collision/Timestamp` | `double` |
+| `/Catalyst/Physics/Collision/MpsSq` | `double` |
+| `/Catalyst/Physics/Collision/Newtons` | `double` |
+
+A new timestamp is what marks a new hit, rather than the same one still being reported.
+
 The tile says *advisory only* on its face, deliberately. Physics Core has been validated in simulation
 and has never run on carpet; nothing on this dashboard should be gating a driver decision yet.
 
@@ -206,6 +217,8 @@ Add, remove, resize, and rearrange from the dock. The layout persists locally.
 | --- | --- |
 | **Match timer** | phase, shift name, and countdown, with the match shape as three bars |
 | **Hub activation** | see below |
+| **Impacts** | contacts Physics Core detected, how hard and how long ago |
+| **Swerve modules** | four module angles and speeds, drawn as they are actually pointing |
 | **Gauge** | any numeric topic as an arc, dial, bar, or number |
 | **Field view** | the robot on the field in 3D, from the pose estimator |
 | **Battery** | voltage with rolling history and measured sag |
