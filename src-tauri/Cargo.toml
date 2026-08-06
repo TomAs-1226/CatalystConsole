@@ -1,6 +1,6 @@
 [package]
 name = "catalyst-console"
-version = "0.3.0"
+version = "0.4.0"
 description = "Catalyst Console — a driver station companion dashboard"
 edition = "2021"
 rust-version = "1.77"
@@ -32,6 +32,12 @@ rmp-serde = "1"
 
 # Driver Station log tailing.
 byteorder = "1"
+
+# Release builds link as a GUI application, which leaves a binary run from a terminal with no console
+# to print to. `--help` and `--mcp` borrow the parent's console so they are not silent. Tauri already
+# pulls this in, so it costs nothing but the one import.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [features]
 default = ["custom-protocol"]

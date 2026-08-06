@@ -68,6 +68,17 @@ To build an installer:
 npm run build
 ```
 
+## Diagnostics for an agent
+
+The same binary has a second mode. `catalyst-console --mcp` opens no window and serves read-only
+diagnostics over stdio as an MCP server instead — status, topics, alerts, Physics Core, match state,
+Driver Station logs, the field map — so an agent can see what the robot is doing. `--help` explains
+both modes.
+
+Read-only is the whole design, not an unfinished feature: a tool that could drive would be a second
+control path to a robot, which is exactly what rule 1 forbids. There is no such tool.
+See [docs/mcp.md](docs/mcp.md).
+
 ## Finding the robot
 
 The console cycles these addresses until one answers, so the same build works everywhere with no
@@ -342,9 +353,10 @@ shown, because inventing a battery voltage would be worse than admitting the fil
 ## Layout of the source
 
 ```
-src-tauri/src/main.rs     Tauri commands, the address list, and the write guard
+src-tauri/src/main.rs     Tauri commands, the address list, the write guard, and the two modes
 src-tauri/src/nt4.rs      NetworkTables 4 client — WebSocket, msgpack, 20 Hz batched flush
 src-tauri/src/dslog.rs    .dslog / .dsevents parsers
+src-tauri/src/mcp.rs      the read-only diagnostics MCP server behind --mcp
 src/index.html            the shell: top strip, views, dock, two modals
 src/styles.css            the design system
 src/app.js                NT store, component registry, layout, every component

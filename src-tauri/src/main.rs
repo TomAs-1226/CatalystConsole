@@ -8,10 +8,16 @@
 // The other rule the whole design answers to: **nothing the console does may impede driving.** No
 // modal blocks the view, no check gates anything, no failure of ours stops a driver doing their job.
 // If the console cannot reach the robot it says so quietly in a corner and keeps rendering.
+//
+// The binary has two modes. With no arguments it opens the dashboard. With `--mcp` it opens nothing
+// and serves read-only diagnostics over stdio instead, for an agent rather than a driver — see
+// `mcp.rs`, and `--help`, which exists because a binary that does something different based on an
+// argument owes anyone who finds it an explanation.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dslog;
+mod mcp;
 mod nt4;
 
 use std::path::PathBuf;
@@ -79,6 +85,30 @@ fn save_settings(app: &tauri::AppHandle, settings: &Settings) -> Result<(), Stri
     let path = settings_path(app).ok_or("no config directory")?;
     let body = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     std::fs::write(path, body).map_err(|e| e.to_string())
+}
+
+/// The bundle identifier, which is also the directory Tauri keeps settings in. Must match
+/// `identifier` in `tauri.conf.json`.
+const IDENTIFIER: &str = "com.frccatalyst.console";
+
+/// The same settings file the dashboard uses, found without a Tauri handle.
+///
+/// `--mcp` never builds a Tauri app, so there is no `AppHandle` to ask for `app_config_dir()` and
+/// the path is rebuilt from the identifier instead. If the two ever drift apart the only consequence
+/// is that the MCP server looks for the default team's robot, which `--team` overrides — not a
+/// reason to refuse to start.
+fn settings_from_disk() -> Settings {
+    #[cfg(windows)]
+    let base = std::env::var_os("APPDATA").map(PathBuf::from);
+    #[cfg(not(windows))]
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+
+    base.map(|b| b.join(IDENTIFIER).join("settings.json"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -229,7 +259,127 @@ fn nt_set(state: tauri::State<'_, AppState>, key: String, value: serde_json::Val
     Ok(())
 }
 
+/// What the command line asked for.
+enum Mode {
+    /// Open the dashboard. The overwhelmingly normal case.
+    Gui,
+    /// Serve read-only diagnostics over stdio and open nothing.
+    Mcp { team: Option<u16> },
+    Help,
+}
+
+const HELP: &str = "\
+Catalyst Console — a read-only driver station companion.
+
+USAGE
+  catalyst-console                open the dashboard window (the normal way to run it)
+  catalyst-console --mcp          serve read-only diagnostics over stdin/stdout; no window
+  catalyst-console --team NUMBER  which robot to look for; only meaningful with --mcp, since the
+                                  dashboard keeps its own team number in settings
+  catalyst-console --help         this text
+
+THE TWO MODES
+  With no arguments the binary opens a window, connects to NetworkTables, and draws a dashboard.
+
+  With --mcp it opens no window at all. It connects to NetworkTables the same way, and instead of
+  drawing anything it speaks the Model Context Protocol on stdin and stdout: JSON-RPC 2.0, one
+  message per line, with initialize, tools/list and tools/call. The tools report console status,
+  NetworkTables topics and values, robot alerts, Physics Core state, match state, Driver Station
+  logs, and the field collision map. Nothing is printed to stdout except protocol frames; anything
+  else goes to stderr.
+
+  Every tool is read-only, and that is the design rather than an unfinished feature. FRC requires
+  the official NI Driver Station and only one DS may hold the robot connection, so a tool that
+  could enable or drive would be a second control path to a robot. There is none, and there will
+  not be one.
+
+  See docs/mcp.md.
+";
+
+/// Read the command line.
+///
+/// Unrecognised arguments are ignored rather than refused. The console is launched by shortcuts, by
+/// the updater, and by a second instance handing off, and none of those is worth failing a launch
+/// over — a driver wants their dashboard, not a usage message.
+fn parse_args<I: Iterator<Item = String>>(mut args: I) -> Mode {
+    let mut mcp = false;
+    let mut help = false;
+    let mut team = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--mcp" => mcp = true,
+            "--help" | "-h" | "/?" => help = true,
+            "--team" => team = args.next().and_then(|t| t.parse::<u16>().ok()),
+            other => {
+                if let Some(value) = other.strip_prefix("--team=") {
+                    team = value.parse::<u16>().ok();
+                }
+            }
+        }
+    }
+
+    if help {
+        Mode::Help
+    } else if mcp {
+        Mode::Mcp { team }
+    } else {
+        Mode::Gui
+    }
+}
+
+/// Release builds link as a GUI application so double-clicking the icon does not flash a console
+/// window. That also means a release binary run from a terminal has no console to write to, and
+/// `--help` would print into nothing. Borrowing the parent's console costs one call and is the
+/// difference between a documented flag and a flag that appears to do nothing.
+///
+/// Failure is fine and expected: there is no parent console when an agent spawns the server with
+/// pipes, and pipes are inherited regardless.
+#[cfg(windows)]
+fn attach_parent_console() {
+    // SAFETY: a call with no arguments to reference and no state of ours to invalidate. It either
+    // attaches the parent's console or reports that there was not one.
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(
+            windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
+
+/// Serve diagnostics and never open a window.
+fn run_mcp(team_override: Option<u16>) {
+    let team = team_override.unwrap_or_else(|| settings_from_disk().team);
+    let addresses = candidate_addresses(team);
+
+    let nt = Arc::new(nt4::Nt4Client::new());
+    nt.spawn(addresses.clone());
+
+    // stderr, not stdout: stdout is the protocol and nothing else may appear on it.
+    eprintln!(
+        "[mcp] catalyst-console {} — read-only diagnostics for team {team}",
+        env!("CARGO_PKG_VERSION")
+    );
+    mcp::serve(nt, addresses, team);
+}
+
 fn main() {
+    match parse_args(std::env::args().skip(1)) {
+        Mode::Help => {
+            attach_parent_console();
+            print!("{HELP}");
+        }
+        Mode::Mcp { team } => {
+            attach_parent_console();
+            run_mcp(team);
+        }
+        Mode::Gui => run_gui(),
+    }
+}
+
+fn run_gui() {
     tauri::Builder::default()
         // Must be registered first. A second launch never gets as far as opening a window: it hands
         // its arguments to the console that is already running, raises that window, and exits. Two

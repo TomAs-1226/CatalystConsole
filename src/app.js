@@ -217,6 +217,12 @@ function setDemo(on) {
   } else {
     clearInterval(demo.timer);
     nt.v = Object.create(null);
+    /* The status has to go back too, and forgetting it was a straight breach of rule three. Demo mode
+     * writes a plausible-looking status — 3.1 ms round trip, an address of "demo", a topic count —
+     * and clearing only the values left all of that on screen afterwards. The dock then reported a
+     * round trip to a robot that does not exist and said it was "looking for demo", and the About
+     * page printed those numbers directly beneath the rule promising it never invents one. */
+    nt.status = { connected: false, address: "", rtt_ms: 0, topics: 0 };
     nt.keysDirty = true;
     onFrame();
   }
@@ -270,6 +276,22 @@ function clock(seconds) {
   if (seconds === null || seconds === undefined) return "—:—";
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Wall clock, because link history is compared against what someone remembers happening. */
+function clockOfDay(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** An elapsed span, in the largest unit that still reads at a glance. */
+function duration(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
 function leaf(key) {
@@ -877,7 +899,7 @@ define("alerts", {
      * is invented — a flapping alert reads as one steady, slightly faded line. */
     const now = performance.now();
     for (const [level, items] of groups) {
-      for (const text of items) state.seen.set(`${level} ${text}`, { level, text, at: now });
+      for (const text of items) state.seen.set(`${level}\u0000${text}`, { level, text, at: now });
     }
     for (const [key, entry] of state.seen) {
       if (now - entry.at > ALERT_HOLD_MS) state.seen.delete(key);
@@ -1421,7 +1443,7 @@ function openConfig(item) {
   };
   mk("Width", item.w, GRID_COLS, (v) => { item.w = v; });
   mk("Height", item.h, GRID_ROWS, (v) => { item.h = v; });
-  add("Tile size", size, "Columns and rows out of the 12 × 6 board.");
+  add("Tile size", size, "Columns and rows out of the 12 × 8 board.");
 
   $("#cfgModal").dataset.open = "true";
 }
@@ -1482,25 +1504,307 @@ function findSpace(w, h) {
 $("#pickClose").onclick = () => { $("#pickModal").dataset.open = "false"; };
 $("#addBtn").onclick = openPicker;
 
+/* ------------------------------------------------------- layout export / import */
+
+/* A team sets a board up once and wants it on the other five driver stations, and on the spare laptop
+ * that comes out of the crate when one dies. The file is plain JSON so it can live in the robot repo
+ * next to the code it is reading. */
+const LAYOUT_KIND = "catalyst-console-layout";
+const LAYOUT_DOC_VERSION = 1;
+/* Well past any sane board, but a number: a file claiming a hundred thousand tiles should be refused
+ * before it is walked, not after it has locked the window building them. */
+const LAYOUT_MAX_TILES = 64;
+
+function layoutDocument() {
+  return {
+    kind: LAYOUT_KIND,
+    version: LAYOUT_DOC_VERSION,
+    app: "Catalyst Console",
+    savedAt: new Date().toISOString(),
+    grid: { cols: GRID_COLS, rows: GRID_ROWS },
+    /* Ids are per-session handles into the live map, not part of the layout. Dropping them here means
+     * an imported board gets fresh ones instead of colliding with tiles already on screen. */
+    tiles: layout.map(({ type, x, y, w, h, cfg }) => ({ type, x, y, w, h, cfg: { ...cfg } })),
+  };
+}
+
+/**
+ * Parse and check a layout file, whole.
+ *
+ * Refuse, never repair. A half-applied import leaves a board the driver did not ask for and cannot
+ * undo five minutes before a match; saying no and naming every reason is the smaller failure. Nothing
+ * in here mutates anything — the caller applies the result only if `tiles` came back.
+ */
+/* Written by every export and, until this was noticed, never read by any import: a version constant
+   that only ever travels outward tells you nothing. A newer format reaching an older build would have
+   been half-applied rather than refused, which is the opposite of what the importer promises. */
+function layoutVersionIsReadable(v) {
+  return v === undefined || (Number.isInteger(v) && v <= LAYOUT_DOC_VERSION);
+}
+
+function readLayoutDocument(text) {
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch (e) {
+    return { problems: [`That is not JSON — ${e.message || e}`] };
+  }
+
+  const bare = Array.isArray(doc);
+  const wrapped = !bare && doc !== null && typeof doc === "object";
+  if (!bare && !wrapped) return { problems: ["That file is a single value, not a layout."] };
+  if (wrapped && doc.kind && doc.kind !== LAYOUT_KIND) {
+    return { problems: [`That file says it is "${doc.kind}", not a Catalyst Console layout.`] };
+  }
+
+  /* A bare array is exactly what the console keeps in local storage, so it is a layout even without
+   * the wrapper. Anything else has to identify itself. */
+  const tiles = bare ? doc : doc.tiles;
+  if (!Array.isArray(tiles)) {
+    return { problems: ["No list of tiles in that file — it does not look like a Catalyst Console layout."] };
+  }
+  if (!tiles.length) return { problems: ["That layout has no tiles in it."] };
+  if (tiles.length > LAYOUT_MAX_TILES) {
+    return { problems: [`That layout has ${tiles.length} tiles; the board holds at most ${LAYOUT_MAX_TILES}.`] };
+  }
+
+  const problems = [];
+  const clean = [];
+  const savedGrid = wrapped && doc.grid && Number.isInteger(doc.grid.cols) && Number.isInteger(doc.grid.rows)
+    ? doc.grid : null;
+
+  tiles.forEach((t, i) => {
+    const at = `Tile ${i + 1}`;
+    if (!t || typeof t !== "object" || Array.isArray(t)) { problems.push(`${at} is not a tile.`); return; }
+    if (typeof t.type !== "string" || !REGISTRY[t.type]) {
+      problems.push(`${at}: no component called "${t.type}" in this version.`);
+      return;
+    }
+    if (![t.x, t.y, t.w, t.h].every(Number.isInteger)) {
+      problems.push(`${at} (${t.type}): position and size must be whole numbers.`);
+      return;
+    }
+    if (t.w < 1 || t.h < 1) { problems.push(`${at} (${t.type}): must be at least 1 × 1.`); return; }
+    if (t.x < 0 || t.y < 0 || t.x + t.w > GRID_COLS || t.y + t.h > GRID_ROWS) {
+      problems.push(`${at} (${t.type}): falls outside the ${GRID_COLS} × ${GRID_ROWS} board.`);
+      return;
+    }
+    if (t.cfg !== undefined && (t.cfg === null || typeof t.cfg !== "object" || Array.isArray(t.cfg))) {
+      problems.push(`${at} (${t.type}): its settings are not an object.`);
+      return;
+    }
+    clean.push({ type: t.type, x: t.x, y: t.y, w: t.w, h: t.h, cfg: { ...(t.cfg || {}) } });
+  });
+
+  if (problems.length) {
+    /* If the board it was saved on was a different shape, say so first — it explains every
+     * out-of-bounds line under it at once. */
+    if (savedGrid && (savedGrid.cols !== GRID_COLS || savedGrid.rows !== GRID_ROWS)) {
+      problems.unshift(`Saved from a ${savedGrid.cols} × ${savedGrid.rows} board; this one is ${GRID_COLS} × ${GRID_ROWS}.`);
+    }
+    return { problems };
+  }
+  return { tiles: clean };
+}
+
+function setLayoutStatus(text, tone, list) {
+  const node = $("#layoutStatus");
+  node.dataset.tone = tone || "";
+  node.textContent = text || "";
+  if (list && list.length) {
+    const ul = el("ul");
+    for (const line of list.slice(0, 8)) ul.appendChild(el("li", null, line));
+    if (list.length > 8) ul.appendChild(el("li", null, `…and ${list.length - 8} more.`));
+    node.appendChild(ul);
+  }
+}
+
+function applyLayoutText(text, whence) {
+  const result = readLayoutDocument(String(text || ""));
+  if (result.problems) {
+    setLayoutStatus("Not imported. The board is untouched.", "bad", result.problems);
+    return false;
+  }
+  layout = result.tiles;
+  saveLayout();
+  buildBoard();
+  const n = result.tiles.length;
+  setLayoutStatus(`Imported ${n} tile${n === 1 ? "" : "s"}${whence ? ` from ${whence}` : ""}. The board is live.`, "ok");
+  return true;
+}
+
+/* The dialog and fs plugins can each be missing at runtime even when they are compiled in — a Tauri v2
+ * plugin command that no capability grants throws when it is called. So every path here probes, and
+ * every failure falls through to something that still works rather than reporting an error. */
+const inTauri = !!window.__TAURI__;
+const plugin = (name) => window.__TAURI__?.[name];
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* not a secure context, or permission refused */ }
+  try {
+    const box = el("textarea");
+    box.value = text;
+    box.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(box);
+    box.select();
+    const ok = document.execCommand("copy");
+    box.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function downloadText(name, text) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const a = el("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return true;
+  } catch (e) {
+    console.warn("download unavailable", e);
+    return false;
+  }
+}
+
+function layoutJson() {
+  return JSON.stringify(layoutDocument(), null, 2);
+}
+
+function layoutFilename() {
+  return `catalyst-layout-${new Date().toISOString().slice(0, 10)}.json`;
+}
+
+async function exportLayoutToFile() {
+  const text = layoutJson();
+  const name = layoutFilename();
+  const dlg = plugin("dialog");
+  const fs = plugin("fs");
+
+  if (dlg?.save && fs?.writeTextFile) {
+    try {
+      const path = await dlg.save({
+        defaultPath: name,
+        filters: [{ name: "Layout", extensions: ["json"] }],
+      });
+      if (!path) { setLayoutStatus("", null); return; }   // cancelling is not a failure
+      await fs.writeTextFile(path, text);
+      setLayoutStatus(`Saved to ${path}`, "ok");
+      return;
+    } catch (e) {
+      console.warn("save dialog unavailable", e);
+    }
+  }
+
+  /* In the desktop app without file access, a blob download can be swallowed silently by the content
+   * security policy, and claiming a save that did not happen is worse than not offering one. The
+   * clipboard is the honest answer there; a browser gets the download. */
+  if (!inTauri && downloadText(name, text)) {
+    setLayoutStatus(`Exported ${name}.`, "ok");
+    return;
+  }
+  if (await copyText(text)) {
+    setLayoutStatus("No file access here, so the layout is on your clipboard instead.", "ok");
+    return;
+  }
+  $("#impText").value = text;
+  setLayoutStatus("Could not save or copy. The layout is in the box above — select it and copy.", "bad");
+}
+
+async function importLayoutFromFile() {
+  const dlg = plugin("dialog");
+  const fs = plugin("fs");
+  if (dlg?.open && fs?.readTextFile) {
+    try {
+      const picked = await dlg.open({ multiple: false, filters: [{ name: "Layout", extensions: ["json"] }] });
+      const path = Array.isArray(picked) ? picked[0] : picked;
+      if (!path) { setLayoutStatus("", null); return; }
+      applyLayoutText(await fs.readTextFile(path), leaf(String(path)));
+      return;
+    } catch (e) {
+      console.warn("open dialog unavailable", e);
+    }
+  }
+  /* A file input is not a plugin and needs no capability, so it is the floor under every build. */
+  $("#impPicker").click();
+}
+
+$("#impPicker").onchange = async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    applyLayoutText(await file.text(), file.name);
+  } catch (err) {
+    setLayoutStatus(`Could not read that file — ${err}`, "bad");
+  }
+};
+
+function openLayoutModal() {
+  setLayoutStatus("", null);
+  $("#impText").value = "";
+  $("#layoutModal").dataset.open = "true";
+}
+
+$("#layoutBtn").onclick = openLayoutModal;
+$("#layoutClose").onclick = () => { $("#layoutModal").dataset.open = "false"; };
+$("#expFile").onclick = exportLayoutToFile;
+$("#expClip").onclick = async () => {
+  if (await copyText(layoutJson())) { setLayoutStatus("Layout copied to the clipboard.", "ok"); return; }
+  $("#impText").value = layoutJson();
+  setLayoutStatus("The clipboard refused. The layout is in the box above — select it and copy.", "bad");
+};
+$("#impFile").onclick = importLayoutFromFile;
+$("#impClip").onclick = async () => {
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    setLayoutStatus("Cannot read the clipboard here. Paste into the box above instead.", "bad");
+    return;
+  }
+  applyLayoutText(text, "the clipboard");
+};
+$("#impPaste").onclick = () => applyLayoutText($("#impText").value, null);
+
 /* ------------------------------------------------------------------ tabs/sheets */
 
 const app = $("#app");
 
+/* Order is load-bearing: the number keys index into this. */
+const VIEWS = ["board", "tune", "logs", "topics"];
+
+function activeView() {
+  return document.querySelector('.view[data-active="true"]')?.dataset.view || "board";
+}
+
+function showView(name) {
+  if (!VIEWS.includes(name)) return;
+  for (const t of document.querySelectorAll(".tab")) {
+    t.setAttribute("aria-selected", String(t.dataset.view === name));
+  }
+  for (const v of document.querySelectorAll(".view")) {
+    v.dataset.active = String(v.dataset.view === name);
+  }
+  if (name === "logs") paintLogs();
+  if (name === "tune") paintTune();
+  if (name === "topics") paintTopics();
+  if (name === "board") {
+    paint();
+    for (const entry of live.values()) entry.spec.onShow?.(entry.state);
+  }
+}
+
 for (const tab of document.querySelectorAll(".tab")) {
-  tab.onclick = () => {
-    for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", "false");
-    tab.setAttribute("aria-selected", "true");
-    for (const v of document.querySelectorAll(".view")) {
-      v.dataset.active = String(v.dataset.view === tab.dataset.view);
-    }
-    if (tab.dataset.view === "logs") refreshSessions();
-    if (tab.dataset.view === "tune") paintTune();
-    if (tab.dataset.view === "topics") paintTopics();
-    if (tab.dataset.view === "board") {
-      paint();
-      for (const entry of live.values()) entry.spec.onShow?.(entry.state);
-    }
-  };
+  tab.onclick = () => showView(tab.dataset.view);
 }
 
 $("#editBtn").onclick = () => {
@@ -1523,9 +1827,23 @@ $("#demoBtn").onclick = () => setDemo(!demo.on);
  * if the network is unreachable — which on a field is the normal case — nothing appears either. The
  * only visible outcome is a chip in the dock, and installing is always a deliberate click. An update
  * prompt is exactly the sort of thing rule two exists to keep away from a driver. */
+/* One check, shared. The dock wants to know whether there is a release; the About page wants the
+ * version out of the same answer. Checking twice would be two requests to GitHub from a laptop that
+ * is usually on a field network with no route there. */
+let updatePromise = null;
+
+function updateCheck() {
+  if (!updatePromise) {
+    updatePromise = invoke
+      ? invoke("check_update").catch((e) => ({ available: false, current: "", error: String(e) }))
+      : Promise.resolve(null);
+  }
+  return updatePromise;
+}
+
 if (invoke) {
   setTimeout(async () => {
-    const info = await invoke("check_update").catch(() => null);
+    const info = await updateCheck();
     if (!info || !info.available) return;
 
     const chip = el("button", "dk");
@@ -1653,11 +1971,88 @@ function paintTune() {
 
 /* ------------------------------------------------------------------- logs sheet */
 
+/* Two halves, in this order deliberately: what the link has done since this console started, and then
+ * what the NI Driver Station recorded in earlier sessions. A driver who has just lost comms is asking
+ * about the last ten minutes, not about last weekend. */
+function paintLogs() {
+  const sheet = $("#logSheet");
+  sheet.innerHTML = "";
+  const session = el("div");
+  session.id = "linkSession";
+  sheet.appendChild(session);
+  paintLinkHistory();
+
+  const host = el("div");
+  host.id = "dsLogs";
+  host.style.marginTop = "26px";
+  sheet.appendChild(host);
+  refreshSessions(host);
+}
+
+function paintLinkHistory() {
+  const host = $("#linkSession");
+  if (!host) return;
+  host.dataset.v = String(linkLogVersion);
+
+  const now = linkSource();
+  const since = linkLog.length ? linkLog[linkLog.length - 1].t : BOOT;
+  const drops = linkDrops();
+  const state = !now ? "No link" : now.key === "demo" ? "Demo data" : `Linked · ${now.label}`;
+
+  host.innerHTML = `
+    <div class="lh">
+      <div class="sh">This session</div>
+      <div class="sum">${escapeHtml(state)} for <span data-x="lhFor">${duration(performance.now() - since)}</span>${
+        drops ? ` · ${drops} drop${drops === 1 ? "" : "s"}` : ""
+      }</div>
+    </div>`;
+
+  if (!linkLog.length) {
+    host.insertAdjacentHTML(
+      "beforeend",
+      `<div class="empty">Nothing has changed since the console started ${escapeHtml(duration(performance.now() - BOOT))} ago.<br>Connects, drops and address changes land here as they happen.</div>`
+    );
+    return;
+  }
+
+  const grid = el("div", "lg");
+  /* Newest first: the entry you opened this tab to read is the one at the top. */
+  for (let i = linkLog.length - 1; i >= 0; i--) {
+    const e = linkLog[i];
+    const held = e.kind === "down" || e.kind === "demoOff"
+      ? ` <span class="held">held ${escapeHtml(duration(e.t - (linkLog[i - 1]?.t ?? BOOT)))}</span>`
+      : "";
+    grid.insertAdjacentHTML(
+      "beforeend",
+      `<div class="lt">${clockOfDay(e.at)}</div><div class="rl ${LINK_RAIL[e.kind] || "info"}"><i></i></div>` +
+        `<div class="le">${escapeHtml(linkText(e))}${held}</div>`
+    );
+  }
+  host.appendChild(grid);
+}
+
+/* Rebuilding the timeline ten times a second would drop any text the user was midway through
+ * selecting, so the list is only redrawn when there is a new entry; the running total is a single
+ * text node that costs nothing to keep current. */
+function tickLinkHistory() {
+  const host = $("#linkSession");
+  if (!host) return;
+  if (host.dataset.v !== String(linkLogVersion)) { paintLinkHistory(); return; }
+  const span = host.querySelector("[data-x=lhFor]");
+  if (span) {
+    const since = linkLog.length ? linkLog[linkLog.length - 1].t : BOOT;
+    span.textContent = duration(performance.now() - since);
+  }
+}
+
 let sessions = [];
 
-async function refreshSessions() {
-  const sheet = $("#logSheet");
-  if (!invoke) { sheet.innerHTML = `<div class="empty">Driver Station logs need the desktop app.</div>`; return; }
+async function refreshSessions(host) {
+  if (!host) return;
+  if (!invoke) {
+    host.innerHTML = `<div class="sh">Driver Station logs</div><div class="empty">These are read from disk, so they need the desktop app.</div>`;
+    return;
+  }
 
   try {
     sessions = await invoke("ds_sessions", { dir: null });
@@ -1667,10 +2062,10 @@ async function refreshSessions() {
   }
 
   const dir = await invoke("ds_log_dir").catch(() => "");
-  sheet.innerHTML = `<div class="sh">Driver Station logs</div>`;
+  host.innerHTML = `<div class="sh">Driver Station logs</div>`;
 
   if (!sessions.length) {
-    sheet.insertAdjacentHTML(
+    host.insertAdjacentHTML(
       "beforeend",
       `<div class="empty">No sessions in <code>${escapeHtml(dir)}</code>.<br>The NI Driver Station writes these itself — once it has run a match on this machine they show up here.</div>`
     );
@@ -1686,8 +2081,8 @@ async function refreshSessions() {
   });
   picker.onchange = () => openSession(sessions[Number(picker.value)]);
   row.append(picker);
-  sheet.appendChild(row);
-  sheet.appendChild(el("div", null)).id = "sessionBody";
+  host.appendChild(row);
+  host.appendChild(el("div", null)).id = "sessionBody";
   openSession(sessions[0]);
 }
 
@@ -1777,6 +2172,68 @@ function paintTopics() {
   }
 }
 
+/* ----------------------------------------------------------- connection history */
+
+/* The link chip says what is true now. It says nothing about the last ten minutes, and that is the
+ * question a driver who has just lost comms is actually asking — one drop at the wrong moment reads
+ * very differently from the fourth in five minutes. In memory only: this is a session log, not a
+ * record, and writing it to disk would make it something the console has to defend. */
+const BOOT = performance.now();
+const LINK_LOG_MAX = 240;
+const LINK_RAIL = { up: "up", down: "down", moved: "info", demoOn: "info", demoOff: "info" };
+
+const linkLog = [];
+let linkLast = null;     // the source we last saw, or null for none
+let linkLogVersion = 0;  // bumped on every entry so painters know when to rebuild
+
+/** What the console is reading from right now, or null. */
+function linkSource() {
+  if (demo.on) return { key: "demo", label: "Demo data" };
+  if (nt.status.connected) return { key: "robot", label: nt.status.address || "robot" };
+  return null;
+}
+
+function pushLink(kind, label) {
+  linkLog.push({ at: Date.now(), t: performance.now(), kind, label });
+  if (linkLog.length > LINK_LOG_MAX) linkLog.shift();
+  linkLogVersion++;
+}
+
+function linkText(e) {
+  switch (e.kind) {
+    case "up": return `Linked · ${e.label}`;
+    case "down": return `Link lost · ${e.label}`;
+    case "moved": return `Moved to ${e.label}`;
+    case "demoOn": return "Demo data switched on";
+    case "demoOff": return "Demo data switched off";
+    default: return e.label || e.kind;
+  }
+}
+
+/** Drops only. Switching demo data off is deliberate and is not a comms failure. */
+function linkDrops() {
+  let n = 0;
+  for (const e of linkLog) if (e.kind === "down") n++;
+  return n;
+}
+
+/* Called every paint. Edge-triggered, so the search cycling through candidate addresses while nothing
+ * answers produces no entries at all — only a link that actually came up or went away does. */
+function observeLink() {
+  const now = linkSource();
+  const prev = linkLast;
+  const same = prev === now || (prev && now && prev.key === now.key && prev.label === now.label);
+  if (same) return;
+  linkLast = now;
+
+  /* Same robot, new address — the console cycled from the tether to mDNS, or the other way. Worth a
+   * line, because it is the difference between a flaky radio and a laptop that changed route. */
+  if (prev && now && prev.key === "robot" && now.key === "robot") { pushLink("moved", now.label); return; }
+
+  if (prev) pushLink(prev.key === "demo" ? "demoOff" : "down", prev.label);
+  if (now) pushLink(now.key === "demo" ? "demoOn" : "up", now.label);
+}
+
 /* -------------------------------------------------------------------- top strip */
 
 function paintHeader() {
@@ -1807,14 +2264,196 @@ function paintHeader() {
     : nt.status.connected
       ? `${ds.fms ? "FMS" : ds.dsAttached ? "Driver Station" : "no DS"} · ${nt.status.topics} topics`
       : `looking for ${nt.status.address || "a robot"}…`;
+
+  observeLink();
+
+  /* Quiet until it is not: no chip at all until the link has actually dropped, and then a count
+   * rather than an alarm. Clicking it goes to where the whole session is written down. */
+  const drops = linkDrops();
+  const chip = $("#dropChip");
+  chip.hidden = drops === 0;
+  if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
 }
+
+/* ------------------------------------------------------------------------ about */
+
+/* The one surface where the product states what it is, so it is a page rather than a dialog and it
+ * lives off the board — the board is for telemetry. Everything on it is either fixed prose or read
+ * live; the version comes from the backend, because a number typed into the frontend is a number that
+ * will eventually be wrong. */
+
+const ABOUT_LINKS = [
+  ["Repository", "github.com/TomAs-1226/CatalystConsole", "https://github.com/TomAs-1226/CatalystConsole"],
+  ["Documentation", "the docs folder", "https://github.com/TomAs-1226/CatalystConsole/tree/main/docs"],
+  ["FrcCatalyst", "github.com/TomAs-1226/FrcCatalyst", "https://github.com/TomAs-1226/FrcCatalyst"],
+];
+
+const SHORTCUTS = [
+  [["1"], "Dashboard"],
+  [["2"], "Tune"],
+  [["3"], "Logs"],
+  [["4"], "Topics"],
+  [["D"], "Demo data on or off"],
+  [["E"], "Edit layout"],
+  [["A"], "Add a component"],
+  [["L"], "Export or import a layout"],
+  [["?"], "This page"],
+  [["Esc"], "Close whatever is open"],
+];
+
+let aboutRefs = null;
+let ntFrames = 0;
+/* Probed once, on first open. Both files are optional: without them the field view falls back to a
+ * drawn outline, so this is a statement of fact rather than a warning. */
+const bakedAssets = { model: { state: "checking" }, map: { state: "checking" }, probed: false };
+
+async function openExternal(url, feedback) {
+  try {
+    const opened = window.__TAURI__?.opener?.openUrl?.(url);
+    if (opened) { await opened; return; }
+  } catch { /* plugin absent, or no capability grants it */ }
+  try {
+    if (window.open(url, "_blank", "noopener")) return;
+  } catch { /* blocked */ }
+  /* Never a dead end. If nothing here can reach a browser — which is the normal case inside a webview
+   * with no opener permission — hand the address over instead of doing nothing at all. */
+  feedback?.((await copyText(url)) ? "address copied" : "could not open");
+}
+
+async function probeAssets() {
+  if (bakedAssets.probed) return;
+  bakedAssets.probed = true;
+  for (const [slot, url] of [["model", "./vendor/field.glb"], ["map", "./vendor/field-collision.json"]]) {
+    try {
+      const r = await fetch(url, { method: "HEAD" });
+      const size = Number(r.headers.get("content-length"));
+      bakedAssets[slot] = r.ok
+        ? { state: "present", size: Number.isFinite(size) && size > 0 ? size : null }
+        : { state: "absent" };
+    } catch {
+      bakedAssets[slot] = { state: "absent" };
+    }
+  }
+  paintAbout();
+}
+
+function buildAbout() {
+  const root = $("#about");
+  aboutRefs = {};
+  for (const node of root.querySelectorAll("[data-x]")) aboutRefs[node.dataset.x] = node;
+
+  const keys = $("#keyList");
+  keys.innerHTML = "";
+  for (const [combo, what] of SHORTCUTS) {
+    const dt = el("dt");
+    for (const k of combo) dt.appendChild(el("kbd", null, k));
+    keys.append(dt, el("dd", null, what));
+  }
+
+  const links = $("#aboutLinks");
+  links.innerHTML = "";
+  for (const [name, where, url] of ABOUT_LINKS) {
+    const b = el("button", "alink");
+    const note = el("small", null, where);
+    b.append(el("span", null, name), note);
+    b.onclick = () => openExternal(url, (msg) => {
+      note.textContent = msg;
+      setTimeout(() => { note.textContent = where; }, 2200);
+    });
+    links.appendChild(b);
+  }
+
+  /* Kicked off here rather than at launch: an About page nobody opened has no business making a
+   * request, and the update check behind it can sit for a while on a field network. */
+  updateCheck().then((info) => {
+    if (!aboutRefs) return;
+    const current = info && info.current ? info.current : "";
+    aboutRefs.version.textContent = current ? `v${current}` : "—";
+    aboutRefs.versionSrc.textContent = !invoke
+      ? "no backend — version unknown"
+      : !current
+        ? "version unavailable"
+        : info.available
+          ? `v${info.version} available`
+          : "installed build";
+  });
+}
+
+function setAbout(open) {
+  const root = $("#about");
+  if (open) {
+    if (!aboutRefs) buildAbout();
+    probeAssets();
+    root.dataset.open = "true";
+    paintAbout();
+    $("#aboutClose").focus();
+  } else {
+    root.dataset.open = "false";
+  }
+}
+
+function assetLabel(a) {
+  if (a.state === "checking") return "checking…";
+  if (a.state === "absent") return "not bundled";
+  return a.size ? `${(a.size / 1048576).toFixed(1)} MB` : "present";
+}
+
+function paintAbout() {
+  if (!aboutRefs || $("#about").dataset.open !== "true") return;
+  const x = aboutRefs;
+
+  x.dSource.textContent = demo.on
+    ? "Demo data"
+    : nt.status.connected
+      ? nt.status.address || "robot"
+      : "—";
+  x.dRtt.textContent = nt.status.rtt_ms ? `${nt.status.rtt_ms.toFixed(1)} ms` : "—";
+  x.dTopics.textContent = nt.status.topics ? String(nt.status.topics) : "—";
+  x.dUptime.textContent = duration(performance.now() - BOOT);
+  /* Real frames only. Demo ticks are not NetworkTables frames and counting them here would be the
+   * console inventing a number about itself. */
+  x.dFrames.textContent = ntFrames.toLocaleString();
+  x.dDrops.textContent = String(linkDrops());
+
+  for (const [slot, dot, label] of [["model", "dModelDot", "dModel"], ["map", "dMapDot", "dMap"]]) {
+    const a = bakedAssets[slot];
+    x[dot].className = `d ${a.state === "present" ? "ok" : a.state === "absent" ? "" : "warn"}`;
+    x[label].textContent = assetLabel(a);
+  }
+}
+
+$("#aboutBtn").onclick = () => setAbout(true);
+$("#aboutClose").onclick = () => setAbout(false);
+/* Clicking the ground closes it. The document itself does not, or selecting a line of prose would. */
+$("#about").addEventListener("mousedown", (e) => { if (e.target === $("#about")) setAbout(false); });
 
 /* --------------------------------------------------------------------- painting */
 
 let pendingFrame = 0;
 
+/* The control word as of the last paint, so a transition can be spotted rather than a level. */
+let lastControlWord = null;
+
+/* Anything covering the board gets out of the way the moment the robot is enabled.
+ *
+ * Rule two says no modal blocks the dashboard. Opening one is a deliberate act and that is fine —
+ * but a driver who opens the About page in the pit and then gets called to the field would otherwise
+ * find the state lamp, the match timer and the E-stop indicator hidden behind it. Nothing about the
+ * console is worth reading at the moment a robot goes live, so everything stands down. */
+function standDownOverlaysOnEnable() {
+  const word = num("/FMSInfo/FMSControlData", null);
+  if (word === null) { lastControlWord = null; return; }
+
+  const wasEnabled = lastControlWord !== null && (lastControlWord & BIT.enabled) !== 0;
+  const nowEnabled = (word & BIT.enabled) !== 0;
+  lastControlWord = word;
+
+  if (nowEnabled && !wasEnabled && overlayOpen()) closeOverlays();
+}
+
 function paint() {
   if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
+  standDownOverlaysOnEnable();
   paintHeader();
 
   for (const entry of live.values()) {
@@ -1826,8 +2465,10 @@ function paint() {
     }
   }
 
-  const active = document.querySelector('.view[data-active="true"]')?.dataset.view;
+  const active = activeView();
   if (active === "topics") paintTopics();
+  if (active === "logs") tickLinkHistory();
+  paintAbout();
 }
 
 /* Coalesce bursts of NT frames into one paint. `paint` clears the handle itself, so the heartbeat
@@ -1877,6 +2518,7 @@ let pushedFrames = 0;
 
 function applyFrame(frame) {
   if (!frame || demo.on) return; // an explicit demo must not be overwritten by a real robot mid-look
+  ntFrames++;
   const before = Object.keys(nt.v).length;
   Object.assign(nt.v, frame.values);
   nt.status = frame.status;
@@ -1917,10 +2559,74 @@ if (invoke) {
  * updates a second cost nothing; the expensive part is the 3D view, and that keeps its own guard. */
 setInterval(paint, 100);
 
+/* -------------------------------------------------------------------- keyboard */
+
+/* A driver station is operated under pressure, often one-handed, often without looking down. So every
+ * binding is a single unmodified key — and that is exactly why the typing guard is not optional: a
+ * bare "d" must never toggle demo data while someone is halfway through typing a topic path. */
+
+const MODALS = ["#pickModal", "#cfgModal", "#teamModal", "#layoutModal"];
+
+function typingInField(target) {
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable === true;
+}
+
+function overlayOpen() {
+  if ($("#about").dataset.open === "true") return true;
+  return MODALS.some((id) => $(id).dataset.open === "true");
+}
+
+function closeOverlays() {
+  if ($("#about").dataset.open === "true") setAbout(false);
+  /* Through its own close button, not by hiding the element: that button is what saves the edited
+   * config and rebuilds the board, and skipping it left the board out of step with the settings. */
+  if ($("#cfgModal").dataset.open === "true") $("#cfgClose").click();
+  for (const id of ["#pickModal", "#teamModal", "#layoutModal"]) $(id).dataset.open = "false";
+}
+
+/* Null prototype: a lookup by key name must never find `constructor` or `toString` and call it. */
+const KEYS = Object.assign(Object.create(null), {
+  1: () => showView("board"),
+  2: () => showView("tune"),
+  3: () => showView("logs"),
+  4: () => showView("topics"),
+  d: () => setDemo(!demo.on),
+  e: () => $("#editBtn").click(),
+  a: () => openPicker(),
+  l: () => openLayoutModal(),
+  "?": () => setAbout(true),
+  F1: () => setAbout(true),
+});
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    for (const id of ["#pickModal", "#cfgModal", "#teamModal"]) $(id).dataset.open = "false";
+    /* Escape inside a field means "abandon what I am typing", not "throw the dialog away". Closing
+     * the layout modal blanks the paste box, so a stray Escape after pasting a board someone sent you
+     * used to destroy it. Blur first; a second Escape then closes, because by then the field is no
+     * longer focused. */
+    if (typingInField(e.target)) { e.target.blur(); e.preventDefault(); return; }
+    if (overlayOpen()) { closeOverlays(); e.preventDefault(); }
+    return;
   }
+  /* Leave the browser's and the window manager's own combinations alone. */
+  if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+  if (typingInField(e.target)) return;
+
+  /* With something open, the only useful keys are the ones that close it or toggle it. Switching the
+   * view behind a panel you cannot see is not a shortcut, it is a surprise. */
+  if (overlayOpen()) {
+    if (e.key === "?" || e.key === "F1") { closeOverlays(); e.preventDefault(); }
+    return;
+  }
+
+  const action = KEYS[e.key] || (e.key.length === 1 ? KEYS[e.key.toLowerCase()] : null);
+  if (!action) return;
+  e.preventDefault();
+  action();
 });
+
+$("#dropChip").onclick = () => showView("logs");
 
 window.addEventListener("resize", schedulePaint);

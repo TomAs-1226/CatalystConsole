@@ -9,8 +9,12 @@
   <div class="app" id="app" data-live="false" data-edit="false" data-linked="false" data-estop="false">
 
     <header class="top">
-      <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
-      <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
+      <!-- The wordmark is the way into the About page. A discreet target rather than a dock button:
+           the board and the dock are working surfaces and neither has room for vanity. -->
+      <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog">
+        <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+        <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
+      </button>
       <button class="chip" id="linkChip" title="Set team number"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
       <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
       <span class="chip"><i class="d" id="dFms"></i>FMS</span>
@@ -56,11 +60,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         Add component
       </button>
+      <button class="dk" id="layoutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v11M8 3 5 6.2M8 3l3 3.2"/><path d="M16 21V10m0 11 3-3.2M16 21l-3-3.2"/></svg>
+        Layout
+      </button>
       <button class="dk" id="resetBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         Reset
       </button>
       <div class="grow"></div>
+      <!-- Appears only once the link has actually dropped. Silence is the normal state. -->
+      <button class="chip drops" id="dropChip" hidden title="Show this session's link history">—</button>
       <span class="chip" id="rttChip">RTT —</span>
       <button class="dk" id="demoBtn" aria-pressed="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v18l15-9z"/></svg>
@@ -103,6 +113,116 @@
       <p id="cfgDesc"></p>
       <div id="cfgBody"></div>
       <button class="close" id="cfgClose">Done</button>
+    </div>
+  </div>
+
+  <!-- layout portability -->
+  <div class="modal" id="layoutModal">
+    <div class="picker" style="max-width:560px">
+      <h3>Layout</h3>
+      <p>A board set up once, on every driver station. The file is plain JSON — commit it next to your
+         robot code and every laptop in the pit comes up the same.</p>
+
+      <div class="pg">Export</div>
+      <div class="lrow">
+        <button class="lbtn" id="expFile">Save to file</button>
+        <button class="lbtn" id="expClip">Copy to clipboard</button>
+      </div>
+
+      <div class="pg">Import</div>
+      <div class="lrow">
+        <button class="lbtn" id="impFile">Open a file</button>
+        <button class="lbtn" id="impClip">Paste from clipboard</button>
+      </div>
+      <textarea id="impText" rows="4" spellcheck="false" placeholder="…or paste the JSON here"></textarea>
+      <button class="lbtn wide" id="impPaste">Import what is pasted above</button>
+
+      <div class="lstatus" id="layoutStatus"></div>
+      <input type="file" id="impPicker" accept="application/json,.json" hidden />
+      <button class="close" id="layoutClose">Done</button>
+    </div>
+  </div>
+
+  <!-- About: the one surface where the product gets to say what it is. Deliberately not a tile —
+       the board is for telemetry — and deliberately its own page rather than a .modal, because a
+       dialog box is the wrong shape for the thing being said. -->
+  <div class="about" id="about" role="dialog" aria-modal="true" aria-label="About Catalyst Console">
+    <div class="aboutdoc">
+      <button class="aboutx" id="aboutClose" title="Close  ·  Esc" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+
+      <header class="mast">
+        <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+        <div class="mastname">
+          <h1>Catalyst<span>Console</span></h1>
+          <p>A driver station companion for teams running FrcCatalyst.</p>
+        </div>
+        <div class="mastver">
+          <b data-x="version">—</b>
+          <small data-x="versionSrc">reading version…</small>
+        </div>
+      </header>
+
+      <div class="sweep" aria-hidden="true"><i></i></div>
+
+      <section class="rules">
+        <h2 class="ah">The three rules</h2>
+        <p class="alead">Everything here answers to these, in order, and they are not negotiable.</p>
+        <ol>
+          <li>
+            <span class="rn">01</span>
+            <h3>It never controls the robot.</h3>
+            <p>FRC requires the official NI Driver Station, and only one driver station may hold the
+               robot connection. There is no code path in this program that opens that socket. It
+               reads NetworkTables and writes only what a dashboard writes — a tunable, an auto
+               chooser selection — and the backend refuses the control namespaces regardless of what
+               the interface asks for.</p>
+          </li>
+          <li>
+            <span class="rn">02</span>
+            <h3>Nothing it does may impede driving.</h3>
+            <p>No modal blocks the dashboard. No check gates anything. No update prompt ever lands
+               between a driver and their robot. Every failure degrades to a dimmed number and a
+               quiet chip in a corner, because a console that interrupts is worse than no console.</p>
+          </li>
+          <li>
+            <span class="rn">03</span>
+            <h3>It never invents a number.</h3>
+            <p>An unpublished topic shows a dash, never a plausible value. Demo data has to be
+               switched on deliberately and says so on screen while it runs. The <code>.dslog</code>
+               parser refuses versions it does not recognise rather than decoding them into nonsense.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="diag">
+        <h2 class="ah">Live diagnostics</h2>
+        <div class="dgrid">
+          <div class="dcell"><b data-x="dSource">—</b><small>Connected to</small></div>
+          <div class="dcell"><b data-x="dRtt">—</b><small>Round trip</small></div>
+          <div class="dcell"><b data-x="dTopics">—</b><small>Topics</small></div>
+          <div class="dcell"><b data-x="dUptime">—</b><small>Running for</small></div>
+          <div class="dcell"><b data-x="dFrames">—</b><small>NT frames</small></div>
+          <div class="dcell"><b data-x="dDrops">—</b><small>Link drops</small></div>
+        </div>
+        <div class="assets">
+          <span class="asset"><i class="d" data-x="dModelDot"></i>Field model <b data-x="dModel">checking…</b></span>
+          <span class="asset"><i class="d" data-x="dMapDot"></i>Collision map <b data-x="dMap">checking…</b></span>
+        </div>
+      </section>
+
+      <div class="acols">
+        <section>
+          <h2 class="ah">Keyboard</h2>
+          <dl class="keys" id="keyList"></dl>
+        </section>
+        <section>
+          <h2 class="ah">Elsewhere</h2>
+          <div class="links" id="aboutLinks"></div>
+          <p class="credit">Built for FRC teams running FrcCatalyst.</p>
+        </section>
+      </div>
     </div>
   </div>
 

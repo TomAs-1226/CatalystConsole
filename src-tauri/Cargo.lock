@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "catalyst-console"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "byteorder",
  "futures-util",
@@ -438,6 +438,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-tungstenite",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -5,6 +5,7 @@ A driver station companion for teams running [FrcCatalyst](https://github.com/To
 - **[Installing](installing.md)** — with the desktop app, standalone, or from source
 - **[Widgets](widgets.md)** — what each tile shows and how to write your own
 - **[The hub schedule](hub-schedule.md)** — REBUILT shifts, and where the console gets them
+- **[The diagnostics MCP server](mcp.md)** — `--mcp`, what it exposes, and why it cannot drive
 - **[The contract with the robot](../README.md#the-contract-with-the-robot)** — every key it reads
 
 ## The three rules
