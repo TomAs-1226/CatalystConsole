@@ -147,10 +147,43 @@ const rows = Math.ceil(width / CELL);
  * what collision cares most about, so they get drawn explicitly. */
 const height = new Float32Array(cols * rows).fill(-Infinity);
 
+/* Clearance: the underside of the lowest thing overhead.
+ *
+ * A max-height map on its own cannot describe a trench, and gets it exactly backwards. An FRC trench
+ * is not dug into the floor — the floor is carpet and there is a bar above it you have to fit under.
+ * A map that only records the highest surface sees that bar, calls the cell solid, and refuses to let
+ * anything through, when in reality a short robot drives straight down it.
+ *
+ * So a second layer records the lowest geometry standing clear of the carpet. Together the two answer
+ * the question properly: a cell is passable if the floor under it is climbable *and* the robot fits
+ * beneath whatever is over it. */
+const ceiling = new Float32Array(cols * rows).fill(Infinity);
+
+/* The threshold has to be relative to the carpet, so the carpet is found first — from the histogram
+   of vertex heights, which is the same modal-height argument used below and cheap enough to do twice.
+   The alternative is rasterizing everything a second time once the datum is known. */
+const VERTEX_BIN = 0.005;
+const vertexHistogram = new Map();
+for (const tri of triangles) {
+  for (const v of tri) {
+    const bin = Math.round((v[up] - min[up]) / VERTEX_BIN);
+    vertexHistogram.set(bin, (vertexHistogram.get(bin) || 0) + 1);
+  }
+}
+let carpetBin = 0;
+let carpetVotes = -1;
+for (const [bin, count] of vertexHistogram) {
+  if (count > carpetVotes) { carpetVotes = count; carpetBin = bin; }
+}
+const carpetHeight = carpetBin * VERTEX_BIN;
+/** Geometry within this of the carpet is the floor, not something to duck under. */
+const FLOOR_BAND = 0.06;
+
 function stamp(cx, cy, h) {
   if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return;
   const at = cy * cols + cx;
   if (h > height[at]) height[at] = h;
+  if (h > carpetHeight + FLOOR_BAND && h < ceiling[at]) ceiling[at] = h;
 }
 
 /** Cell coordinates and height of a world-space vertex. */
@@ -271,15 +304,21 @@ console.log(
    phantom pits wherever the model happens to be sparse. */
 let untouched = 0;
 const cropped = new Float32Array(outCols * outRows);
+const croppedCeiling = new Float32Array(outCols * outRows);
 for (let cy = 0; cy < outRows; cy++) {
   for (let cx = 0; cx < outCols; cx++) {
-    const raw = height[(cy + cropLoY) * cols + (cx + cropLoX)];
+    const from = (cy + cropLoY) * cols + (cx + cropLoX);
+    const to = cy * outCols + cx;
+    const raw = height[from];
     if (raw === -Infinity) {
-      cropped[cy * outCols + cx] = 0;
+      cropped[to] = 0;
       untouched++;
     } else {
-      cropped[cy * outCols + cx] = raw - datum;
+      cropped[to] = raw - datum;
     }
+    const over = ceiling[from];
+    // Open sky is recorded as a large finite number rather than infinity, so it survives JSON.
+    croppedCeiling[to] = over === Infinity ? 9.999 : over - datum;
   }
 }
 
@@ -308,8 +347,18 @@ writeFileSync(
     lengthMeters: +(outCols * CELL).toFixed(4),
     widthMeters: +(outRows * CELL).toFixed(4),
     heightsMillimetres: mm,
+    clearanceMillimetres: Array.from(croppedCeiling, (h) => Math.round(h * 1000)),
   })
 );
+
+/* A cell is a trench if the floor is drivable but something hangs low over it — the case a
+   height-only map calls solid. Reporting the count is how you tell at a glance whether the season's
+   field actually has one, rather than finding out when a robot refuses to enter it. */
+let trench = 0;
+for (let i = 0; i < croppedCeiling.length; i++) {
+  if (cropped[i] <= 0.05 && croppedCeiling[i] < 1.4) trench++;
+}
+console.log(`  ${trench} cells are floor-with-low-overhead (trench / under-structure passages)`);
 
 const kb = (JSON.stringify(mm).length / 1024).toFixed(0);
 console.log(
