@@ -4,17 +4,30 @@
 // approximates the ramp as a wall, and the simulation quietly disagrees with the thing it is meant to
 // represent. This reads the actual model and derives collision from it.
 //
-// The output is a heightmap: the field on a fixed grid, each cell holding the highest surface at that
-// point. That representation is chosen because it is the one that gets ramps right. Occupancy grids
-// can only say "solid" or "not", so a ramp becomes either a wall you cannot climb or a hole you drive
-// through. With height:
+// The output is two grids over a fixed 5 cm lattice. HEIGHT is the drivable floor in each cell — the
+// surface a wheel actually rests on. CLEARANCE is the underside of the next thing above it, and only
+// when a robot could get under there at all. A heightmap is chosen over an occupancy grid because it
+// is the representation that gets ramps right: occupancy can only say "solid" or "not", so a ramp
+// becomes either a wall you cannot climb or a hole you drive through. With floor and ceiling:
 //
-//   * flat carpet          -> height ~0, drivable
-//   * a ramp               -> a gradient, drivable if the slope is gentle enough to climb
-//   * a trench floor       -> height below carpet, drivable, with steep walls either side
+//   * flat carpet          -> height ~0, open sky, drivable
+//   * a ramp               -> a gradient, drivable while the slope stays under what wheels can climb
+//   * a trench             -> height ~0 with a low ceiling; a short robot fits, a tall one does not
 //   * structure            -> height above what a robot can climb, blocked
 //
-// so all three fall out of one number per cell and one slope test, rather than three special cases.
+// so all four fall out of two numbers per cell and one slope test, rather than four special cases.
+//
+// Height is the DRIVABLE FLOOR, not the column maximum. That distinction is the whole reason the
+// trench works. Take the maximum and a trench cell reports the top of the bar; pair it with a
+// clearance taken as a minimum over the same samples and clearance <= height becomes an arithmetic
+// identity, so the one shape the consumer needs — carpet with a bar over it — cannot be expressed.
+// The invariant here is the other way round and is asserted before anything is written:
+//
+//   clearance >= height, always, for every cell.
+//
+// Loose game pieces are excluded. The CAD models the fuel where a referee sets it, heaped across
+// midfield; rasterized as terrain that is a slab nothing can climb. A robot drives through fuel and
+// knocks it aside, so it belongs to the 3D view and to SimulatedGamePiece, not to the terrain map.
 //
 //   npm run field-collision                              # uses src/vendor/field.glb
 //   npm run field-collision -- path/to.glb
@@ -121,11 +134,104 @@ const doc = await io.read(source);
 
 // ---------------------------------------------------------------- gather triangles
 
+/* Loose game pieces are not terrain.
+ *
+ * The 2026 field CAD places 456 balls, 408 of them on the carpet and 360 of those heaped across
+ * midfield. Rasterized as terrain they are a 2 x 7 m slab 150 mm proud of the floor lying straight
+ * across the field, which nothing can climb at a sane step tolerance, and they poison the clearance
+ * layer as well because a ball on the carpet reads as something overhead.
+ *
+ * Identification cannot rely on names. `gltf-transform optimize` in field-cad.mjs flattens, instances
+ * and palettizes the model, and that discards them — 110 of 110 meshes in field.glb are unnamed. The
+ * name is still tried first so that pointing this script at the raw KOP glb, where the part is
+ * "GE-26900_ FUEL", does the obvious thing. Anchored to the leaf part name past SolidWorks' -N
+ * instance suffixes: a bare /\bfuel\b/ matches 916 nodes in the raw CAD and would delete the hub's
+ * Fuel Counter mechanism along with the fuel. This form matches exactly the 456 balls. */
+const GAME_PIECE_NAME =
+  /(?:^|\/)[^/]*\b(fuel|game[ _-]?piece|cargo|power[ _-]?cell|boulder)s?(?:[ _-]*\d+)*\s*$/i;
+
+/** Every vertex of one placement, in world space. */
+function placementPoints(mesh, matrix) {
+  const points = [];
+  const p = [0, 0, 0];
+  for (const prim of mesh.listPrimitives()) {
+    const position = prim.getAttribute("POSITION");
+    if (!position) continue;
+    for (let i = 0; i < position.getCount(); i++) {
+      position.getElement(i, p);
+      points.push(apply(matrix, p));
+    }
+  }
+  return points;
+}
+
+/** World-space bounding box of a set of points. */
+function boundsOf(points) {
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of points)
+    for (let k = 0; k < 3; k++) {
+      if (p[k] < lo[k]) lo[k] = p[k];
+      if (p[k] > hi[k]) hi[k] = p[k];
+    }
+  return [lo, hi];
+}
+
+/* Measured in WORLD space rather than local: KHR_mesh_quantization scales each axis of the stored
+ * mesh independently, so a quantized ball is an ellipsoid until the node matrix is applied.
+ *
+ * Every threshold is measured against this model rather than guessed:
+ *   placements >= 24   the fuel comes as 456; the next-most-placed candidate is 56
+ *   50..450 mm         the fuel is 150 mm. Under 50 mm everything is a fastener and could not block a
+ *                      robot anyway; over 450 mm nothing is a piece you drive through
+ *   aspect <= 1.25     the fuel is 1.03. The roundest non-fuel candidate is 1.22, and that one is
+ *                      rejected twice over
+ *   cv <= 0.10         every vertex the same distance from the centre. The fuel scores 0.0044 and the
+ *                      next-best candidate scores 0.0639, a 14x margin. This is the clause doing the
+ *                      work: nothing in a field frame is a sphere.
+ *
+ * It excludes exactly one node of 110, and no cell stops being structure — it never masks a wall. */
+function isLooseGamePiece(node, mesh, matrix, placements) {
+  if (GAME_PIECE_NAME.test(node.getName() || "") || GAME_PIECE_NAME.test(mesh.getName() || ""))
+    return true;
+  if (placements < 24) return false;
+
+  const points = placementPoints(mesh, matrix);
+  if (points.length < 12) return false;
+
+  const [lo, hi] = boundsOf(points);
+  const size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+  const largest = Math.max(...size);
+  if (largest < 0.05 || largest > 0.45) return false;
+  if (largest / Math.max(Math.min(...size), 1e-9) > 1.25) return false;
+
+  const centre = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  let sum = 0;
+  let sumSq = 0;
+  for (const p of points) {
+    const r = Math.hypot(p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]);
+    sum += r;
+    sumSq += r * r;
+  }
+  const mean = sum / points.length;
+  if (mean <= 0) return false;
+  return Math.sqrt(Math.max(sumSq / points.length - mean * mean, 0)) / mean <= 0.1;
+}
+
 /** Walk the scene graph accumulating world transforms, and emit every triangle in world space. */
 function worldTriangles(document) {
   const out = [];
   let instancedMeshes = 0;
   let placements = 0;
+  const dropped = [];
+
+  /* How many nodes share each mesh: the un-instanced equivalent of an instance count, so the shape
+     test still has something to weigh if a future pipeline stops emitting EXT_mesh_gpu_instancing. */
+  const meshUsers = new Map();
+  for (const node of document.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (mesh) meshUsers.set(mesh, (meshUsers.get(mesh) || 0) + 1);
+  }
 
   const emit = (mesh, matrix) => {
     for (const prim of mesh.listPrimitives()) {
@@ -159,7 +265,10 @@ function worldTriangles(document) {
          came from and why the map came out 85% bare carpet. */
       const batch = node.getExtension("EXT_mesh_gpu_instancing");
       const count = batch ? instanceCount(batch) : 0;
-      if (count > 0) {
+      const first = count > 0 ? multiply(matrix, instanceMatrix(batch, 0)) : matrix;
+      if (isLooseGamePiece(node, mesh, first, count || meshUsers.get(mesh) || 1)) {
+        dropped.push({ node, mesh, count: count || 1, first });
+      } else if (count > 0) {
         instancedMeshes++;
         placements += count;
         for (let i = 0; i < count; i++) emit(mesh, multiply(matrix, instanceMatrix(batch, i)));
@@ -174,6 +283,31 @@ function worldTriangles(document) {
     for (const node of scene.listChildren()) visit(node, identity());
   }
   console.log(`instancing: ${placements} placements across ${instancedMeshes} instanced meshes`);
+  if (dropped.length) {
+    let total = 0;
+    for (const d of dropped) {
+      const [lo, hi] = boundsOf(placementPoints(d.mesh, d.first));
+      const mm3 = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]].map((v) => Math.round(v * 1000));
+      total += d.count;
+      console.log(
+        `  excluded ${d.count} placements of a ${mm3.join(" x ")} mm loose game piece` +
+          (d.node.getName() ? ` ("${d.node.getName()}")` : " (unnamed — matched by shape)")
+      );
+    }
+    console.log(
+      `  ${total} game pieces kept out of the collision map: they are drawn in 3D and simulated by ` +
+        `SimulatedGamePiece, but a robot drives through them`
+    );
+  } else {
+    /* Loud, because silence here is indistinguishable from success and costs a season. The 2026 field
+       has 456 balls piled at midfield; if a model turns up with none recognised, either the pieces are
+       gone or the shape test has stopped matching them, and the map now has a wall down the middle
+       that nobody put there. */
+    console.warn(
+      "WARNING: no loose game pieces were recognised. If this field has any, they are now baked into " +
+        "the terrain and will read as an obstacle a robot cannot cross."
+    );
+  }
   return out;
 }
 
@@ -285,54 +419,53 @@ const rows = Math.ceil(width / CELL);
 
 // ---------------------------------------------------------------- rasterize
 
-/* Highest surface per cell, by proper scan conversion.
+/* A vertical occupancy column per cell, by proper scan conversion.
  *
  * Sampling vertices and centroids is not enough, and the way it fails is instructive: the carpet is a
  * handful of triangles twenty metres across, so point sampling stamps about seven cells out of a
  * hundred thousand and declares the entire field empty. Every triangle has to be filled.
  *
- * Edges are rasterized separately as well. A vertical face — which is to say every wall — projects
- * from above to a line with no area, so the barycentric fill covers none of it. The walls are exactly
- * what collision cares most about, so they get drawn explicitly. */
-const height = new Float32Array(cols * rows).fill(-Infinity);
-
-/* Clearance: the underside of the lowest thing overhead.
+ * A column rather than a pair of scalars, because a minimum and a maximum cannot describe a trench.
+ * Both come from the same set of stamped samples, so the "lowest thing above the carpet" is always at
+ * or below the "highest thing anywhere" and clearance <= height is forced — which is exactly what the
+ * previous version emitted, for all 9163 of its non-sky cells. That is not a quirk of this field: it
+ * was unreachable by construction. Worse, it read every ramp deck as a 7 cm roof over its own driving
+ * surface, so a robot refused to climb the floor it was standing on.
  *
- * A max-height map on its own cannot describe a trench, and gets it exactly backwards. An FRC trench
- * is not dug into the floor — the floor is carpet and there is a bar above it you have to fit under.
- * A map that only records the highest surface sees that bar, calls the cell solid, and refuses to let
- * anything through, when in reality a short robot drives straight down it.
+ * A column of bits records where material is *absent*, which is the question actually being asked.
+ * Floor and ceiling are then read off the gaps, further down.
  *
- * So a second layer records the lowest geometry standing clear of the carpet. Together the two answer
- * the question properly: a cell is passable if the floor under it is climbable *and* the robot fits
- * beneath whatever is over it. */
-const ceiling = new Float32Array(cols * rows).fill(Infinity);
+ * 5 mm bins: half the quantisation of a 1 cm bin, and on a ramp that difference lands straight in the
+ * per-cell step the climb limit is judged against. Eight megabytes for a whole field. */
+const ZBIN = 0.005;
+const NBINS = Math.ceil(extent[up] / ZBIN) + 2;
+const WORDS = Math.ceil(NBINS / 32);
+const occupancy = new Uint32Array(cols * rows * WORDS);
 
-/* The threshold has to be relative to the carpet, so the carpet is found first — from the histogram
-   of vertex heights, which is the same modal-height argument used below and cheap enough to do twice.
-   The alternative is rasterizing everything a second time once the datum is known. */
-const VERTEX_BIN = 0.005;
-const vertexHistogram = new Map();
-for (const tri of triangles) {
-  for (const v of tri) {
-    const bin = Math.round((v[up] - min[up]) / VERTEX_BIN);
-    vertexHistogram.set(bin, (vertexHistogram.get(bin) || 0) + 1);
-  }
-}
-let carpetBin = 0;
-let carpetVotes = -1;
-for (const [bin, count] of vertexHistogram) {
-  if (count > carpetVotes) { carpetVotes = count; carpetBin = bin; }
-}
-const carpetHeight = carpetBin * VERTEX_BIN;
-/** Geometry within this of the carpet is the floor, not something to duck under. */
-const FLOOR_BAND = 0.06;
+/* The highest SURFACE SAMPLE per cell, alongside the bins — the height of the material where it
+   crosses this cell, not the top of the span stamped for it. Bins are deliberately generous: a fill
+   marks half a cell's rise either side of the sample so that a steep face leaves no holes for the gap
+   test to fall through. Take a peak from that and every sloped cell is overstated by half its own
+   gradient, which on a ramp doubles the apparent per-cell step — the exact quantity the climb limit
+   is judged against. So the two are kept apart: spans decide where material is, samples decide how
+   high it is. */
+const peak = new Float32Array(cols * rows).fill(-Infinity);
 
-function stamp(cx, cy, h) {
+/* Mark every bin a surface passes through, not just the bin it ends in. Material is continuous, and a
+   column punched full of 5 mm holes reads as a stack of passages. */
+function stampSpan(cx, cy, zLo, zHi, sample) {
   if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return;
+  const lo = zLo < zHi ? zLo : zHi;
+  const hi = zLo < zHi ? zHi : zLo;
+  let b0 = Math.floor(lo / ZBIN);
+  let b1 = Math.floor(hi / ZBIN);
+  if (b1 < 0 || b0 >= NBINS) return;
+  if (b0 < 0) b0 = 0;
+  if (b1 >= NBINS) b1 = NBINS - 1;
   const at = cy * cols + cx;
-  if (h > height[at]) height[at] = h;
-  if (h > carpetHeight + FLOOR_BAND && h < ceiling[at]) ceiling[at] = h;
+  const base = at * WORDS;
+  for (let b = b0; b <= b1; b++) occupancy[base + (b >> 5)] |= 1 << (b & 31);
+  if (sample > peak[at]) peak[at] = sample;
 }
 
 /** Cell coordinates and height of a world-space vertex. */
@@ -340,14 +473,28 @@ function project(v) {
   return [(v[ax] - min[ax]) / CELL, (v[ay] - min[ay]) / CELL, v[up] - min[up]];
 }
 
+/* Edges are rasterized as well as fills. A vertical face — every wall, every ramp skirt, every trench
+   upright — projects from above to a line with no area, so the barycentric fill covers none of it,
+   and walls are exactly what collision cares most about.
+
+   Each step stamps the segment's z SPAN rather than its endpoint. A vertical edge collapses to one
+   cell and therefore one step, so stamping endpoints alone would leave every bin between them empty
+   and a solid wall would read as a passage its own height — the one mistake that would let a robot
+   drive through the perimeter. */
 function rasterEdge(a, b) {
   const steps = Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]))) + 1;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    stamp(
+    const tNext = Math.min(1, (i + 1) / steps);
+    const z = a[2] + (b[2] - a[2]) * t;
+    const zNext = a[2] + (b[2] - a[2]) * tNext;
+    stampSpan(
       Math.floor(a[0] + (b[0] - a[0]) * t),
       Math.floor(a[1] + (b[1] - a[1]) * t),
-      a[2] + (b[2] - a[2]) * t
+      z,
+      zNext,
+      // A wall's top is a surface a robot can end up on, so an edge offers its highest point.
+      Math.max(z, zNext)
     );
   }
 }
@@ -364,6 +511,16 @@ for (const tri of triangles) {
   const area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
   if (Math.abs(area) < 1e-9) continue;   // edge-on: the edges above already covered it
 
+  /* How far the triangle's plane rises across half a cell, so a steep face fills the bins it crosses
+     instead of leaving gaps between one cell's sample and the next. Without it a 30 degree ramp deck
+     is a ladder of 5 mm rungs with air in between, and the gap test reads the air. The plane's z
+     gradient falls straight out of the projected cross product, whose z component is the area. */
+  const nx = (p1[1] - p0[1]) * (p2[2] - p0[2]) - (p1[2] - p0[2]) * (p2[1] - p0[1]);
+  const ny = (p1[2] - p0[2]) * (p2[0] - p0[0]) - (p1[0] - p0[0]) * (p2[2] - p0[2]);
+  const halfRise = (0.5 * (Math.abs(nx) + Math.abs(ny))) / Math.abs(area);
+  const triLo = Math.min(p0[2], p1[2], p2[2]);
+  const triHi = Math.max(p0[2], p1[2], p2[2]);
+
   const loX = Math.max(0, Math.floor(Math.min(p0[0], p1[0], p2[0])));
   const hiX = Math.min(cols - 1, Math.ceil(Math.max(p0[0], p1[0], p2[0])));
   const loY = Math.max(0, Math.floor(Math.min(p0[1], p1[1], p2[1])));
@@ -378,9 +535,107 @@ for (const tri of triangles) {
       const w1 = ((p2[0] - px) * (p0[1] - py) - (p0[0] - px) * (p2[1] - py)) / area;
       const w2 = 1 - w0 - w1;
       if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-      stamp(cx, cy, w0 * p0[2] + w1 * p1[2] + w2 * p2[2]);
+      const zc = w0 * p0[2] + w1 * p1[2] + w2 * p2[2];
+      stampSpan(cx, cy, Math.max(triLo, zc - halfRise), Math.min(triHi, zc + halfRise), zc);
     }
   }
+}
+
+/* ---------------------------------------------------------------- where the ground is
+ *
+ * Measured by area, which is to say by how many cells a surface covers, not by how many vertices it
+ * has.
+ *
+ * This used to be the modal height of the model's VERTICES, and it was one part removal away from
+ * catastrophe the whole time. The carpet is a handful of enormous triangles, so it carries almost no
+ * vertices; it only ever won that vote because 456 balls were sitting on it contributing tens of
+ * thousands. Stop rasterizing the fuel and the mode jumps to a shelf a metre up, every column
+ * measures its floor from there, and the entire field emits as flat carpet with the real structure
+ * recorded as a ceiling hanging over it. The map looked plausible and was meaningless.
+ *
+ * Counting cells per bin cannot be fooled that way: the carpet is the one surface underneath every
+ * cell in the model, so it wins by two orders of magnitude however few triangles it is made of. */
+const binCells = new Int32Array(NBINS);
+for (let at = 0; at < cols * rows; at++) {
+  const base = at * WORDS;
+  for (let w = 0; w < WORDS; w++) {
+    const bits = occupancy[base + w];
+    if (!bits) continue;
+    for (let k = 0; k < 32; k++) if ((bits >>> k) & 1) binCells[(w << 5) + k]++;
+  }
+}
+let groundBin = 0;
+for (let b = 1; b < NBINS; b++) if (binCells[b] > binCells[groundBin]) groundBin = b;
+const carpetHeight = groundBin * ZBIN;
+console.log(
+  `ground plane at ${carpetHeight.toFixed(3)} m above the model floor, covering ` +
+    `${binCells[groundBin]} of ${cols * rows} cells`
+);
+/* Every height in the file is measured from here, so a wrong answer here is not a wrong detail, it is
+   a wrong map — and the failure is silent, because the output still looks like a field. The winner
+   should be the carpet, and the carpet is under nearly everything. */
+if (binCells[groundBin] < cols * rows * 0.5)
+  console.warn(
+    `WARNING: the ground plane covers only ` +
+      `${((binCells[groundBin] / (cols * rows)) * 100).toFixed(0)}% of the grid. A carpet covers ` +
+      `almost all of it, so this is probably not the carpet and every height below is measured from ` +
+      `the wrong datum.`
+  );
+
+/* ---------------------------------------------------------------- floor and ceiling
+ *
+ * Read each column once. The drivable floor is the top of the material the carpet leads up to; the
+ * ceiling is the underside of the next thing above it, and only when a robot could get under there.
+ *
+ * The gap test is the whole trick, and it is what tells a ramp from a trench. In the CAD the carpet is
+ * one quad running underneath everything, so a ramp is a hollow shell floating over carpet and a
+ * trench rail is a bar floating over carpet: structurally the same column. What separates them is how
+ * much air is in between. A ramp deck is a 14 mm plate sitting at most 165 mm up, so its underside is
+ * a hand's breadth over the carpet — you ride over it, and a rule that stopped at the first gap would
+ * drive the robot underneath its own floor. The trench rail is 565 mm up — you duck under it.
+ *
+ * 300 mm is the dividing line, and it is a physical claim rather than a tuning knob: nothing in FRC
+ * fits through a smaller gap, so a smaller gap is not a passage, it is the underside of the slab
+ * being stood on. Below it, material is absorbed into the floor and the floor keeps climbing. */
+const MIN_PASSAGE = 0.3;
+const PASSAGE_BINS = Math.round(MIN_PASSAGE / ZBIN);
+
+const height = new Float32Array(cols * rows).fill(-Infinity);
+const ceiling = new Float32Array(cols * rows).fill(Infinity);
+
+const runLo = new Int32Array(NBINS);
+const runHi = new Int32Array(NBINS);
+
+for (let at = 0; at < cols * rows; at++) {
+  const base = at * WORDS;
+  let runs = 0;
+  for (let w = 0; w < WORDS; w++) {
+    const bits = occupancy[base + w];
+    if (!bits) continue;   // most of a field is air; skipping empty words is most of the speed
+    for (let k = 0; k < 32; k++) {
+      if (!((bits >>> k) & 1)) continue;
+      const b = (w << 5) + k;
+      if (runs > 0 && b === runHi[runs - 1] + 1) runHi[runs - 1] = b;
+      else { runLo[runs] = b; runHi[runs] = b; runs++; }
+    }
+  }
+  // No geometry at all: left as -Infinity, which the crop reads as untouched carpet.
+  if (runs === 0) continue;
+
+  let floorBin = groundBin;
+  let over = 0;
+  for (; over < runs; over++) {
+    if (runLo[over] > floorBin + PASSAGE_BINS) break;   // real air: everything above is a ceiling
+    if (runHi[over] > floorBin) floorBin = runHi[over];
+  }
+
+  /* Where the ground run reaches the top of the column — carpet, a ramp deck, the top of a wall,
+     which is most of the map — the surface a wheel rests on was measured directly, so use the
+     measurement. Only where something is left above it, which is to say under a trench bar, does the
+     floor have to fall back to the bin top and carry up to 5 mm of quantisation. */
+  height[at] = floorBin === runHi[runs - 1] ? peak[at] : (floorBin + 1) * ZBIN;
+  // The bin's bottom, so headroom is understated rather than overstated.
+  ceiling[at] = over < runs ? runLo[over] * ZBIN : Infinity;
 }
 
 /* ---------------------------------------------------------------- find the carpet
@@ -408,6 +663,19 @@ for (const [bin, count] of histogram) {
 }
 const datum = datumBin * BIN;
 
+/* Two independent measurements of the same plane: the modal floor here, and the modal occupied bin
+   above. They are computed from different quantities and must land within a bin of each other. Every
+   height in the file is relative to this number, so getting it wrong does not produce a slightly
+   wrong map, it produces a confident and entirely false one — which has happened twice in this
+   script's history, once from the instancing bug and once from counting vertices instead of area.
+   Two ways of asking is cheap; finding out at an event is not. */
+if (Math.abs(datum - carpetHeight) > ZBIN + BIN)
+  console.warn(
+    `WARNING: the two carpet estimates disagree — modal floor ${datum.toFixed(3)} m against ` +
+      `ground plane ${carpetHeight.toFixed(3)} m. One of them is not the carpet, and every height ` +
+      `in the output is measured from the first.`
+  );
+
 /* Bound the field by its walls, not by its floor. The venue floor outside the perimeter is at exactly
    the same height as the carpet — physically true, and useless for finding the playing surface, which
    is why cropping to the carpet datum returns the whole room. */
@@ -416,9 +684,17 @@ const WALL_HEIGHT = 0.25;
 const FIELD_LENGTH = Number(process.env.FIELD_LENGTH || 16.54);
 const FIELD_WIDTH = Number(process.env.FIELD_WIDTH || 8.07);
 
-/** True where a cell is too tall to drive onto. Cells no triangle touched count as floor. */
+/* True where a cell has structure standing in it. Cells no triangle touched count as floor.
+
+   Deliberately the column maximum and not the drivable floor. This test exists only to trace the
+   perimeter ring so the crop can be centred on it, and "is there a wall here" is a question about
+   whether any material stands in the cell, not about whether you could crawl under it. Judged on the
+   floor instead, the perimeter reads as bare carpet with something overhead, the fill walks straight
+   out through it into the venue, and the crop falls back to wall bounding-box centring — which is
+   biased by driver-station structure and is the exact route by which this map once came out a metre
+   off across the field width. */
 const isWall = (at) => {
-  const h = height[at];
+  const h = peak[at];
   return h !== -Infinity && h - datum >= WALL_HEIGHT;
 };
 
@@ -558,6 +834,12 @@ console.log(
     `${outCols} x ${outRows} cells = ${(outCols * CELL).toFixed(2)} x ${(outRows * CELL).toFixed(2)} m`
 );
 
+/* Nothing overhead, as the file format spells it. A sentinel rather than a real measurement, and one
+   the consumer knows by the same number — FieldHeightmap.OPEN_SKY. It once read 9.0 there against
+   9.999 here and every comparison against it silently missed, so it is written once and used
+   everywhere below. */
+const OPEN_SKY_MM = 9999;
+
 /* Cells no triangle touched are carpet. The alternative — treating them as holes — would punch
    phantom pits wherever the model happens to be sparse. */
 let untouched = 0;
@@ -575,8 +857,8 @@ for (let cy = 0; cy < outRows; cy++) {
       cropped[to] = raw - datum;
     }
     const over = ceiling[from];
-    // Open sky is recorded as a large finite number rather than infinity, so it survives JSON.
-    croppedCeiling[to] = over === Infinity ? 9.999 : over - datum;
+    // A large finite number rather than infinity, so it survives JSON.
+    croppedCeiling[to] = over === Infinity ? OPEN_SKY_MM / 1000 : over - datum;
   }
 }
 
@@ -585,13 +867,53 @@ for (let cy = 0; cy < outRows; cy++) {
 /* Millimetres as integers. Sub-millimetre field geometry is not a thing, and it makes the file a
    third the size of the same numbers as floats. */
 const mm = Array.from(cropped, (h) => Math.round(h * 1000));
+const clearanceMm = Array.from(croppedCeiling, (h) => Math.round(h * 1000));
 
-const stats = { below: 0, flat: 0, low: 0, tall: 0 };
+const stats = { sunken: 0, carpet: 0, low: 0, structure: 0 };
 for (const h of mm) {
-  if (h < -20) stats.below++;
-  else if (h <= 20) stats.flat++;
+  if (h < -20) stats.sunken++;
+  else if (h <= 20) stats.carpet++;
   else if (h <= 300) stats.low++;
-  else stats.tall++;
+  else stats.structure++;
+}
+
+/* A cell you drive under: drivable floor with something over it, far enough over it that getting
+   under is a question of robot height rather than a question of whether the geometry is solid. This
+   is the shape a height-only map calls solid and refuses to enter. Counting them is how you tell at a
+   glance whether the season's field actually has a trench, rather than finding out when a robot will
+   not go down it. */
+let passages = 0;
+let lowestPassage = Infinity;
+for (let i = 0; i < clearanceMm.length; i++) {
+  if (clearanceMm[i] >= OPEN_SKY_MM) continue;
+  passages++;
+  if (clearanceMm[i] < lowestPassage) lowestPassage = clearanceMm[i];
+}
+
+/* The invariant the consumer is written against: a ceiling is the underside of something with
+   drivable floor beneath it, so it cannot sit below the floor it stands over. The previous generator
+   could not satisfy this for a single cell — clearance was a minimum and height a maximum over the
+   same samples — which quietly made FieldHeightmap's whole trench path dead code. Fail the run rather
+   than write a file that lies, so the next person to touch the rasterizer finds out here instead of
+   at an event. */
+const broken = [];
+for (let i = 0; i < clearanceMm.length; i++) {
+  if (clearanceMm[i] < mm[i]) broken.push(i);
+}
+if (broken.length) {
+  const worst = broken.reduce((a, i) => (clearanceMm[i] - mm[i] < clearanceMm[a] - mm[a] ? i : a));
+  console.error(
+    `${broken.length} cells have a ceiling below their own floor — worst at ` +
+      `(${worst % outCols}, ${Math.floor(worst / outCols)}), floor ${mm[worst]} mm under a ` +
+      `ceiling of ${clearanceMm[worst]} mm. Nothing was written.`
+  );
+  process.exit(1);
+}
+if (stats.sunken) {
+  console.warn(
+    `WARNING: ${stats.sunken} cells sit more than 20 mm below the carpet. Height is the drivable ` +
+      `floor, and an FRC field has nothing dug into it, so this is a rasterizer fault, not terrain.`
+  );
 }
 
 /* lengthMeters is the emitted grid's size, not the field size we aimed for. Consumers are promised
@@ -609,7 +931,7 @@ const payload = JSON.stringify({
   lengthMeters: outCols * CELL,
   widthMeters: outRows * CELL,
   heightsMillimetres: mm,
-  clearanceMillimetres: Array.from(croppedCeiling, (h) => Math.round(h * 1000)),
+  clearanceMillimetres: clearanceMm,
 });
 
 /* One buffer, every destination, one run. Sizes are read back off disk after writing rather than
@@ -620,20 +942,22 @@ const written = outPaths.map((dest) => {
   return { dest, bytes: statSync(dest).size };
 });
 
-/* A cell is a trench if the floor is drivable but something hangs low over it — the case a
-   height-only map calls solid. Reporting the count is how you tell at a glance whether the season's
-   field actually has one, rather than finding out when a robot refuses to enter it. */
-let trench = 0;
-for (let i = 0; i < croppedCeiling.length; i++) {
-  if (cropped[i] <= 0.05 && croppedCeiling[i] < 1.4) trench++;
-}
-console.log(`  ${trench} cells are floor-with-low-overhead (trench / under-structure passages)`);
+console.log(
+  passages
+    ? `  ${passages} cells are drive-under passages (trench / under-structure), lowest bar ` +
+        `${lowestPassage} mm — a robot taller than that is turned away, a shorter one goes through`
+    : `  no drive-under passages found: every cell is open sky. If this field has a trench, the ` +
+        `${MIN_PASSAGE * 1000} mm passage threshold or the rasterizer is wrong.`
+);
 
 /* A picture of what was actually written. The percentages say how much of the map is structure but
    not where any of it is, and "8.1% structure" read as perfectly plausible for the whole time every
    instanced part was stacked in one pile at midfield. Each character is the tallest cell in its
    block, so walls and uprights show up rather than being averaged away; rows are pooled twice as
-   hard as columns because terminal characters are about twice as tall as they are wide. */
+   hard as columns because terminal characters are about twice as tall as they are wide.
+
+   A passage outranks the floor under it, because a trench reads as bare carpet in the height grid and
+   would otherwise be invisible in the one picture anyone actually looks at. */
 function occupancyMap() {
   const wide = Math.max(1, Math.round(outCols / 110));
   const tall = wide * 2;
@@ -641,13 +965,15 @@ function occupancyMap() {
   for (let by = 0; by < outRows; by += tall) {
     let line = "  ";
     for (let bx = 0; bx < outCols; bx += wide) {
-      let peak = -Infinity;
+      let tallest = -Infinity;
+      let under = false;
       for (let cy = by; cy < Math.min(by + tall, outRows); cy++)
         for (let cx = bx; cx < Math.min(bx + wide, outCols); cx++) {
-          const h = mm[cy * outCols + cx];
-          if (h > peak) peak = h;
+          const at = cy * outCols + cx;
+          if (mm[at] > tallest) tallest = mm[at];
+          if (clearanceMm[at] < OPEN_SKY_MM) under = true;
         }
-      line += peak > 300 ? "#" : peak > 20 ? "+" : peak < -20 ? "v" : ".";
+      line += under ? "~" : tallest > 300 ? "#" : tallest > 20 ? "+" : ".";
     }
     lines.push(line);
   }
@@ -655,7 +981,7 @@ function occupancyMap() {
 }
 
 console.log(
-  `occupancy (# structure, + low, . carpet, v below; origin top-left, +x right, +y down)\n` +
+  `occupancy (# structure, + low, ~ drive-under, . carpet; origin top-left, +x right, +y down)\n` +
     occupancyMap()
 );
 
@@ -666,9 +992,9 @@ console.log(
     written.map((w) => `  ${w.dest}  (${(w.bytes / 1024).toFixed(0)} KB, ${w.bytes} bytes)`).join("\n") +
     "\n" +
     `  ${outCols} x ${outRows} cells at ${CELL * 100} cm\n` +
-    `  ${((stats.below / mm.length) * 100).toFixed(1)}% below carpet (trench), ` +
-    `${((stats.flat / mm.length) * 100).toFixed(1)}% carpet, ` +
-    `${((stats.low / mm.length) * 100).toFixed(1)}% low (ramps, trench walls, bumper-height), ` +
-    `${((stats.tall / mm.length) * 100).toFixed(1)}% structure\n` +
+    `  ${((stats.carpet / mm.length) * 100).toFixed(1)}% carpet, ` +
+    `${((stats.low / mm.length) * 100).toFixed(1)}% low (ramps, kickplates, bumper-height), ` +
+    `${((stats.structure / mm.length) * 100).toFixed(1)}% structure, ` +
+    `${((passages / mm.length) * 100).toFixed(1)}% drive-under\n` +
     `  ${((untouched / mm.length) * 100).toFixed(1)}% of cells had no geometry and were taken as carpet`
 );
