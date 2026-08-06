@@ -1517,6 +1517,35 @@ $("#resetBtn").onclick = () => {
 
 $("#demoBtn").onclick = () => setDemo(!demo.on);
 
+/* ---------------------------------------------------------------------- updates */
+
+/* Checked once, quietly, a few seconds after launch. If there is nothing to install nothing appears;
+ * if the network is unreachable — which on a field is the normal case — nothing appears either. The
+ * only visible outcome is a chip in the dock, and installing is always a deliberate click. An update
+ * prompt is exactly the sort of thing rule two exists to keep away from a driver. */
+if (invoke) {
+  setTimeout(async () => {
+    const info = await invoke("check_update").catch(() => null);
+    if (!info || !info.available) return;
+
+    const chip = el("button", "dk");
+    chip.style.cssText = "background:var(--brand);color:#fff";
+    chip.textContent = `Update to ${info.version}`;
+    chip.title = info.notes ? info.notes.slice(0, 300) : `You are on ${info.current}`;
+    chip.onclick = async () => {
+      chip.disabled = true;
+      chip.textContent = "Installing…";
+      const failed = await invoke("install_update").catch((e) => String(e));
+      if (failed) {
+        chip.disabled = false;
+        chip.textContent = "Update failed";
+        chip.title = failed;
+      }
+    };
+    $("#rttChip").insertAdjacentElement("beforebegin", chip);
+  }, 6000);
+}
+
 /* ------------------------------------------------------------------ team number */
 
 $("#linkChip").onclick = async () => {

@@ -123,6 +123,69 @@ fn ds_log_dir() -> String {
     dslog::default_log_dir().to_string_lossy().to_string()
 }
 
+/// What an update check found, in the shape the dashboard wants to render.
+#[derive(Serialize, Clone, Default)]
+struct UpdateInfo {
+    available: bool,
+    version: String,
+    current: String,
+    notes: String,
+    error: String,
+}
+
+/// Look for a newer release, without ever getting in the way.
+///
+/// Returns rather than throws on failure. A driver station is regularly on a field network with no
+/// route to the internet, and "could not reach GitHub" is the normal case there, not an error worth
+/// showing anyone. The dashboard shows a chip when there is something to install and nothing at all
+/// otherwise — no dialog, no modal, and never a prompt between a driver and their robot.
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> UpdateInfo {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let current = app.package_info().version.to_string();
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            return UpdateInfo { current, error: e.to_string(), ..Default::default() };
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => UpdateInfo {
+            available: true,
+            version: update.version.clone(),
+            current,
+            notes: update.body.clone().unwrap_or_default(),
+            error: String::new(),
+        },
+        Ok(None) => UpdateInfo { current, ..Default::default() },
+        Err(e) => UpdateInfo { current, error: e.to_string(), ..Default::default() },
+    }
+}
+
+/// Download and install the update, then restart.
+///
+/// Only ever called from an explicit click. Restarting a dashboard is not something to do to someone
+/// who did not ask for it, and least of all mid-match.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "already up to date".to_string())?;
+
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.restart();
+}
+
 /// The current values and link status, on demand.
 ///
 /// The push path above is the normal one. This exists because a dashboard that quietly stops updating
@@ -179,6 +242,8 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -188,6 +253,8 @@ fn main() {
             ds_log_dir,
             nt_frame,
             nt_set,
+            check_update,
+            install_update,
             team_number,
             set_team_number
         ])
