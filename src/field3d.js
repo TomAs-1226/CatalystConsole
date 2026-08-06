@@ -31,6 +31,15 @@ export function createField(canvas, opts) {
   const width = Number(opts.width) > 1 ? Number(opts.width) : 8.07;
   const trailLen = Math.max(0, opts.trail | 0);
 
+  /* The frame poses are mapped through. It starts as the tile's configured field size, which is what
+     the procedural outline is drawn from, and is replaced by the baked map's own dimensions when one
+     loads. The two are not the same number — the map is the field the CAD actually measures, the tile
+     config is the field someone typed in — and a robot has to be drawn in the frame the physics is
+     indexed against, not the one the outline happens to use. On the 2026 field the difference is
+     16.55 vs 16.54 and 8.05 vs 8.07: 5 mm in x, 10 mm in y. Small, but there is no reason to keep it. */
+  let poseLength = length;
+  let poseWidth = width;
+
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -135,12 +144,27 @@ export function createField(canvas, opts) {
   /* ---- the official field model, when one has been baked ---- */
 
   /* SolidWorks exports Z-up, so the model needs the usual quarter turn to sit in three.js's Y-up
-     world. Everything else — where the origin is, how far off-centre the driver stations push the
-     bounding box — is measured from the model itself rather than assumed, because the exporter's datum
-     is not something to guess at. */
+     world. Where it then sits comes from field-collision.json, which the extractor writes when it
+     bakes the collision map: `modelToField` is the model-space coordinate of field (0, 0, carpet),
+     found by flood-filling the drivable interior.
+
+     This used to centre the model's bounding box instead, and that was simply wrong. The bounding box
+     includes everything standing outside the walls, and on the 2026 field that is a scoring table —
+     a 240 x 30 in block off the +y wall with nothing matching it on -y. It dragged the box 0.835 m
+     across the field width, so the robot drew 0.8 m inside the field from the wall it was actually
+     touching and stopped against an invisible barrier. The CAD's own origin was the field centre the
+     whole time; measuring the bounding box is what threw that away. The extractor learned this lesson
+     already (see the flood fill in scripts/field-collision.mjs) — this is the same mistake in the
+     other repo. */
   async function loadFieldModel() {
     const response = await fetch("./vendor/field.glb", { method: "HEAD" }).catch(() => null);
     if (!response || !response.ok) return false;
+
+    /* Fetched in parallel with the loader import: it is a few hundred KB of grid we only want four
+       numbers out of, and it must not add a round trip to the model's own load. */
+    const metaPromise = fetch("./vendor/field-collision.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
 
     const { GLTFLoader } = await import("./vendor/GLTFLoader.js");
     const gltf = await new GLTFLoader().loadAsync("./vendor/field.glb");
@@ -148,10 +172,49 @@ export function createField(canvas, opts) {
     model.rotation.x = -Math.PI / 2;
     model.updateMatrixWorld(true);
 
-    const box = new THREE.Box3().setFromObject(model);
-    const centre = box.getCenter(new THREE.Vector3());
-    // Centre it horizontally and stand it on the carpet plane.
-    model.position.set(-centre.x, -box.min.y, -centre.z);
+    const meta = await metaPromise;
+    const transform = meta?.modelToField;
+    /* Every field the branch below reads has to be present and sane, not just the two that were
+       obvious. The guard checked the axis order and the length but the body then destructured
+       originMeters and used widthMeters, so a map written by an older version of the extractor — or a
+       hand-edited one — would take the fast path and throw partway through instead of falling back. A
+       guard that does not cover its own body is not a guard. */
+    const usable =
+      transform &&
+      transform.axes?.join("") === "xyz" &&
+      Array.isArray(transform.originMeters) &&
+      transform.originMeters.length === 3 &&
+      transform.originMeters.every(Number.isFinite) &&
+      Number.isFinite(meta.lengthMeters) && meta.lengthMeters > 1 &&
+      Number.isFinite(meta.widthMeters) && meta.widthMeters > 1;
+
+    if (usable) {
+      /* The quarter turn above sends model (mx, my, mz) to three (mx, mz, -my), so putting the map's
+         centre on the scene origin is a subtraction on each axis rather than anything cleverer. The
+         scene origin stays at the field centre because the outline, the backdrop, topHeight() and both
+         cameras are all built around it. */
+      const [ox, oy, oz] = transform.originMeters;
+      model.position.set(
+        -(ox + meta.lengthMeters / 2),
+        // The carpet datum, not the model's lowest vertex: -box.min.y used to stand the model on the
+        // UNDERSIDE of the 5 mm carpet mesh, which floated the whole field by its own thickness.
+        -oz,
+        oy + meta.widthMeters / 2
+      );
+      poseLength = meta.lengthMeters;
+      poseWidth = meta.widthMeters;
+    } else {
+      /* No baked map, or an axis order this quarter turn does not handle. Centring the bounding box is
+         off by however much structure stands outside one wall and not the other — 0.835 m on the 2026
+         field — but a field drawn 0.8 m out still beats no field at all. */
+      console.warn(
+        "field-collision.json has no usable modelToField; falling back to bounding-box centring, " +
+          "which misplaces the CAD by however asymmetric the structure outside the walls is"
+      );
+      const box = new THREE.Box3().setFromObject(model);
+      const centre = box.getCenter(new THREE.Vector3());
+      model.position.set(-centre.x, -box.min.y, -centre.z);
+    }
 
     /* The KOP model is lit for a marketing render: unpainted parts come through as near-white, which
        in a dark cockpit is a slab of glare that the eye goes to instead of the robot. Every material
@@ -485,8 +548,8 @@ export function createField(canvas, opts) {
         return;
       }
       const [fx, fy, theta] = state.pose;
-      const x = fx - length / 2;
-      const z = -(fy - width / 2);
+      const x = fx - poseLength / 2;
+      const z = -(fy - poseWidth / 2);
       robot.position.set(x, 0, z);
       robot.rotation.y = -theta;
       robot.visible = true;
