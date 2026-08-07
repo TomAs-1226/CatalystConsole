@@ -9,10 +9,35 @@
   --tile: #16171b;
   --tile-2: #212227;
   --tile-3: #2c2e34;
+  /* The top of the same ramp: what a press or a hover lifts to. It was added for the selected rail
+     item, which then outgrew it — see --pill — so what it is left holding is the two transient states
+     in Settings, and for those the next rung is exactly right. A hover that jumps further than one
+     rung stops reading as a hover and starts reading as a state. */
+  --tile-4: #3a3c43;
+
+  /* The one grey in here that is off the ramp, because it is the one grey with a floor to clear. The
+     selected rail item has to read as filled from a driver's station rather than from a chair, so what
+     sets this number is the contrast requirement and not where the ramp had got to: WCAG asks 3:1 of a
+     non-text indicator and this is 3.15:1 on black. Two rungs of the ramp have now been tried and both
+     came up short — --tile-2 at 1.32:1, then --tile-4 at 1.91:1 — which is the answer: a ramp built to
+     separate surfaces from each other was never going to land on a value chosen against black.
+
+     The rail marks selection twice and the second channel cannot carry it alone either: white label
+     against --ink-2 label is 2.77:1. This is the channel that does the marking. */
+  --pill: #5a5c63;
 
   --ink: #fff;
   --ink-2: #9a9ba1;
   --ink-3: #63656b;
+  /* --ink-3 where the ground is a raised cell rather than the panel's black. Same ink reads 3.60:1 on
+     black and 3.07:1 on --tile, and the Settings captions that landed on --tile are the ones naming a
+     number the reader is there to identify — which address answered, what a diagnostic cell counts.
+     That is a caption being read, not glanced at, and the floor of the palette is the wrong ink for it.
+     4.60:1 on --tile.
+
+     Settings only, and it must stay that way: the board's labels sit on --tile too and stay on --ink-3,
+     because a tile is dense and its labels earn their keep by receding. */
+  --ink-3-on-tile: #7f8187;
 
   --blue: #4d90fe;
   --brand: #e94560;
@@ -22,9 +47,37 @@
   --red-alliance: #ff453a;
   --blue-alliance: #4d90fe;
 
+  /* One hairline, at two densities. It had been five alphas between 0.055 and 0.10 doing a single
+     job and nobody had ever decided which was right — but collapsing all five onto one was a step too
+     far, because two of those alphas were right about different things.
+
+     What picks the rung is who decides how many rows there are. A surface whose rows were authored —
+     a settings section, the rule list, a four-cell diagnostics grid — has a dozen of them at most, and
+     each separator has to be findable on its own. A surface whose rows come from the robot has as many
+     as the robot publishes: at thirty topics the same alpha stops being a set of separators and starts
+     being a ruled grid the eye reads before it reads any value. Authored takes --hair; generated takes
+     --hair-dense. */
+  --hair: rgba(255, 255, 255, 0.08);
+  --hair-dense: rgba(255, 255, 255, 0.055);
+
   --sans: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
   --r: 18px;
+
+  /* The type scale, and it governs Settings. Five steps and the masthead, with nothing between them:
+     the panel had grown nineteen rendered sizes, six of them inside a two-and-a-half pixel band, which
+     the eye reads as drift rather than as hierarchy. A size that is not on this list is an accident.
+
+     The board keeps its own denser scale on purpose — it is a different instrument answering a
+     different question, and a tile has to fit a number where a settings row has to be read. */
+  --fs-micro: 11px;                     /* uppercase labels, and nothing else */
+  --fs-small: 12.5px;                   /* every secondary sentence, mono lists, button labels */
+  --fs-body: 14.5px;                    /* what a row is called, what the rail calls a section */
+  --fs-head: 20px;                      /* numerals meant to be read, subheads inside About */
+  --fs-title: 30px;                     /* the name of a section */
+  --fs-mast: clamp(32px, 4.4vw, 46px);  /* the wordmark, which is a mark and not a heading */
+  /* Uppercase micro-labels tracked one way rather than three. */
+  --track-micro: 0.12em;
 }
 
 * { box-sizing: border-box; }
@@ -62,13 +115,25 @@ button.chip:hover { background: var(--tile-2); color: var(--ink); }
 .grow { flex: 1; }
 
 .tabs { display: flex; gap: 3px; }
+/* The way into Settings. It sits after the views because it is not one — an instrument's settings are
+   a mode you step into and come back from, not a fifth thing to look at while driving. */
+.gear {
+  flex: none; width: 32px; height: 32px; margin-left: 6px;
+  border: 0; background: transparent; color: var(--ink-3);
+  border-radius: 999px; display: grid; place-items: center; cursor: pointer;
+}
+.gear svg { width: 18px; height: 18px; }
+.gear:hover { background: var(--tile-2); color: var(--ink); }
 .tab {
   border: 0; background: transparent; color: var(--ink-3);
   font: 600 12.5px var(--sans); padding: 7px 13px; border-radius: 999px; cursor: pointer;
 }
 .tab:hover { color: var(--ink-2); }
 .tab[aria-selected="true"] { color: var(--ink); background: var(--tile-2); }
-.tab:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
+/* Every keyboard target, including the textarea that was left off this list and was the one control in
+   Settings you could focus without seeing where you were. */
+.tab:focus-visible, button:focus-visible, select:focus-visible,
+input:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--blue); outline-offset: 2px;
 }
 
@@ -172,7 +237,7 @@ button.chip:hover { background: var(--tile-2); color: var(--ink); }
 .ml { font-size: 9.5px; color: var(--ink-3); margin-top: 2px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; }
 
 .al { display: flex; gap: 9px; align-items: flex-start; font-size: 12px; line-height: 1.4; padding: 6px 0; }
-.al + .al { border-top: 1px solid rgba(255,255,255,0.055); }
+.al + .al { border-top: 1px solid var(--hair-dense); }
 .al .b { width: 3px; align-self: stretch; border-radius: 2px; flex: none; background: var(--ink-3); }
 .al.warn .b { background: var(--warn); } .al.info .b { background: var(--blue); } .al.error .b { background: var(--crit); }
 .al .s { display: block; color: var(--ink-3); font-family: var(--mono); font-size: 10px; margin-top: 2px; }
@@ -211,6 +276,10 @@ button.chip:hover { background: var(--tile-2); color: var(--ink); }
 .dk:hover { background: var(--tile-2); color: var(--ink); }
 .dk[aria-pressed="true"] { background: var(--tile-2); color: var(--ink); }
 .dk[aria-pressed="true"] svg { color: var(--blue); }
+/* Every other pressed control in the dock is blue because blue means "on". Demo data on means "these
+   numbers are invented", which is the one thing amber exists to say, and the third rule is worth more
+   than the consistency. The switch in Settings breaks the same way for the same reason. */
+#demoBtn[aria-pressed="true"] svg { color: var(--warn); }
 
 /* ---------------- sheets (tune / logs / check) ---------------- */
 .sheetwrap { grid-template-columns: 1fr; overflow: hidden; }
@@ -219,13 +288,27 @@ button.chip:hover { background: var(--tile-2); color: var(--ink); }
 .sheet::-webkit-scrollbar-thumb { background: var(--tile-3); border-radius: 4px; }
 .sh { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; margin: 0 0 14px; }
 .tr { display: grid; grid-template-columns: 200px 1fr 82px; align-items: center; gap: 16px; padding: 11px 0; }
-.tr + .tr { border-top: 1px solid rgba(255,255,255,0.055); }
+.tr + .tr { border-top: 1px solid var(--hair-dense); }
 .tr .nm { font-size: 12.5px; font-weight: 600; }
 .tr .nm small { display: block; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; font-weight: 500; }
 .tr .v { font-family: var(--mono); font-size: 15px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
-input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 3px; background: var(--tile-3); cursor: pointer; }
+/* The filled part of the track is the reading. A flat rail says nothing about where the value sits,
+   which left the sliders the least instrument-like controls in the program — the mono number beside
+   them was carrying the whole message. CSS cannot see a range's value, so `--fill` is written from
+   `paintRange` in app.js wherever the value changes.
+
+   Unscoped, and meant to be. This was written for the Settings sliders and reached Tune's by accident,
+   which is where it was noticed to be right: a slider that shows its reading is an improvement on
+   every surface, not a house style Settings happens to keep. Any range added anywhere gets it, and
+   the only thing it asks of the new caller is that `paintRange` be called when the value changes. */
+input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 3px;
+  background: linear-gradient(to right, var(--ink) 0 var(--fill, 0%), var(--tile-3) var(--fill, 0%) 100%);
+  cursor: pointer;
+}
 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 19px; height: 19px; border-radius: 50%; background: var(--ink); border: 0; cursor: grab; }
+input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 
 .empty { color: var(--ink-3); font-size: 13px; padding: 18px 0; text-align: center; line-height: 1.6; }
 
@@ -242,10 +325,21 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 19p
 .note b { color: var(--ink); }
 
 .pickrow { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+/* The border stays everywhere except Settings — see `.settings select` for why it comes off there and
+   why that reasoning does not travel. Out here a control's ground is --tile: the picker a tile is
+   configured in, the sheet Topics filters. --tile-2 on --tile is a 1.13:1 step, which is not an edge,
+   so the border is the only thing saying this is something you can type in. */
 select, input[type="text"], input[type="number"] {
   background: var(--tile-2); border: 1px solid var(--tile-3); color: var(--ink);
-  border-radius: 9px; padding: 8px 11px; font: 600 12.5px var(--sans); min-width: 150px;
+  border-radius: 9px; padding: 8px 11px; font: 600 var(--fs-small) var(--sans); min-width: 150px;
 }
+/* Global on purpose, unlike the border above it. WebView2 draws spin arrows over the right edge of a
+   right-aligned mono field, on top of the digits — and every number in this program is set by typing
+   or by the row above it, never by nudging a two-pixel arrow at arm's length in a pit. There is no
+   surface here where a spinner is the right control. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* ---------------- modals ---------------- */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.76); backdrop-filter: blur(7px); display: none; align-items: center; justify-content: center; z-index: 60; padding: 26px; }
@@ -269,8 +363,8 @@ select, input[type="text"], input[type="number"] {
 .hint { font-size: 11px; color: var(--ink-3); margin-top: 3px; line-height: 1.4; }
 
 /* ---------------- wordmark ---------------- */
-/* The mark is the door to the About page, so it has to look pressable without becoming a button in
-   the visual hierarchy — it sits left of chips that mean something. Hover is the whole affordance. */
+/* The mark is the door to About, so it has to look pressable without becoming a button in the visual
+   hierarchy — it sits left of chips that mean something. Hover is the whole affordance. */
 .mark {
   display: inline-flex; align-items: center; gap: 10px; flex: none;
   border: 0; background: transparent; color: inherit; font-family: var(--sans);
@@ -293,84 +387,324 @@ button.chip.drops:hover { background: rgba(255, 159, 10, 0.24); color: var(--war
 .lg .le .held { color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
 
 /* ---------------- layout export / import ---------------- */
-.lrow { display: flex; gap: 8px; flex-wrap: wrap; }
-.lbtn {
-  flex: 1; min-width: 148px; height: 40px; border: 0; border-radius: 11px;
-  background: var(--tile-2); color: var(--ink); font: 600 12.5px var(--sans); cursor: pointer;
-}
-.lbtn:hover { background: var(--tile-3); }
-.lbtn.wide { width: 100%; flex: none; margin-top: 8px; }
-.lbtn:disabled { opacity: 0.38; cursor: default; }
-.lbtn:disabled:hover { background: var(--tile-2); }
 #impText {
   width: 100%; margin-top: 12px; resize: vertical; min-width: 0;
-  background: var(--tile-2); border: 1px solid var(--tile-3); color: var(--ink);
-  border-radius: 11px; padding: 10px 12px; font: 500 11.5px var(--mono);
+  background: var(--tile-2); border: 0; color: var(--ink);
+  border-radius: 11px; padding: 10px 12px; font: 500 var(--fs-small) var(--mono);
 }
 input, textarea { user-select: text; }
-.lstatus { margin-top: 14px; min-height: 17px; font-size: 12px; line-height: 1.55; color: var(--ink-2); }
+.lstatus { margin-top: 14px; min-height: 17px; font-size: var(--fs-small); line-height: 1.55; color: var(--ink-2); }
 .lstatus[data-tone="ok"] { color: var(--ok); }
 .lstatus[data-tone="bad"] { color: var(--crit); }
 .lstatus ul { margin: 6px 0 0; padding-left: 17px; }
 .lstatus li { margin-top: 2px; }
 
-/* ================ about ================ */
-/* Its own page rather than a .picker: a dialog box is the wrong shape for a product stating what it
-   is. Text is selectable here and nowhere else, because a link is worth copying. */
-.about {
-  position: fixed; inset: 0; z-index: 80; display: none; overflow: auto;
+/* ================ settings ================ */
+/* Full bleed, not a dialog: this is a mode of the instrument, and it should feel like the dashboard
+   has stepped aside rather than like a window has landed on top of it.
+
+   Everything below is restraint. Hairlines instead of borders, no gradients on rows, and exactly one
+   shadow in the whole panel — under the switch knob, where it is doing a job rather than decorating
+   one. The board is dense because it has to be; this is the opposite on purpose. Text is selectable
+   here and nowhere else, because a version string and a link are worth copying.
+
+   Coral appears three times and all three are the About section: the bolt, the sweep and the rule
+   numerals. Nothing you can press in here is coral. */
+.settings {
+  position: fixed; inset: 0; z-index: 80; display: none;
+  grid-template-columns: 236px 1fr;
+  background: var(--black);
   user-select: text;
-  background: radial-gradient(125% 85% at 50% -12%, #1b1014 0%, #0a0a0c 44%, #000 100%);
 }
-.about[data-open="true"] { display: block; }
+.settings[data-open="true"] { display: grid; }
 
-/* A graticule, faint enough to read as an instrument face rather than as graph paper, fading out
-   before it reaches the body copy. */
-.about::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 46px 46px;
-  -webkit-mask-image: radial-gradient(78% 58% at 50% 0%, #000 0%, transparent 72%);
-  mask-image: radial-gradient(78% 58% at 50% 0%, #000 0%, transparent 72%);
+/* The rail is quiet by design: no icons competing with the labels. Selection is marked twice — a pill
+   you can see from the driver's station and ink that confirms it once you are close enough to read —
+   because either one carrying it alone is one thing too few. */
+.srail {
+  border-right: 1px solid var(--hair);
+  padding: 26px 14px 20px; overflow: auto;
+  display: flex; flex-direction: column;
 }
-
-/* The top padding is not slack: the close control lives in it, and the masthead has to start below
-   that band or the version sits underneath the button. */
-.aboutdoc {
-  position: relative; max-width: 1000px; margin: 0 auto; padding: 84px 40px 64px;
-  animation: aboutIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+/* The close control belongs to the panel's own chrome, not to the window. Pinned to the right edge it
+   sat on top of the About version block at 980px and floated 230-odd pixels clear of anything at
+   1600px, tethered to nothing; here it is in the same place at every width, and it is still outside
+   the scrolling pane, which is the reason it was pinned in the first place. */
+.srailhead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 6px 16px 16px;
+  font-size: var(--fs-micro); letter-spacing: var(--track-micro); text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700;
 }
-@keyframes aboutIn { from { opacity: 0; transform: translateY(11px); } to { opacity: 1; transform: none; } }
-
-.aboutx {
-  position: absolute; top: 24px; right: 34px; width: 36px; height: 36px;
+.srailhead span { flex: 1; min-width: 0; }
+/* Still outside the scrolling pane, which is why it was pinned in the first place: a close control
+   that scrolls away is one you have to go looking for. */
+.sclose {
+  flex: none; width: 32px; height: 32px;
   border: 0; border-radius: 50%; background: var(--tile); color: var(--ink-2);
   display: grid; place-items: center; cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 70ms ease;
 }
-.aboutx svg { width: 17px; height: 17px; }
-.aboutx:hover { background: var(--tile-2); color: var(--ink); }
+.sclose svg { width: 16px; height: 16px; }
+.sclose:hover { background: var(--tile-2); color: var(--ink); }
+.sclose:active { transform: scale(0.94); }
 
-.mast { display: flex; align-items: flex-start; gap: 22px; }
-.mastbolt { width: 46px; height: 46px; flex: none; fill: var(--brand); margin-top: 4px; filter: drop-shadow(0 0 22px rgba(233, 69, 96, 0.45)); }
+.snavlist { display: flex; flex-direction: column; gap: 2px; }
+.snav {
+  flex: none; height: 46px; padding: 0 18px; text-align: left;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink-2);
+  font: 600 var(--fs-body) var(--sans); letter-spacing: -0.01em; cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 70ms ease;
+}
+.snav:hover { background: var(--tile-2); color: var(--ink); }
+.snav[aria-selected="true"] { background: var(--pill); color: var(--ink); }
+.snav:active { transform: scale(0.985); }
+
+/* The gutter is reserved whether or not this section needs it. Without that, moving from a section
+   short enough to fit to one that scrolls shifts the whole column — title, rows and the right edge
+   every control shares — by the width of the scrollbar. */
+.spane { overflow: auto; scrollbar-gutter: stable; }
+.spane::-webkit-scrollbar { width: 7px; }
+.spane::-webkit-scrollbar-thumb { background: var(--tile-3); border-radius: 4px; }
+.sbody { max-width: 880px; margin: 0 auto; padding: 30px 52px 90px; }
+
+.ssec { display: none; }
+.ssec[data-active="true"] { display: block; animation: secIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* A settle, not an entrance. Six pixels and it is over. */
+@keyframes secIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.stitle { margin: 8px 0 6px; font-size: var(--fs-title); font-weight: 700; letter-spacing: -0.025em; }
+/* --ink-2, not --ink-3. This is the sentence that tells you what the section is for, and it had been
+   set in the dimmest token in the palette — 3.6:1, under AA — while the optional prose further down
+   the page was brighter. The hierarchy was upside down. --ink-3 is now for uppercase micro-labels
+   and nothing else. */
+.slead { margin: 0; font-size: var(--fs-small); line-height: 1.6; color: var(--ink-2); max-width: 56ch; }
+
+/* ---------------- rows ---------------- */
+/* Tall, hairline-separated, label and explanation left, control hard right. The height is the point:
+   these are meant to be read and pressed at arm's length in a pit, not filled in like a form. */
+.srows { margin-top: 26px; border-top: 1px solid var(--hair); }
+.srow {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 34px;
+  min-height: 76px; padding: 19px 0;
+  border-bottom: 1px solid var(--hair);
+}
+.srow.stack { grid-template-columns: 1fr; align-items: stretch; gap: 14px; }
+.slab b { display: block; font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.012em; }
+/* The sentence someone actually reads before deciding. It was the dimmest thing on the page. */
+.slab span { display: block; margin-top: 6px; font-size: var(--fs-small); line-height: 1.6; color: var(--ink-2); max-width: 56ch; }
+
+.sctl { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.sctl.start { justify-content: flex-start; }
+.sctl input[type="number"] {
+  min-width: 0; width: 132px; height: 44px; text-align: right;
+  font: 700 var(--fs-body) var(--mono); font-variant-numeric: tabular-nums; border-radius: 12px;
+}
+.sctl input[type="range"] { width: 240px; height: 6px; }
+.sctl input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+.sval { font: 700 var(--fs-body) var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 72px; text-align: right; }
+.sval.wide { min-width: 0; font-size: var(--fs-head); letter-spacing: -0.03em; }
+
+/* A stacked row already spaces its own parts, so the margin this carries from the modal it used to
+   live in would double up against the gap. */
+.srow #impText { margin-top: 0; }
+
+.snote { margin-top: 16px; font-size: var(--fs-small); line-height: 1.6; color: var(--ink-2); max-width: 62ch; }
+.snote[data-tone="ok"] { color: var(--ok); }
+.snote[data-tone="bad"] { color: var(--crit); }
+.sprose { margin: 22px 0 0; font-size: var(--fs-small); line-height: 1.75; color: var(--ink-2); max-width: 62ch; }
+.sprose b { color: var(--ink); font-weight: 600; }
+
+/* ---------------- controls ---------------- */
+/* Filled, not outlined, and only in here. The border was the only real one in a program built out of
+   hairlines, and in Settings it made two rows look like a web form sitting inside a panel that is
+   deliberately not one. What lets the fill carry it alone is the ground: this panel is full-bleed
+   black, so --tile-2 is a 1.32:1 step up out of nothing and the control reads as an object on its own.
+
+   Nowhere else in the app has that ground. Every other control sits on --tile — the five in the tile
+   Configure picker, the Topics filter field — where the same fill is a 1.13:1 step and stops reading
+   as a control at all. So the border comes off here and stays on there. (The Add-component picker has
+   no fields, only `.item` cards; it was never in this argument.) `#impText` sets its own border to
+   zero for the same reason as this rule, and can, because it exists only in this panel.
+
+   `select` and `input[type="text"]` match nothing in here today. They are listed so that the first
+   Settings row to need one gets the panel's treatment rather than silently inheriting the picker's.
+
+   The fill is the affordance; the focus ring says where you are. */
+.settings select,
+.settings input[type="text"],
+.settings input[type="number"] { border: 0; }
+
+/* ---------------- the garage ----------------
+   Sits above the rows because it is the answer to "which robot is this", and the rows below it are
+   only how the console goes looking. Card rather than rows: everything in it arrived together, from
+   one source, and none of it is editable here. */
+.garage {
+  margin-top: 22px; background: var(--tile); border-radius: 18px; padding: 30px 30px 26px;
+  display: grid; justify-items: center;
+}
+.garage[data-known="false"] .gplan,
+.garage[data-known="false"] .ghead,
+.garage[data-known="false"] .gspecs { display: none; }
+.garage[data-known="true"] .gempty { display: none; }
+
+.gempty { display: grid; gap: 9px; justify-items: center; text-align: center; padding: 26px 0 22px; max-width: 46ch; }
+.gempty b { font: 600 var(--fs-body) var(--sans); color: var(--ink-2); }
+.gempty span { font: 400 var(--fs-small)/1.62 var(--sans); color: var(--ink-3-on-tile); }
+
+/* Drawn, not photographed. The canvas is sized in CSS and scaled for the device ratio in script, so
+   the hairlines stay hairlines on a high-density panel. */
+.gplan { margin: 0; display: grid; justify-items: center; gap: 10px; }
+.gplan canvas { width: 300px; height: 210px; display: block; }
+.gplan figcaption {
+  font: 700 var(--fs-micro) var(--sans); letter-spacing: var(--track-micro); text-transform: uppercase;
+  color: var(--ink-3-on-tile);
+}
+
+.ghead { text-align: center; margin-top: 16px; }
+.ghead h3 { margin: 0; font: 300 var(--fs-title) var(--sans); letter-spacing: -0.018em; color: var(--ink); }
+.ghead p { margin: 5px 0 0; font: 500 var(--fs-small) var(--sans); color: var(--ink-3-on-tile); }
+
+.gspecs {
+  margin-top: 30px; width: 100%;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 26px 40px;
+}
+.ggroup { display: grid; align-content: start; }
+.ggroup h4 {
+  margin: 0 0 4px; font: 700 var(--fs-micro) var(--sans); letter-spacing: var(--track-micro);
+  text-transform: uppercase; color: var(--ink-3-on-tile);
+}
+.grow {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 9px 0; border-bottom: 1px solid var(--hair-dense);
+}
+.grow:last-child { border-bottom: 0; }
+.grow span { font: 400 var(--fs-small) var(--sans); color: var(--ink-2); }
+.grow b { font: 500 var(--fs-small) var(--mono); color: var(--ink); text-align: right; }
+
+@media (max-width: 760px) {
+  .garage { padding: 24px 18px 20px; }
+  .gspecs { grid-template-columns: 1fr; gap: 22px; }
+}
+
+/* A real switch that slides. The knob travels once, quickly, and stops — the difference between a
+   control that feels physical and one that feels like a checkbox with rounded corners.
+
+   Press feedback is the other half of that. Nothing in this panel used to acknowledge a press at all,
+   which at arm's length in a pit reads as a control that did not take. Sixty milliseconds down and
+   back: long enough to feel, too short to sit between someone and the thing they pressed. */
+.tog {
+  position: relative; flex: none; width: 54px; height: 31px; padding: 0;
+  border: 0; border-radius: 999px; background: var(--tile-3); cursor: pointer;
+  transition: background-color 200ms cubic-bezier(0.2, 0.85, 0.3, 1), transform 60ms ease;
+}
+/* The one shadow in the panel. A switch knob's shadow is functional: it is what says the knob sits on
+   the track rather than being painted onto it, and a switch you cannot read as a physical object is
+   a rounded rectangle that happens to change colour. */
+.tog i {
+  position: absolute; top: 3px; left: 3px; width: 25px; height: 25px; border-radius: 50%;
+  background: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  transition: transform 200ms cubic-bezier(0.2, 0.85, 0.3, 1);
+}
+.tog:hover { background: var(--tile-4); }
+.tog:active { transform: scale(0.96); }
+.tog[aria-checked="true"] { background: var(--blue); }
+.tog[aria-checked="true"] i { transform: translateX(23px); }
+/* The deliberate break in "blue means on". Demo data on is the state where every number on the board
+   is invented, which is exactly what amber is for and exactly what the third rule is about — the
+   switch should agree with the paragraph underneath it at a glance rather than after reading it. */
+.tog.hazard[aria-checked="true"] { background: var(--warn); }
+/* Hover sets no colour of its own, so it cannot get into an argument with the two rules above about
+   which of them owns an on switch's fill. Brightness rather than a second blue: there is one blue. */
+.tog[aria-checked="true"]:hover { filter: brightness(1.12); }
+
+/* Not `.seg`: that is the match timer's four-pixel progress bar, and a segmented control that
+   inherits `height: 4px` and `overflow: hidden` from it collapses into a sliver. */
+.choice {
+  position: relative; flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--tile-2); border-radius: 999px; padding: 3px; min-width: 288px;
+}
+/* One filled pill that moves, rather than three that light up. `--n` is the number of segments and is
+   set on the element, so the maths holds whatever the choice set is. */
+.choice .choicesel {
+  position: absolute; top: 3px; bottom: 3px; left: 3px;
+  width: calc((100% - 6px) / var(--n, 3));
+  border-radius: 999px; background: var(--tile-3);
+  transition: transform 240ms cubic-bezier(0.2, 0.85, 0.3, 1);
+}
+.choice button {
+  position: relative; z-index: 1; height: 38px; padding: 0 18px;
+  border: 0; background: transparent; border-radius: 999px; cursor: pointer;
+  color: var(--ink-2); font: 600 var(--fs-small) var(--sans);
+  transition: color 180ms ease, transform 60ms ease;
+}
+.choice button:hover { color: var(--ink); }
+.choice button[aria-checked="true"] { color: var(--ink); }
+.choice button:active { transform: scale(0.96); }
+
+.sbtn {
+  flex: none; height: 44px; padding: 0 20px; border: 0; border-radius: 12px;
+  background: var(--tile-2); color: var(--ink); font: 600 var(--fs-small) var(--sans); cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 60ms ease;
+}
+.sbtn:hover { background: var(--tile-3); }
+.sbtn:active { background: var(--tile-4); transform: scale(0.97); }
+/* Installing a release is not identity, and this used to be the one full-coral control in the panel.
+   It is also the button a panel governed by "nothing ever interrupts driving" has least business
+   shouting: it appears only when there is something to install, under a note that says so, and that
+   is pressure enough. An ordinary button that happens to be alone on its line. */
+.sbtn.below { margin-top: 14px; }
+.sbtn.armed { background: var(--crit); color: #fff; }
+.sbtn.armed:hover { background: var(--crit); filter: brightness(1.1); }
+.sbtn:disabled { opacity: 0.4; cursor: default; }
+.sbtn:disabled:hover { background: var(--tile-2); }
+
+/* The candidate addresses, in the order the console cycles them, with the one that answered marked.
+   Nothing is marked at all while nothing has answered — an address list is not a claim. */
+.saddr {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 1px;
+  background: var(--hair); border-radius: 14px; overflow: hidden;
+}
+.saddr li {
+  display: flex; align-items: center; gap: 12px; background: var(--tile); padding: 14px 17px;
+  font: 600 var(--fs-small) var(--mono); color: var(--ink-2);
+}
+.saddr li[data-answered="true"] { color: var(--ink); }
+.saddr .what { margin-left: auto; font: 700 var(--fs-micro) var(--sans); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--ink-3-on-tile); }
+.saddr li[data-answered="true"] .what { color: var(--ok); }
+
+/* ---------------- about, as the last section ---------------- */
+/* The one section that is a document rather than a set of rows, so it keeps its masthead — but at the
+   scale of a page inside something, not a page of its own. */
+.mast { display: flex; align-items: flex-start; gap: 22px; margin-top: 6px; }
+.mastbolt { width: 40px; height: 40px; flex: none; fill: var(--brand); margin-top: 4px; filter: drop-shadow(0 0 22px rgba(233, 69, 96, 0.45)); }
 .mastname { min-width: 0; flex: 1; }
-.mastname h1 { margin: 0; font-size: clamp(36px, 5.4vw, 58px); font-weight: 800; letter-spacing: -0.045em; line-height: 0.9; }
+.mastname h1 { margin: 0; font-size: var(--fs-mast); font-weight: 800; letter-spacing: -0.045em; line-height: 0.9; }
 /* The product name and the product type are not the same word. Setting them at different weights on
-   two lines says so without a second colour. */
+   two lines says so without a second colour.
+
+   On the scale, not on a fraction of the mark. At 0.33em of a clamped masthead this swept from 11.04px
+   to 15.18px with the window, crossing --fs-body around 999px and --fs-micro around 758px — a size
+   that is a different accident at every width, which is the exact drift the scale was drawn to stop.
+   It is an uppercase tracked label, so it takes the step reserved for those. The tracking is not
+   --track-micro and should not be: 0.42em is the mark's own, doing the work of spanning the name above
+   it rather than the work of separating capitals. The gap is still an em, but the em no longer moves. */
 .mastname h1 span {
   display: block; margin-top: 0.3em; color: var(--ink-2);
-  font-size: 0.33em; font-weight: 300; letter-spacing: 0.42em; text-transform: uppercase;
+  font-size: var(--fs-micro); font-weight: 300; letter-spacing: 0.42em; text-transform: uppercase;
 }
-.mastname p { margin: 16px 0 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.5; max-width: 42ch; }
+/* The one paragraph set at the body step rather than the secondary one: it is the line directly under
+   a 46px wordmark, and at the secondary step it reads as a caption of the mark instead of the
+   sentence that says what this program is. */
+.mastname p { margin: 16px 0 0; font-size: var(--fs-body); color: var(--ink-2); line-height: 1.5; max-width: 42ch; }
 .mastver { text-align: right; flex: none; padding-top: 6px; }
-.mastver b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
-.mastver small { display: block; margin-top: 4px; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.mastver b { display: block; font-family: var(--mono); font-size: var(--fs-head); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.mastver small { display: block; margin-top: 4px; font-size: var(--fs-micro); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
 
 /* The one moving thing on the page. An instrument sweeps a line across its face when it is awake;
    this does that once every eight seconds and then rests, which is the difference between a signal
    and a decoration. */
-.sweep { position: relative; height: 1px; margin: 30px 0 36px; background: rgba(255, 255, 255, 0.09); overflow: hidden; }
+.sweep { position: relative; height: 1px; margin: 30px 0 36px; background: var(--hair); overflow: hidden; }
 .sweep i { position: absolute; inset: 0 auto 0 0; width: 34%; background: linear-gradient(90deg, transparent, var(--brand), transparent); animation: sweep 8s cubic-bezier(0.45, 0, 0.4, 1) infinite; }
 @keyframes sweep {
   0% { transform: translateX(-100%); opacity: 0; }
@@ -379,56 +713,82 @@ input, textarea { user-select: text; }
   100% { transform: translateX(294%); opacity: 0; }
 }
 
-.ah { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
-.alead { margin: 0 0 22px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.ah { margin: 0 0 4px; font-size: var(--fs-micro); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.alead { margin: 0 0 22px; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.5; }
 
-.rules ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
-.rules li { border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 16px; }
+/* One column, numeral in the margin, hairline between. Three columns fitted the old full-width page;
+   in a settings pane it would set the centrepiece of this product in three narrow gutters. */
+.rulelist { list-style: none; margin: 0; padding: 0; }
+.rulelist li {
+  display: grid; grid-template-columns: 62px 1fr; gap: 26px;
+  padding: 24px 0; border-top: 1px solid var(--hair);
+}
 /* Outlined rather than filled: at this size a solid coral numeral would out-shout the sentence it
    is numbering, and the sentence is the point. */
 .rn {
-  display: block; margin-bottom: 12px; font-family: var(--mono); font-size: 38px; font-weight: 700;
+  display: block; font-family: var(--mono); font-size: var(--fs-title); font-weight: 700;
   line-height: 1; letter-spacing: -0.05em; color: rgba(233, 69, 96, 0.35);
   -webkit-text-fill-color: transparent; -webkit-text-stroke: 1.2px rgba(233, 69, 96, 0.8);
 }
-.rules h3 { margin: 0 0 9px; font-size: 16px; font-weight: 700; letter-spacing: -0.018em; line-height: 1.25; }
+.rulelist h3 { margin: 0 0 9px; font-size: var(--fs-head); font-weight: 700; letter-spacing: -0.018em; line-height: 1.25; }
 /* Scoped to the list items: unscoped, this outranks .alead and flattens the lead paragraph into the
-   same size as the rule bodies, which is the one place on this page that needs a step. */
-.rules li p { margin: 0; font-size: 12.5px; line-height: 1.68; color: var(--ink-2); }
-.rules li code { font-family: var(--mono); font-size: 0.94em; color: var(--ink); }
+   same size as the rule bodies. */
+.rulelist li p { margin: 0; font-size: var(--fs-small); line-height: 1.68; color: var(--ink-2); max-width: 66ch; }
+/* An optical match, not a step: mono at the same pixel size reads a shade larger than the sans it is
+   sitting inside. */
+.rulelist li code { font-family: var(--mono); font-size: 0.94em; color: var(--ink); }
 
 .diag { margin-top: 46px; }
-.dgrid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(134px, 1fr)); gap: 1px; background: rgba(255, 255, 255, 0.07); border-radius: 14px; overflow: hidden; }
+.dgrid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(134px, 1fr)); gap: 1px; background: var(--hair); border-radius: 14px; overflow: hidden; }
 .dcell { background: var(--tile); padding: 14px 16px; min-width: 0; }
-.dcell b { display: block; font-family: var(--mono); font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.035em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dcell small { display: block; margin-top: 5px; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
-.assets { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
+.dcell b { display: block; font-family: var(--mono); font-size: var(--fs-head); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.035em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcell small { display: block; margin-top: 5px; font-size: var(--fs-micro); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--ink-3-on-tile); font-weight: 700; }
+.assets { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; font-size: var(--fs-small); color: var(--ink-2); font-weight: 600; }
 .asset { display: inline-flex; align-items: center; gap: 7px; }
-.asset b { color: var(--ink-2); font-family: var(--mono); font-weight: 600; }
+.asset b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
 
 .acols { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 46px; }
-.keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 14px 0 0; font-size: 12.5px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 14px 0 0; font-size: var(--fs-small); }
 .keys dt { display: flex; gap: 4px; align-items: center; }
 .keys dd { margin: 0; color: var(--ink-2); align-self: center; }
-kbd { font: 700 10.5px var(--mono); background: var(--tile-2); border: 1px solid var(--tile-3); border-bottom-width: 2px; border-radius: 6px; padding: 3px 6px; min-width: 22px; text-align: center; color: var(--ink); }
+/* A filled cap rather than an outlined one, for the same reason the inputs lost their borders: this
+   panel is built out of fills and hairlines, and a two-pixel bottom border was the only place it
+   pretended to be a keycap. */
+kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 0; border-radius: 6px; padding: 4px 7px; min-width: 22px; text-align: center; color: var(--ink); }
 
 .links { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
-.alink { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 12px; background: var(--tile); color: var(--ink); font: 600 12.5px var(--sans); padding: 12px 15px; cursor: pointer; text-align: left; }
+.alink {
+  display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 12px;
+  background: var(--tile); color: var(--ink); font: 600 var(--fs-small) var(--sans);
+  padding: 12px 15px; cursor: pointer; text-align: left;
+  transition: background-color 180ms ease, transform 60ms ease;
+}
 .alink:hover { background: var(--tile-2); }
-.alink small { margin-left: auto; font: 500 10.5px var(--mono); color: var(--ink-3); }
-.credit { margin: 22px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-3); }
+.alink:active { background: var(--tile-3); transform: scale(0.99); }
+.alink small { margin-left: auto; font: 500 var(--fs-micro) var(--mono); color: var(--ink-2); }
+.credit { margin: 22px 0 0; font-size: var(--fs-small); line-height: 1.6; color: var(--ink-2); }
 
-@media (max-width: 900px) {
-  .aboutdoc { padding: 76px 24px 52px; }
-  .aboutx { right: 22px; }
-  .rules ol, .acols { grid-template-columns: 1fr; gap: 24px; }
+@media (max-width: 1040px) {
+  .settings { grid-template-columns: 184px 1fr; }
+  .sbody { padding: 30px 30px 80px; }
+  .acols { grid-template-columns: 1fr; gap: 24px; }
   .mast { flex-wrap: wrap; }
   .mastver { text-align: left; }
+  .choice { min-width: 0; }
+  .sctl input[type="range"] { width: 168px; }
+}
+
+/* Below this the control no longer fits beside its explanation, so it goes under it rather than
+   squeezing the sentence into a column. */
+@media (max-width: 760px) {
+  .srow { grid-template-columns: 1fr; align-items: stretch; gap: 14px; }
+  .sctl { justify-content: flex-start; }
+  .rulelist li { grid-template-columns: 1fr; gap: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 1ms !important; }
   /* The hairline stays; only its travel goes. */
   .sweep i { animation: none; opacity: 0; }
-  .aboutdoc { animation: none; }
+  .ssec[data-active="true"] { animation: none; }
 }

@@ -112,6 +112,31 @@ worth adopting.
 
 All of `/FMSInfo` is read-only from the console's side, enforced in `nt_set`, not just in the UI.
 
+### The robot's own account of itself
+
+A robot running FrcCatalyst 1.10 or later publishes a spec sheet under `/Catalyst/Robot/`, and
+**Settings → Robot** shows it: the name, a plan of the chassis drawn to scale from the frame and
+module figures on the wire, and the specification grouped as software, drivetrain, chassis, power
+and hardware. Adopting it is one line in `RobotContainer`:
+
+```java
+RobotIdentity.declare("Ratchet");
+```
+
+Everything else is derived. The library reads the team number, the roboRIO and its image, its own
+version, WPILib's, the CAN inventory, the gyro, and — once a `SwerveSubsystem` exists — the module
+positions, track width, wheelbase, gearing and top speed. None of it is a parameter you keep in step
+by hand.
+
+The console draws only what arrived. A key the robot did not publish produces no row, and a group
+with nothing in it produces no group — so a robot with no swerve shows no drivetrain section rather
+than a column of zeros. That is the same rule three the rest of the console answers to, and it is
+why the plan is drawn from the published dimensions rather than from a stock picture: wrong
+dimensions look wrong.
+
+Switch on **Demo data** to see the panel populated without a robot. The demo sheet is deliberately
+incomplete, because a partial sheet is the ordinary case.
+
 ### Alerts
 
 Nothing to do if you use Catalyst's `AlertManager` — it already publishes string arrays at:

@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "catalyst-console"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "byteorder",
  "futures-util",

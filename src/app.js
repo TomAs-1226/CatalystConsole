@@ -178,6 +178,43 @@ function demoTick() {
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
 
+  /* The demo robot's spec sheet, in the shape FrcCatalyst 1.10 publishes. Named so nobody mistakes
+   * it for their own: a team looking at the garage before they have adopted the library should be
+   * able to see what it will show them, and should be in no doubt that this is not their robot.
+   * Deliberately an incomplete sheet — no camera list, no drive ratio — because that is the ordinary
+   * case, and the panel leaving those lines out is the behaviour worth demonstrating. */
+  set("/Catalyst/Robot/Identity/Name", "str", "Demo robot");
+  set("/Catalyst/Robot/Identity/TeamNumber", "num", 0);
+  set("/Catalyst/Robot/Identity/Season", "num", 2026);
+  set("/Catalyst/Robot/Software/CatalystVersion", "str", "1.10.0");
+  set("/Catalyst/Robot/Software/WPILibVersion", "str", "2026.1.1");
+  set("/Catalyst/Robot/Drivetrain/Type", "str", "Swerve");
+  set("/Catalyst/Robot/Drivetrain/Modules", "num", 4);
+  set("/Catalyst/Robot/Drivetrain/MaxSpeedMps", "num", 4.73);
+  set("/Catalyst/Robot/Drivetrain/TrackWidthMeters", "num", 0.591);
+  set("/Catalyst/Robot/Drivetrain/WheelBaseMeters", "num", 0.591);
+  set("/Catalyst/Robot/Drivetrain/WheelRadiusMeters", "num", 0.0508);
+  set("/Catalyst/Robot/Drivetrain/OdometryHz", "num", 250);
+  set("/Catalyst/Robot/Drivetrain/ModuleLocations", "nums",
+    [0.2955, 0.2955, 0.2955, -0.2955, -0.2955, 0.2955, -0.2955, -0.2955]);
+  set("/Catalyst/Robot/Chassis/MassKg", "num", 54.4);
+  set("/Catalyst/Robot/Chassis/MoiKgM2", "num", 6.88);
+  set("/Catalyst/Robot/Chassis/FrameLengthMeters", "num", 0.74);
+  set("/Catalyst/Robot/Chassis/FrameWidthMeters", "num", 0.74);
+  set("/Catalyst/Robot/Chassis/BumperThicknessMeters", "num", 0.0762);
+  set("/Catalyst/Robot/Chassis/BumperLengthMeters", "num", 0.8924);
+  set("/Catalyst/Robot/Chassis/BumperWidthMeters", "num", 0.8924);
+  set("/Catalyst/Robot/Chassis/HeightMeters", "num", 0.52);
+  set("/Catalyst/Robot/Power/Battery", "str", "MK ES17-12");
+  set("/Catalyst/Robot/Power/Module", "str", "PDH");
+  set("/Catalyst/Robot/Power/Channels", "num", 24);
+  set("/Catalyst/Robot/Power/ChannelsInUse", "strs",
+    ["0|Front left drive", "1|Front left steer", "2|Front right drive", "3|Front right steer", "8|Shooter"]);
+  set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.8);
+  set("/Catalyst/Robot/Hardware/CanDevices", "num", 11);
+  set("/Catalyst/Robot/Hardware/Inventory", "strs", ["Kraken X60|8", "CANcoder|4", "Pigeon 2|1"]);
+  set("/Catalyst/Robot/Hardware/Gyro", "str", "Pigeon 2");
+
   set("/Catalyst/Alerts/Errors", "strs", []);
   set("/Catalyst/Alerts/Warnings", "strs",
     num("/Catalyst/Brownout/MeasuredVoltage") < 11.8 ? ["[Power] Battery sagging under load"] : []);
@@ -203,7 +240,13 @@ function demoTick() {
     set("/SmartDashboard/Auto Chooser/active", "str", "Two piece centre");
   }
 
-  nt.status = { connected: false, address: "demo", rtt_ms: 3.1, topics: Object.keys(nt.v).length };
+  /* The address and the topic count are true of the demo — that is where these values came from and
+   * that is how many of them there are. A round trip is not: there is no link to time, and the figure
+   * would be printed on the dock chip and under About's "Round trip" as a fact about the console's own
+   * connection. Same line the NT-frames cell draws (see `paintSettings`) — demo telemetry may fabricate
+   * robot state, because that is what it is for, and may never fabricate the state of the link. Zero is
+   * what every reader here dashes on. */
+  nt.status = { connected: false, address: "demo", rtt_ms: 0, topics: Object.keys(nt.v).length };
   nt.keysDirty = true;
   onFrame();
 }
@@ -211,8 +254,24 @@ function demoTick() {
 function setDemo(on) {
   demo.on = on;
   $("#demoBtn").setAttribute("aria-pressed", String(on));
+  /* Two controls, one state. The dock button is the one that has to be visible while it runs; the
+   * Settings row is where the explanation lives. Neither may ever disagree with the other. */
+  $("#setDemoTog").setAttribute("aria-checked", String(on));
   if (on) {
     demo.t0 = performance.now();
+    /* The mirror of the branch below, and it was missing. Everything in the store belonged to the link
+     * that was there a moment ago, status included, and switching to demo did not disown any of it —
+     * so the first paint could print the real robot's round trip beside "demo data — not a robot", and
+     * `demoTick` counted the dead robot's leftover keys into the topic figure it publishes about
+     * itself. Weaker than the breach the branch below fixes, because the number was stale rather than
+     * invented, but it is the same class and rule three does not grade on that.
+     *
+     * Seeded in the same turn rather than on the first interval tick, which is 50 ms and five paints
+     * away. Clearing without seeding would only trade a stale number for a dash; `demoTick` ends by
+     * writing the status the demo is entitled to claim, so after this line the store is the demo's and
+     * nothing in it is left over. */
+    nt.v = Object.create(null);
+    demoTick();
     demo.timer = setInterval(demoTick, 50);
   } else {
     clearInterval(demo.timer);
@@ -318,6 +377,53 @@ function clamp01(x) {
   return Math.max(0, Math.min(1, x));
 }
 
+function clamp(x, lo, hi) {
+  return Math.max(lo, Math.min(hi, x));
+}
+
+/**
+ * Fill a slider's track up to its thumb.
+ *
+ * A range input's value is invisible to CSS, so the filled portion is a gradient stop driven by a
+ * custom property and this is the only thing that keeps it true. Call it wherever the value is set or
+ * changed — an unpainted slider reads as empty, which is a lie about the number beside it.
+ */
+function paintRange(input) {
+  const lo = Number(input.min || 0);
+  const hi = Number(input.max || 100);
+  const at = hi > lo ? clamp((Number(input.value) - lo) / (hi - lo), 0, 1) : 0;
+  input.style.setProperty("--fill", `${(at * 100).toFixed(2)}%`);
+}
+
+/**
+ * Arrow-key movement inside a tablist, with the roving tabindex the pattern requires.
+ *
+ * A tablist is one stop in the tab order with arrows moving inside it, not six stops in a row that
+ * a keyboard user has to walk past to reach the panel. Both the view tabs and the settings rail are
+ * tablists, so this is written once and handed the function that actually changes the selection —
+ * `aria-selected` and `tabIndex` are set there, by the code that knows which one won.
+ *
+ * Selection follows focus: every panel on both lists is already built and switching costs nothing, so
+ * asking for a second key to confirm what you arrowed to would be ceremony.
+ */
+function wireTablist(list) {
+  list.addEventListener("keydown", (e) => {
+    const tabs = [...list.querySelectorAll('[role="tab"]')];
+    const from = tabs.indexOf(document.activeElement);
+    if (from < 0) return;
+    const vertical = list.getAttribute("aria-orientation") === "vertical";
+    let to = -1;
+    if (e.key === (vertical ? "ArrowUp" : "ArrowLeft")) to = (from - 1 + tabs.length) % tabs.length;
+    else if (e.key === (vertical ? "ArrowDown" : "ArrowRight")) to = (from + 1) % tabs.length;
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = tabs.length - 1;
+    if (to < 0) return;
+    e.preventDefault();
+    tabs[to].click();
+    tabs[to].focus();
+  });
+}
+
 function sparkline(values, w, h, color) {
   if (values.length < 2) return "";
   let lo = Infinity, hi = -Infinity;
@@ -338,15 +444,70 @@ function arcPath(cx, cy, r, a0, a1) {
   return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
 
+/* =================================================================== settings */
+
+/* What the console lets you change about itself, kept in one object and persisted alongside the
+ * layout. Nothing in here needs applying: the value is the truth the moment it changes, and the
+ * surface that changed it is responsible for making the board agree.
+ *
+ * Per-tile configuration stays on the tile. These are the settings that belong to the machine rather
+ * than to a component — which camera this driver wants, how much this laptop's graphics can afford,
+ * how long this team wants an alert held. */
+const SETTINGS_KEY = "catalyst.console.settings.v1";
+
+const CAMERAS = ["chase", "top", "free"];
+const TRAIL_MAX = 400;
+const ALERT_HOLD_MAX = 8000;
+
+const SETTINGS_DEFAULTS = {
+  fieldCamera: "chase",
+  fieldTrail: 220,
+  fieldModel: true,
+  alertHoldMs: 2500,
+};
+
+/* Read one key at a time and check every one. Storage can hold anything — an older build wrote it,
+ * someone edited it by hand, a quota error truncated it — and a bad number out of here lands in a
+ * component that has no business validating a setting. A number outside its range is pulled back into
+ * it; anything else keeps the default. */
+function loadSettings() {
+  const s = { ...SETTINGS_DEFAULTS };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return s;
+    if (CAMERAS.includes(saved.fieldCamera)) s.fieldCamera = saved.fieldCamera;
+    if (typeof saved.fieldModel === "boolean") s.fieldModel = saved.fieldModel;
+    if (Number.isFinite(saved.fieldTrail)) s.fieldTrail = Math.round(clamp(saved.fieldTrail, 0, TRAIL_MAX));
+    if (Number.isFinite(saved.alertHoldMs)) s.alertHoldMs = Math.round(clamp(saved.alertHoldMs, 0, ALERT_HOLD_MAX));
+  } catch { /* corrupt storage is not worth a dialog; the defaults are a working console */ }
+  return s;
+}
+
+const settings = loadSettings();
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch { /* private mode or quota — the setting still applies, it just will not persist */ }
+}
+
+/* The baked field model is switched on and off from here, and the answer travels to field3d.js as an
+ * argument to `createField` — see the `model` option there. It used to travel as a `window.fetch`
+ * shim that answered 404 for vendor/field.glb, which worked and was a trap: code that lies to its own
+ * module leaves the next reader debugging a missing file that is sitting on disk. A preference is an
+ * argument. */
+
 /* ================================================================== components */
 
 /* Every component is: a config schema, a one-time `render` that builds DOM, and an `update` called on
  * each frame. `update` must be cheap and must never throw — one bad tile cannot take out the board. */
 
-/** How long a cleared alert stays on screen, dimmed, before it is dropped. */
-const ALERT_HOLD_MS = 2500;
-
-const REGISTRY = {};
+/* Null prototype, for the same reason the keyboard map has one: every lookup in here is keyed by a
+ * string that came off a layout file or out of local storage, and on a plain object `REGISTRY["__proto__"]`
+ * answers with Object.prototype. That is a truthy spec with no `config` and no `render`, so both the
+ * storage check and the importer would have waved a tile through that then threw halfway into building
+ * it. Nothing can reach past the components that were actually defined. */
+const REGISTRY = Object.create(null);
 
 function define(type, spec) {
   REGISTRY[type] = spec;
@@ -902,7 +1063,7 @@ define("alerts", {
       for (const text of items) state.seen.set(`${level}\u0000${text}`, { level, text, at: now });
     }
     for (const [key, entry] of state.seen) {
-      if (now - entry.at > ALERT_HOLD_MS) state.seen.delete(key);
+      if (now - entry.at > settings.alertHoldMs) state.seen.delete(key);
     }
 
     const flat = [...state.seen.values()].map((e) => ({ ...e, stale: e.at !== now }));
@@ -1161,8 +1322,6 @@ define("field", {
     { key: "length", label: "Field length (m)", type: "number", def: 16.54,
       hint: "REBUILT carpet is 651.2 in × 317.7 in, from the 2026 field drawings." },
     { key: "width", label: "Field width (m)", type: "number", def: 8.07 },
-    { key: "trail", label: "Trail length", type: "number", def: 220,
-      hint: "Poses kept in the path behind the robot. 0 turns the trail off." },
   ],
   render(body, cfg, state) {
     track(cfg.poseKey);
@@ -1175,14 +1334,33 @@ define("field", {
         <div class="fc">θ <b data-x="ft">—</b>°</div>
       </div>
       <div class="fieldbtns">
-        <button class="fbtn" data-x="mChase" aria-pressed="true">Chase</button>
-        <button class="fbtn" data-x="mTop">Top</button>
-        <button class="fbtn" data-x="mFree">Free</button>
+        <button class="fbtn" data-mode="chase">Chase</button>
+        <button class="fbtn" data-mode="top">Overhead</button>
+        <button class="fbtn" data-mode="free">Free</button>
       </div>`;
 
     const canvas = body.querySelector("[data-x=canvas]");
     state.scene = null;
-    state.mode = "chase";
+
+    /* Camera, trail and the baked model come from Settings rather than from this tile's configuration:
+     * they describe what this driver wants to look at and what this laptop can afford to draw, not
+     * what the tile is showing.
+     *
+     * The buttons in the corner are the quick way to swing the camera during a match, and they set the
+     * same value the Settings control sets — one state, two surfaces, exactly as the demo toggle works.
+     * They used to override the mode locally with no way back, so pressing Free here left Settings
+     * reading Chase for the rest of the session. `applyCamera` moves this tile and nothing else;
+     * `setCamera` is the thing that decides. */
+    const applyCamera = (mode) => {
+      state.mode = mode;
+      state.scene?.setMode(mode);
+      for (const b of body.querySelectorAll(".fbtn")) {
+        b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+      }
+    };
+    state.applyCamera = applyCamera;
+    for (const b of body.querySelectorAll(".fbtn")) b.onclick = () => setCamera(b.dataset.mode);
+    applyCamera(settings.fieldCamera);
 
     /* three.js is ~675 KB. It is only fetched when a field tile actually exists, so a layout without
      * one never pays for it. */
@@ -1191,7 +1369,8 @@ define("field", {
         state.scene = mod.createField(canvas, {
           length: cfg.length,
           width: cfg.width,
-          trail: Math.max(0, cfg.trail | 0),
+          trail: settings.fieldTrail,
+          model: settings.fieldModel,
           onModel: () => { body.querySelector(".fieldlab").textContent = "Field · REBUILT"; },
         });
         state.scene.setMode(state.mode);
@@ -1200,16 +1379,6 @@ define("field", {
         console.warn("field view unavailable", err);
         body.querySelector(".fieldlab").textContent = "Field view unavailable";
       });
-
-    const setMode = (mode, button) => {
-      state.mode = mode;
-      state.scene?.setMode(mode);
-      for (const b of body.querySelectorAll(".fbtn")) b.setAttribute("aria-pressed", "false");
-      button.setAttribute("aria-pressed", "true");
-    };
-    body.querySelector("[data-x=mChase]").onclick = (e) => setMode("chase", e.currentTarget);
-    body.querySelector("[data-x=mTop]").onclick = (e) => setMode("top", e.currentTarget);
-    body.querySelector("[data-x=mFree]").onclick = (e) => setMode("free", e.currentTarget);
   },
   update(body, cfg, x, tile, state) {
     const pose = arr(cfg.poseKey);
@@ -1268,10 +1437,61 @@ function defaults(spec) {
   return cfg;
 }
 
+/**
+ * Is this a tile the rest of the program can be handed?
+ *
+ * The boundary is the right place for this, and it is the only place that should need it. Everything
+ * downstream treats a layout item as a given: `buildBoard` indexes REGISTRY with `item.type`, the grid
+ * arithmetic assumes whole numbers, dragging swaps geometry between two items, `saveLayout` writes
+ * whatever it is given straight back out. One check here is what lets all of that stay as plain as it
+ * reads — and a value that was never let in cannot cost anything later.
+ *
+ * A guard at the call site instead would only catch the bad item after it had already reached code
+ * that had no business validating it, and at module scope it would be catching a fire, not preventing
+ * one: `buildBoard` runs during evaluation of this file.
+ */
+function usableLayoutItem(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  if (typeof item.type !== "string" || !REGISTRY[item.type]) return false;
+  if (![item.x, item.y, item.w, item.h].every(Number.isInteger)) return false;
+  if (item.w < 1 || item.h < 1) return false;
+  if (item.x < 0 || item.y < 0 || item.x + item.w > GRID_COLS || item.y + item.h > GRID_ROWS) return false;
+  return item.cfg === undefined
+    || (item.cfg !== null && typeof item.cfg === "object" && !Array.isArray(item.cfg));
+}
+
+/* Unreadable tiles are dropped here, where the importer (`readLayoutDocument`) refuses the whole
+ * document and names every reason. The two are answering different questions on purpose: an import is
+ * someone handing over a file and wanting to be told what is wrong with it, this is a driver opening
+ * the console and wanting their board. Silence and nine of ten tiles beats a dialog and none. */
 function loadLayout() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (Array.isArray(saved) && saved.length) return saved;
+    if (Array.isArray(saved)) {
+      const clean = [];
+      /* Two different things happen to a saved tile, and the warning has to tell them apart. Past the
+       * cap a tile is not read at all — it is perfectly good and there was no room — so counting the
+       * shortfall against `saved` blamed the truncation on the reader: a stored board of 5000 valid
+       * tiles used to report 4936 of them unreadable, which is a false accusation and sends whoever
+       * reads it looking for corruption that is not there. `read` is what was actually looked at. */
+      const read = saved.slice(0, LAYOUT_MAX_TILES);
+      /* Rebuilt field by field rather than copied. Ids are per-session handles into `live` and
+       * `buildBoard` issues fresh ones, and anything else that found its way into storage has no
+       * business travelling any further than this line. */
+      for (const item of read) {
+        if (!usableLayoutItem(item)) continue;
+        clean.push({
+          type: item.type, x: item.x, y: item.y, w: item.w, h: item.h, cfg: { ...(item.cfg || {}) },
+        });
+      }
+      if (clean.length !== read.length) {
+        console.warn(`layout: dropped ${read.length - clean.length} unreadable tile(s) from storage`);
+      }
+      if (saved.length > read.length) {
+        console.warn(`layout: ${saved.length - read.length} tile(s) past the ${LAYOUT_MAX_TILES}-tile cap were not read`);
+      }
+      if (clean.length) return clean;
+    }
   } catch { /* corrupt storage is not worth a dialog; fall through to defaults */ }
   return DEFAULT_LAYOUT.map((c) => ({ ...c }));
 }
@@ -1340,6 +1560,32 @@ function buildBoard() {
     board.appendChild(tile);
     live.set(item.id, { item, spec, tile, body, refs, state, sub });
     installDrag(tile, item);
+  }
+  paint();
+}
+
+/**
+ * Build one kind of tile again in place, for a setting a component only reads once.
+ *
+ * The field view allocates its trail buffer and decides about the baked model when the scene is
+ * created, so those two settings cannot be pushed into a running tile — it has to be made again. Only
+ * the tiles that care are touched: rebuilding the whole board would drop the alert tile's hold state
+ * and every graph's history to change a camera setting.
+ */
+function rebuildTilesOfType(type) {
+  for (const entry of live.values()) {
+    if (entry.item.type !== type) continue;
+    entry.spec.dispose?.(entry.state);
+    entry.state = {};
+    entry.body.innerHTML = "";
+    try {
+      entry.spec.render(entry.body, entry.item.cfg, entry.state);
+    } catch (err) {
+      console.warn(`component ${type} failed to render`, err);
+      entry.body.innerHTML = `<div class="cap" style="padding-top:10px">This tile failed to load.</div>`;
+    }
+    entry.refs = {};
+    for (const node of entry.body.querySelectorAll("[data-x]")) entry.refs[node.dataset.x] = node;
   }
   paint();
 }
@@ -1716,7 +1962,9 @@ async function exportLayoutToFile() {
     return;
   }
   $("#impText").value = text;
-  setLayoutStatus("Could not save or copy. The layout is in the box above — select it and copy.", "bad");
+  /* Named rather than pointed at. These messages used to say "the box above", which stopped being true
+   * the moment the paste box became a row of its own. */
+  setLayoutStatus("Could not save or copy. The layout is in the paste box — select it and copy.", "bad");
 }
 
 async function importLayoutFromFile() {
@@ -1748,19 +1996,11 @@ $("#impPicker").onchange = async (e) => {
   }
 };
 
-function openLayoutModal() {
-  setLayoutStatus("", null);
-  $("#impText").value = "";
-  $("#layoutModal").dataset.open = "true";
-}
-
-$("#layoutBtn").onclick = openLayoutModal;
-$("#layoutClose").onclick = () => { $("#layoutModal").dataset.open = "false"; };
 $("#expFile").onclick = exportLayoutToFile;
 $("#expClip").onclick = async () => {
   if (await copyText(layoutJson())) { setLayoutStatus("Layout copied to the clipboard.", "ok"); return; }
   $("#impText").value = layoutJson();
-  setLayoutStatus("The clipboard refused. The layout is in the box above — select it and copy.", "bad");
+  setLayoutStatus("The clipboard refused. The layout is in the paste box — select it and copy.", "bad");
 };
 $("#impFile").onclick = importLayoutFromFile;
 $("#impClip").onclick = async () => {
@@ -1768,7 +2008,7 @@ $("#impClip").onclick = async () => {
   try {
     text = await navigator.clipboard.readText();
   } catch {
-    setLayoutStatus("Cannot read the clipboard here. Paste into the box above instead.", "bad");
+    setLayoutStatus("Cannot read the clipboard here. Use the paste box instead.", "bad");
     return;
   }
   applyLayoutText(text, "the clipboard");
@@ -1789,7 +2029,10 @@ function activeView() {
 function showView(name) {
   if (!VIEWS.includes(name)) return;
   for (const t of document.querySelectorAll(".tab")) {
-    t.setAttribute("aria-selected", String(t.dataset.view === name));
+    const on = t.dataset.view === name;
+    t.setAttribute("aria-selected", String(on));
+    /* The roving half of the tablist: only the selected tab is in the tab order. */
+    t.tabIndex = on ? 0 : -1;
   }
   for (const v of document.querySelectorAll(".view")) {
     v.dataset.active = String(v.dataset.view === name);
@@ -1806,6 +2049,7 @@ function showView(name) {
 for (const tab of document.querySelectorAll(".tab")) {
   tab.onclick = () => showView(tab.dataset.view);
 }
+wireTablist($(".tabs"));
 
 $("#editBtn").onclick = () => {
   const on = app.dataset.edit !== "true";
@@ -1813,11 +2057,11 @@ $("#editBtn").onclick = () => {
   $("#editBtn").setAttribute("aria-pressed", String(on));
 };
 
-$("#resetBtn").onclick = () => {
+function resetBoard() {
   layout = DEFAULT_LAYOUT.map((c) => ({ ...c }));
   saveLayout();
   buildBoard();
-};
+}
 
 $("#demoBtn").onclick = () => setDemo(!demo.on);
 
@@ -1827,15 +2071,19 @@ $("#demoBtn").onclick = () => setDemo(!demo.on);
  * if the network is unreachable — which on a field is the normal case — nothing appears either. The
  * only visible outcome is a chip in the dock, and installing is always a deliberate click. An update
  * prompt is exactly the sort of thing rule two exists to keep away from a driver. */
-/* One check, shared. The dock wants to know whether there is a release; the About page wants the
- * version out of the same answer. Checking twice would be two requests to GitHub from a laptop that
- * is usually on a field network with no route there. */
+/* One check, shared. The dock wants to know whether there is a release; Settings wants the version
+ * out of the same answer. Checking twice would be two requests to GitHub from a laptop that is
+ * usually on a field network with no route there. */
 let updatePromise = null;
 
-function updateCheck() {
+/** `force` is the Settings button: the shared answer is thrown away and GitHub is asked again. */
+function updateCheck(force) {
+  if (force) updatePromise = null;
   if (!updatePromise) {
     updatePromise = invoke
-      ? invoke("check_update").catch((e) => ({ available: false, current: "", error: String(e) }))
+      /* No `current` in here on purpose. A rejected invoke means the check did not happen; it does not
+       * mean the installed version is empty, and saying so erased a version already on screen. */
+      ? invoke("check_update").catch((e) => ({ available: false, error: String(e) }))
       : Promise.resolve(null);
   }
   return updatePromise;
@@ -1863,34 +2111,6 @@ if (invoke) {
     $("#rttChip").insertAdjacentElement("beforebegin", chip);
   }, 6000);
 }
-
-/* ------------------------------------------------------------------ team number */
-
-$("#linkChip").onclick = async () => {
-  const input = $("#teamInput");
-  const hint = $("#teamHint");
-  if (!invoke) {
-    hint.textContent = "Only settable in the desktop app.";
-    input.disabled = true;
-  } else {
-    input.value = await invoke("team_number").catch(() => "");
-  }
-  $("#teamModal").dataset.open = "true";
-  input.focus();
-};
-
-$("#teamClose").onclick = async () => {
-  const team = Number($("#teamInput").value);
-  if (invoke && Number.isInteger(team) && team > 0 && team < 10000) {
-    try {
-      await invoke("set_team_number", { team });
-    } catch (e) {
-      $("#teamHint").textContent = String(e);
-      return;
-    }
-  }
-  $("#teamModal").dataset.open = "false";
-};
 
 /* ------------------------------------------------------------------- tune sheet */
 
@@ -1946,12 +2166,14 @@ function paintTune() {
         slider.max = String(t.max ?? 1);
         slider.step = String(t.step ?? 0.01);
         slider.value = String(current ?? t.min ?? 0);
+        paintRange(slider);
         /* Show exactly as many decimals as the step can resolve: a 25 RPM step printed to three
          * places is noise, and a 0.001 gain printed to one is unusable. */
         const step = Number(t.step ?? 0.01);
         const places = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
         const readout = el("div", "v", `${fmt(current, places)}${t.unit ? ` ${t.unit}` : ""}`);
         slider.oninput = () => {
+          paintRange(slider);
           readout.textContent = `${Number(slider.value).toFixed(places)}${t.unit ? ` ${t.unit}` : ""}`;
         };
         slider.onchange = () => ntSet(t.key, Number(slider.value));
@@ -2239,8 +2461,11 @@ function observeLink() {
 function paintHeader() {
   const linked = nt.status.connected || demo.on;
   app.dataset.linked = String(linked);
-  app.dataset.live = String(ds.enabled && !ds.estop);
-  app.dataset.estop = String(ds.estop);
+  /* Both gated on the link, for the same reason `stateName` below is. The lamp is a statement about
+   * the robot, and with nothing on the other end there is no robot to make one about — an ungated
+   * lamp went on glowing green from the last control word it saw beside the words "No robot". */
+  app.dataset.live = String(linked && ds.enabled && !ds.estop);
+  app.dataset.estop = String(linked && ds.estop);
 
   const side = alliance();
   const event = str("/FMSInfo/EventName", "");
@@ -2275,12 +2500,17 @@ function paintHeader() {
   if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
 }
 
-/* ------------------------------------------------------------------------ about */
+/* --------------------------------------------------------------------- settings */
 
-/* The one surface where the product states what it is, so it is a page rather than a dialog and it
- * lives off the board — the board is for telemetry. Everything on it is either fixed prose or read
- * live; the version comes from the backend, because a number typed into the frontend is a number that
- * will eventually be wrong. */
+/* The one surface where the console can be changed, and the one where it states what it is.
+ *
+ * A full page rather than a dialog, because it is a mode of the instrument: you step into it, and the
+ * instant anything goes live it stands down and you are back on the board. Everything that used to be
+ * a modal hanging off a chip lives in here — one place to look, one place to change.
+ *
+ * The About section is the last one on purpose. Everything on it is either fixed prose or read live;
+ * the version comes from the backend, because a number typed into the frontend is a number that will
+ * eventually be wrong. */
 
 const ABOUT_LINKS = [
   ["Repository", "github.com/TomAs-1226/CatalystConsole", "https://github.com/TomAs-1226/CatalystConsole"],
@@ -2293,15 +2523,17 @@ const SHORTCUTS = [
   [["2"], "Tune"],
   [["3"], "Logs"],
   [["4"], "Topics"],
+  [["S"], "Settings"],
   [["D"], "Demo data on or off"],
   [["E"], "Edit layout"],
   [["A"], "Add a component"],
-  [["L"], "Export or import a layout"],
-  [["?"], "This page"],
+  [["L"], "Settings, on the layout"],
+  [["?"], "Settings, on this page"],
   [["Esc"], "Close whatever is open"],
 ];
 
-let aboutRefs = null;
+let settingsRefs = null;
+let currentSection = "robot";
 let ntFrames = 0;
 /* Probed once, on first open. Both files are optional: without them the field view falls back to a
  * drawn outline, so this is a statement of fact rather than a warning. */
@@ -2325,6 +2557,8 @@ async function probeAssets() {
   bakedAssets.probed = true;
   for (const [slot, url] of [["model", "./vendor/field.glb"], ["map", "./vendor/field-collision.json"]]) {
     try {
+      /* What the build actually ships, which is not the same question as what the field tile is
+       * currently drawing — `paintSettings` is where the two are told apart on screen. */
       const r = await fetch(url, { method: "HEAD" });
       const size = Number(r.headers.get("content-length"));
       bakedAssets[slot] = r.ok
@@ -2334,14 +2568,289 @@ async function probeAssets() {
       bakedAssets[slot] = { state: "absent" };
     }
   }
-  paintAbout();
+  paintSettings();
 }
 
-function buildAbout() {
-  const root = $("#about");
-  aboutRefs = {};
-  for (const node of root.querySelectorAll("[data-x]")) aboutRefs[node.dataset.x] = node;
+/* Which robot to look for.
+ *
+ * The team number is the one setting that is not in local storage with the rest: the backend owns it,
+ * it is what the MCP server reads, and it has to outlive anything the browser side forgets. So there
+ * is exactly one place to set it, and this is it. */
+let teamNumber = null;
 
+/* Mirrors candidate_addresses() in src-tauri/src/main.rs. Two copies exist because the console has to
+ * be able to say what it is about to try before anything has answered — but they are the same list in
+ * the same order, and the second column is why each one is in it. */
+function candidateAddresses(team) {
+  const known = Number.isInteger(team) && team > 0;
+  return [
+    ["127.0.0.1", "this machine, for simulation"],
+    [`roborio-${known ? team : "TEAM"}-frc.local`, "the field's mDNS name"],
+    [known ? `10.${Math.floor(team / 100)}.${team % 100}.2` : "10.TE.AM.2", "the pit's static IP"],
+    ["172.22.11.2", "the USB tether"],
+  ];
+}
+
+/* Rebuilt only when something in it changed: this runs on every paint, and four list items ten times
+ * a second is four list items nobody asked for. */
+function paintAddresses() {
+  const list = $("#addrList");
+  const answered = !demo.on && nt.status.connected ? nt.status.address || "" : "";
+  const sig = `${teamNumber}|${answered}`;
+  if (list.dataset.sig === sig) return;
+  list.dataset.sig = sig;
+
+  list.innerHTML = "";
+  for (const [addr, why] of candidateAddresses(teamNumber)) {
+    const li = el("li");
+    const hit = addr === answered;
+    li.dataset.answered = String(hit);
+    li.append(el("span", null, addr), el("span", "what", hit ? "answered" : why));
+    list.appendChild(li);
+  }
+}
+
+function setNote(id, text, tone) {
+  const node = $(id);
+  node.textContent = text;
+  node.dataset.tone = tone || "";
+}
+
+/* The line under the team field, as the markup wrote it. Kept so a red error from last time can be
+ * cleared back to it without the sentence existing twice. */
+let teamNoteDefault = "";
+
+async function refreshTeam() {
+  const input = $("#setTeam");
+  if (!invoke) {
+    input.disabled = true;
+    input.placeholder = "—";
+    setNote("#teamNote", "The team number belongs to the desktop app, so it can only be set there.");
+    paintAddresses();
+    return;
+  }
+  setNote("#teamNote", teamNoteDefault);
+  const n = await invoke("team_number").catch(() => null);
+  if (Number.isInteger(n) && n > 0) {
+    teamNumber = n;
+    input.value = String(n);
+  }
+  paintAddresses();
+}
+
+async function applyTeam() {
+  const team = Number($("#setTeam").value);
+  if (!Number.isInteger(team) || team < 1 || team > 9999) {
+    setNote("#teamNote", "A team number is a whole number between 1 and 9999.", "bad");
+    return;
+  }
+  if (!invoke) return;
+  try {
+    await invoke("set_team_number", { team });
+  } catch (e) {
+    setNote("#teamNote", String(e), "bad");
+    return;
+  }
+  teamNumber = team;
+  setNote("#teamNote", `Looking for team ${team}. It applies on the next connection attempt, about a second away.`, "ok");
+  paintAddresses();
+}
+
+function trailLabel(v) {
+  return v === 0 ? "off" : `${v} pts`;
+}
+
+function holdLabel(ms) {
+  return ms === 0 ? "no hold" : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/* The moving pill, positioned by index rather than by measuring: each segment is exactly one slot
+ * wide, so one slot of travel is one hundred per cent of its own width. */
+function paintCamera() {
+  const choice = $("#setCamera");
+  const buttons = [...choice.querySelectorAll("button")];
+  const i = Math.max(0, buttons.findIndex((b) => b.dataset.v === settings.fieldCamera));
+  buttons.forEach((b, n) => b.setAttribute("aria-checked", String(n === i)));
+  choice.querySelector(".choicesel").style.transform = `translateX(${i * 100}%)`;
+}
+
+/** Push the camera setting into every field tile that is already on the board. */
+function applyFieldCamera() {
+  for (const entry of live.values()) entry.state.applyCamera?.(settings.fieldCamera);
+}
+
+/**
+ * Move the camera, from wherever the request came from.
+ *
+ * There is one camera and there are two ways to reach it — the buttons in the field tile's corner and
+ * the control in Settings — so there is one function that changes it and both go through here. The
+ * tile's own `applyCamera` only moves that tile; it is deliberately not what its buttons call, because
+ * a tile that quietly held a camera of its own is how the two surfaces came to disagree.
+ */
+function setCamera(mode) {
+  if (!CAMERAS.includes(mode) || mode === settings.fieldCamera) return;
+  settings.fieldCamera = mode;
+  saveSettings();
+  paintCamera();
+  applyFieldCamera();
+}
+
+function setUpdateNote(text, tone) {
+  setNote("#updateNote", text, tone);
+}
+
+/* The version this build is, once the backend has said so.
+ *
+ * Held rather than re-read out of each answer, because a failed check is not news about the installed
+ * version. `check_update` fills `current` in on every path it takes, including its own network errors;
+ * only the invoke itself rejecting leaves us without one, and that says nothing about which build is
+ * running. Blanking the cell there had the console reporting a local fact it already knew as unknown. */
+let installedVersion = "";
+
+/* Says what happened, in the words that are true. A check that fails on a field network is the normal
+ * case and must not read as an error, because it is not one. */
+function applyUpdateInfo(info) {
+  const x = settingsRefs;
+  if (info && info.current) installedVersion = info.current;
+  const current = installedVersion;
+  const label = current ? `v${current}` : "—";
+  if (x) { x.version.textContent = label; x.version2.textContent = label; }
+
+  const install = $("#installUpdate");
+  install.hidden = !(info && info.available);
+  if (info && info.available) install.textContent = `Install v${info.version}`;
+
+  if (!invoke) {
+    if (x) x.versionSrc.textContent = "no backend — version unknown";
+    setUpdateNote("There is no backend here. The version and the update check both come from the desktop app.");
+    return;
+  }
+  if (!info || info.error) {
+    if (x) x.versionSrc.textContent = current ? "installed build" : "version unavailable";
+    setUpdateNote("No answer from GitHub. On a field network that is the normal case rather than a fault — nothing about the console needs the internet.");
+    return;
+  }
+  if (info.available) {
+    if (x) x.versionSrc.textContent = `v${info.version} available`;
+    setUpdateNote(`Version ${info.version} is available. Nothing installs until you press the button.`, "ok");
+    return;
+  }
+  if (x) x.versionSrc.textContent = "installed build";
+  setUpdateNote("No newer release. This is the current build.");
+}
+
+/* Wiring, done once on first open. A settings panel nobody has opened has no business asking the
+ * backend anything, and the update check behind it can sit for a while on a field network. */
+function buildSettings() {
+  const root = $("#settings");
+  settingsRefs = {};
+  for (const node of root.querySelectorAll("[data-x]")) settingsRefs[node.dataset.x] = node;
+
+  for (const nav of root.querySelectorAll(".snav")) {
+    nav.onclick = () => showSection(nav.dataset.sec);
+  }
+  wireTablist(root.querySelector(".snavlist"));
+
+  /* --- robot --- */
+  teamNoteDefault = $("#teamNote").textContent.trim();
+  $("#setTeam").onchange = applyTeam;
+
+  /* --- field view --- */
+  for (const b of $("#setCamera").querySelectorAll("button")) {
+    b.onclick = () => setCamera(b.dataset.v);
+  }
+  /* No `paintCamera()` here. It runs once at boot instead — see the lifecycle section — so the markup
+   * agrees with storage from the first frame rather than from the first time someone opens the panel. */
+
+  const trail = $("#setTrail");
+  trail.value = String(settings.fieldTrail);
+  paintRange(trail);
+  $("#setTrailVal").textContent = trailLabel(settings.fieldTrail);
+  trail.oninput = () => {
+    paintRange(trail);
+    $("#setTrailVal").textContent = trailLabel(Number(trail.value));
+  };
+  /* On release rather than on every pixel of the drag: the trail buffer is allocated when the scene is
+   * built, so this length is a rebuild, and rebuilding a three.js scene sixty times across one drag
+   * would stutter the board for no gain. */
+  trail.onchange = () => {
+    settings.fieldTrail = clamp(Math.round(Number(trail.value)) || 0, 0, TRAIL_MAX);
+    saveSettings();
+    rebuildTilesOfType("field");
+  };
+
+  const model = $("#setModel");
+  model.setAttribute("aria-checked", String(settings.fieldModel));
+  model.onclick = () => {
+    settings.fieldModel = !settings.fieldModel;
+    saveSettings();
+    model.setAttribute("aria-checked", String(settings.fieldModel));
+    rebuildTilesOfType("field");
+    paintSettings();
+  };
+
+  /* --- dashboard --- */
+  const hold = $("#setAlertHold");
+  hold.value = String(settings.alertHoldMs);
+  paintRange(hold);
+  $("#setAlertHoldVal").textContent = holdLabel(settings.alertHoldMs);
+  /* Live on the drag, because nothing has to be rebuilt for it — the alert tile reads the number on
+   * the next frame either way. Only the writing to storage waits for the release. */
+  hold.oninput = () => {
+    settings.alertHoldMs = clamp(Math.round(Number(hold.value)) || 0, 0, ALERT_HOLD_MAX);
+    paintRange(hold);
+    $("#setAlertHoldVal").textContent = holdLabel(settings.alertHoldMs);
+  };
+  hold.onchange = saveSettings;
+
+  /* Two presses rather than a confirmation dialog. Rule two says nothing blocks the board, and a
+   * button that arms itself asks the question without putting anything in front of anything. */
+  const reset = $("#resetBoard");
+  let armed = 0;
+  const disarm = () => {
+    clearTimeout(armed);
+    armed = 0;
+    reset.classList.remove("armed");
+    reset.textContent = "Reset";
+  };
+  reset.onclick = () => {
+    if (!armed) {
+      reset.classList.add("armed");
+      reset.textContent = "Press again";
+      armed = setTimeout(disarm, 4000);
+      return;
+    }
+    disarm();
+    resetBoard();
+    setLayoutStatus("The board is back to the layout the console ships with.", "ok");
+  };
+
+  /* --- data --- */
+  $("#setDemoTog").onclick = () => setDemo(!demo.on);
+
+  /* --- updates --- */
+  $("#checkUpdate").onclick = async () => {
+    const button = $("#checkUpdate");
+    button.disabled = true;
+    setUpdateNote("Checking…");
+    const info = await updateCheck(true);
+    button.disabled = false;
+    applyUpdateInfo(info);
+  };
+
+  $("#installUpdate").onclick = async () => {
+    const button = $("#installUpdate");
+    button.disabled = true;
+    button.textContent = "Installing…";
+    const failed = await invoke("install_update").catch((e) => String(e));
+    if (failed) {
+      button.disabled = false;
+      button.textContent = "Install failed";
+      setUpdateNote(String(failed), "bad");
+    }
+  };
+
+  /* --- about --- */
   const keys = $("#keyList");
   keys.innerHTML = "";
   for (const [combo, what] of SHORTCUTS) {
@@ -2363,33 +2872,40 @@ function buildAbout() {
     links.appendChild(b);
   }
 
-  /* Kicked off here rather than at launch: an About page nobody opened has no business making a
-   * request, and the update check behind it can sit for a while on a field network. */
-  updateCheck().then((info) => {
-    if (!aboutRefs) return;
-    const current = info && info.current ? info.current : "";
-    aboutRefs.version.textContent = current ? `v${current}` : "—";
-    aboutRefs.versionSrc.textContent = !invoke
-      ? "no backend — version unknown"
-      : !current
-        ? "version unavailable"
-        : info.available
-          ? `v${info.version} available`
-          : "installed build";
-  });
+  updateCheck().then(applyUpdateInfo);
 }
 
-function setAbout(open) {
-  const root = $("#about");
-  if (open) {
-    if (!aboutRefs) buildAbout();
-    probeAssets();
-    root.dataset.open = "true";
-    paintAbout();
-    $("#aboutClose").focus();
-  } else {
-    root.dataset.open = "false";
+function showSection(name) {
+  const root = $("#settings");
+  if (!root.querySelector(`.ssec[data-sec="${name}"]`)) name = "robot";
+  currentSection = name;
+  for (const nav of root.querySelectorAll(".snav")) {
+    const on = nav.dataset.sec === name;
+    nav.setAttribute("aria-selected", String(on));
+    nav.tabIndex = on ? 0 : -1;
   }
+  for (const sec of root.querySelectorAll(".ssec")) {
+    if (sec.dataset.sec === name) sec.dataset.active = "true";
+    else delete sec.dataset.active;
+  }
+  $("#spane").scrollTop = 0;
+  paintSettings();
+}
+
+function setSettings(open, section) {
+  const root = $("#settings");
+  if (!open) { root.dataset.open = "false"; return; }
+
+  if (!settingsRefs) buildSettings();
+  if (section) showSection(section);
+  probeAssets();
+  refreshTeam();
+  /* A fresh open starts with an empty import box and nothing claimed about the last one. */
+  setLayoutStatus("", null);
+  $("#impText").value = "";
+  root.dataset.open = "true";
+  paintSettings();
+  $("#settingsClose").focus();
 }
 
 function assetLabel(a) {
@@ -2398,9 +2914,175 @@ function assetLabel(a) {
   return a.size ? `${(a.size / 1048576).toFixed(1)} MB` : "present";
 }
 
-function paintAbout() {
-  if (!aboutRefs || $("#about").dataset.open !== "true") return;
-  const x = aboutRefs;
+/* ------------------------------------------------------------------- the garage */
+
+/* Everything the robot says about itself lands here. FrcCatalyst publishes it once at boot and
+ * refreshes it on request, so a console that connects mid-match still gets the sheet. */
+const SPEC_ROOT = "/Catalyst/Robot/";
+
+const metres = (v) => `${v.toFixed(v < 1 ? 3 : 2)} m`;
+
+/* Composite rows arrive pipe-delimited — "8|Kraken X60", "3|Climber" — because that is how the
+ * library already serialises a device list. Split rather than parsed: a value containing a pipe is
+ * the library's problem to prevent, not something to guess at here. */
+const pairs = (key, fmt) => {
+  const rows = arr(`${SPEC_ROOT}${key}`);
+  return rows && rows.length ? rows.map((r) => fmt(...String(r).split("|"))).join(", ") : null;
+};
+
+/* Declarative on purpose. A spec sheet grows every season, and a table is the difference between
+ * adding a line and editing a render function. Each entry returns a formatted string or null, and
+ * null means the robot did not publish it — so it is left out rather than dashed. A dash would say
+ * "this robot has no gyro"; absence says "it did not mention one", and only the second is true. */
+const SPEC_GROUPS = [
+  ["Software", [
+    ["Catalyst", () => str(`${SPEC_ROOT}Software/CatalystVersion`)],
+    ["Robot code", () => str(`${SPEC_ROOT}Software/RobotCodeVersion`)],
+    ["WPILib", () => str(`${SPEC_ROOT}Software/WPILibVersion`)],
+    ["roboRIO image", () => str(`${SPEC_ROOT}Software/RioImage`)],
+  ]],
+  ["Drivetrain", [
+    ["Type", () => str(`${SPEC_ROOT}Drivetrain/Type`)],
+    ["Modules", () => { const n = num(`${SPEC_ROOT}Drivetrain/Modules`); return n ? String(n) : null; }],
+    ["Top speed", () => { const v = num(`${SPEC_ROOT}Drivetrain/MaxSpeedMps`); return v ? `${v.toFixed(2)} m/s` : null; }],
+    ["Track width", () => { const v = num(`${SPEC_ROOT}Drivetrain/TrackWidthMeters`); return v ? metres(v) : null; }],
+    ["Wheelbase", () => { const v = num(`${SPEC_ROOT}Drivetrain/WheelBaseMeters`); return v ? metres(v) : null; }],
+    ["Wheel radius", () => { const v = num(`${SPEC_ROOT}Drivetrain/WheelRadiusMeters`); return v ? `${(v * 1000).toFixed(0)} mm` : null; }],
+    ["Drive ratio", () => { const v = num(`${SPEC_ROOT}Drivetrain/DriveGearRatio`); return v ? `${v.toFixed(2)}:1` : null; }],
+    ["Odometry", () => { const v = num(`${SPEC_ROOT}Drivetrain/OdometryHz`); return v ? `${v.toFixed(0)} Hz` : null; }],
+  ]],
+  ["Chassis", [
+    ["Mass", () => { const v = num(`${SPEC_ROOT}Chassis/MassKg`); return v ? `${v.toFixed(1)} kg` : null; }],
+    ["Moment", () => { const v = num(`${SPEC_ROOT}Chassis/MoiKgM2`); return v ? `${v.toFixed(2)} kg·m²` : null; }],
+    ["Frame", () => {
+      const l = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`), w = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
+      return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
+    }],
+    ["Bumper to bumper", () => {
+      const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`), w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
+      return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
+    }],
+    ["Height", () => { const v = num(`${SPEC_ROOT}Chassis/HeightMeters`); return v ? metres(v) : null; }],
+  ]],
+  ["Power", [
+    ["Battery", () => str(`${SPEC_ROOT}Power/Battery`)],
+    ["Distribution", () => str(`${SPEC_ROOT}Power/Module`)],
+    ["Channels used", () => {
+      const used = arr(`${SPEC_ROOT}Power/ChannelsInUse`), total = num(`${SPEC_ROOT}Power/Channels`);
+      if (!used || !used.length) return null;
+      return total ? `${used.length} of ${total}` : String(used.length);
+    }],
+    ["Brownout", () => { const v = num(`${SPEC_ROOT}Power/BrownoutVolts`); return v ? `${v.toFixed(2)} V` : null; }],
+  ]],
+  ["Hardware", [
+    ["CAN devices", () => { const n = num(`${SPEC_ROOT}Hardware/CanDevices`); return n ? String(n) : null; }],
+    ["Inventory", () => pairs("Hardware/Inventory", (type, count) => `${count} × ${type}`)],
+    ["Gyro", () => str(`${SPEC_ROOT}Hardware/Gyro`)],
+    ["Cameras", () => { const c = arr(`${SPEC_ROOT}Hardware/Cameras`); return c && c.length ? c.join(", ") : null; }],
+  ]],
+];
+
+/* A plan of this robot, to scale, from the figures on the wire. Bumpers, frame and module positions
+ * are each drawn only if the robot published them, so a partial sheet gives a partial drawing rather
+ * than a confident wrong one. Nose points up, which is +x in WPILib's frame. */
+function drawPlan(canvas) {
+  const frameL = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`);
+  const frameW = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
+  const bumpL = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`);
+  const bumpW = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
+  const mods = arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`);
+
+  /* The module ring alone is enough to draw something true, so a team that declared no frame size
+   * still gets their own wheel layout rather than nothing. */
+  const span = mods && mods.length >= 2
+    ? [Math.max(...mods.filter((_, i) => i % 2 === 0).map(Math.abs)) * 2,
+       Math.max(...mods.filter((_, i) => i % 2 === 1).map(Math.abs)) * 2]
+    : null;
+  const outerL = bumpL || frameL || (span && span[0]);
+  const outerW = bumpW || frameW || (span && span[1]);
+  if (!outerL || !outerW) return false;
+
+  const dpr = Math.min(devicePixelRatio || 1, 3);
+  const cw = canvas.clientWidth || 300, ch = canvas.clientHeight || 210;
+  canvas.width = Math.round(cw * dpr);
+  canvas.height = Math.round(ch * dpr);
+  const g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, cw, ch);
+
+  const pad = 26;
+  const scale = Math.min((cw - pad * 2) / outerW, (ch - pad * 2) / outerL);
+  const cx = cw / 2, cy = ch / 2;
+  /* Robot +x is forward and +y is to the left; screen y grows downward. */
+  const px = (x, y) => [cx - y * scale, cy - x * scale];
+
+  const rect = (lengthM, widthM, stroke, width, dash) => {
+    const w = widthM * scale, h = lengthM * scale;
+    g.save();
+    g.strokeStyle = stroke; g.lineWidth = width; g.setLineDash(dash || []);
+    g.beginPath();
+    const r = Math.min(9, w / 6, h / 6);
+    g.roundRect(cx - w / 2, cy - h / 2, w, h, r);
+    g.stroke();
+    g.restore();
+  };
+
+  if (bumpL && bumpW) rect(bumpL, bumpW, "rgba(233,69,96,0.5)", 2);
+  if (frameL && frameW) rect(frameL, frameW, "rgba(255,255,255,0.34)", 1.5, bumpL ? [] : [5, 4]);
+
+  if (mods && mods.length >= 2) {
+    g.fillStyle = "rgba(255,255,255,0.82)";
+    for (let i = 0; i + 1 < mods.length; i += 2) {
+      const [sx, sy] = px(mods[i], mods[i + 1]);
+      g.beginPath(); g.arc(sx, sy, 5, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  /* Which way is forward, so the plan cannot be read upside down. */
+  const nose = (outerL / 2) * scale;
+  g.strokeStyle = "rgba(255,255,255,0.45)"; g.lineWidth = 1.5;
+  g.beginPath();
+  g.moveTo(cx - 7, cy - nose - 9); g.lineTo(cx, cy - nose - 16); g.lineTo(cx + 7, cy - nose - 9);
+  g.stroke();
+  return true;
+}
+
+function paintGarage() {
+  const root = $("#garage");
+  const name = str(`${SPEC_ROOT}Identity/Name`);
+  root.dataset.known = String(!!name);
+  if (!name) return;
+
+  $("#gName").textContent = name;
+  const team = num(`${SPEC_ROOT}Identity/TeamNumber`);
+  const season = num(`${SPEC_ROOT}Identity/Season`);
+  const rio = str(`${SPEC_ROOT}Identity/Controller`);
+  $("#gSub").textContent = [team && `Team ${team}`, season && String(season), rio].filter(Boolean).join("  ·  ") || "";
+
+  const plan = $("#garagePlan");
+  const drew = drawPlan(plan);
+  plan.parentElement.style.display = drew ? "" : "none";
+  $("#gPlanNote").textContent = drew
+    ? (num(`${SPEC_ROOT}Chassis/BumperLengthMeters`) ? "Bumpers, frame and modules to scale" : "Frame and modules to scale")
+    : "";
+
+  const html = [];
+  for (const [title, rows] of SPEC_GROUPS) {
+    const got = rows.map(([label, read]) => [label, read()]).filter(([, v]) => v !== null && v !== undefined && v !== "");
+    if (!got.length) continue;
+    html.push(`<div class="ggroup"><h4>${title}</h4>${
+      got.map(([label, v]) => `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`).join("")
+    }</div>`);
+  }
+  $("#gSpecs").innerHTML = html.join("");
+}
+
+function paintSettings() {
+  if (!settingsRefs || $("#settings").dataset.open !== "true") return;
+  const x = settingsRefs;
+
+  if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection !== "about") return;
 
   x.dSource.textContent = demo.on
     ? "Demo data"
@@ -2417,15 +3099,23 @@ function paintAbout() {
 
   for (const [slot, dot, label] of [["model", "dModelDot", "dModel"], ["map", "dMapDot", "dMap"]]) {
     const a = bakedAssets[slot];
-    x[dot].className = `d ${a.state === "present" ? "ok" : a.state === "absent" ? "" : "warn"}`;
-    x[label].textContent = assetLabel(a);
+    /* A bundled model that the setting has switched off is still bundled. Saying "not bundled" there
+     * would be the diagnostics reporting a preference as a fact about the build. */
+    const off = slot === "model" && !settings.fieldModel;
+    x[dot].className = `d ${a.state === "checking" ? "warn" : a.state === "present" && !off ? "ok" : ""}`;
+    x[label].textContent = off && a.state === "present" ? "bundled, switched off" : assetLabel(a);
   }
 }
 
-$("#aboutBtn").onclick = () => setAbout(true);
-$("#aboutClose").onclick = () => setAbout(false);
-/* Clicking the ground closes it. The document itself does not, or selecting a line of prose would. */
-$("#about").addEventListener("mousedown", (e) => { if (e.target === $("#about")) setAbout(false); });
+$("#settingsBtn").onclick = () => setSettings(true);
+$("#settingsClose").onclick = () => setSettings(false);
+/* The wordmark still goes where it always went, which is now a section rather than a page. */
+$("#aboutBtn").onclick = () => setSettings(true, "about");
+$("#linkChip").onclick = () => {
+  setSettings(true, "robot");
+  const input = $("#setTeam");
+  if (!input.disabled) input.focus();
+};
 
 /* --------------------------------------------------------------------- painting */
 
@@ -2437,18 +3127,28 @@ let lastControlWord = null;
 /* Anything covering the board gets out of the way the moment the robot is enabled.
  *
  * Rule two says no modal blocks the dashboard. Opening one is a deliberate act and that is fine —
- * but a driver who opens the About page in the pit and then gets called to the field would otherwise
- * find the state lamp, the match timer and the E-stop indicator hidden behind it. Nothing about the
- * console is worth reading at the moment a robot goes live, so everything stands down. */
+ * but a driver who opens Settings in the pit and then gets called to the field would otherwise find
+ * the state lamp, the match timer and the E-stop indicator hidden behind it. Nothing the console has
+ * to say about itself is worth reading at the moment a robot goes live, so everything stands down —
+ * Settings included, which is what `overlayOpen` and `closeOverlays` below are for. */
+/* An e-stop counts as much as an enable. Keying on the enabled bit alone meant an e-stopped robot only
+ * cleared the board if the console had watched it be enabled first — and a word can arrive already
+ * e-stopped, from a console started mid-match or one whose link came back into a stopped robot. The
+ * E-stop indicator is named above as one of the things a panel must not be sitting on top of, so the
+ * moment it has something to say is exactly the wrong moment to be covering it. */
+function isLive(word) {
+  return (word & BIT.enabled) !== 0 || (word & BIT.estop) !== 0;
+}
+
 function standDownOverlaysOnEnable() {
   const word = num("/FMSInfo/FMSControlData", null);
   if (word === null) { lastControlWord = null; return; }
 
-  const wasEnabled = lastControlWord !== null && (lastControlWord & BIT.enabled) !== 0;
-  const nowEnabled = (word & BIT.enabled) !== 0;
+  const wasLive = lastControlWord !== null && isLive(lastControlWord);
+  const nowLive = isLive(word);
   lastControlWord = word;
 
-  if (nowEnabled && !wasEnabled && overlayOpen()) closeOverlays();
+  if (nowLive && !wasLive && overlayOpen()) closeOverlays();
 }
 
 function paint() {
@@ -2468,7 +3168,7 @@ function paint() {
   const active = activeView();
   if (active === "topics") paintTopics();
   if (active === "logs") tickLinkHistory();
-  paintAbout();
+  paintSettings();
 }
 
 /* Coalesce bursts of NT frames into one paint. `paint` clears the handle itself, so the heartbeat
@@ -2511,16 +3211,65 @@ function refreshTopicList() {
 
 /* -------------------------------------------------------------------- lifecycle */
 
+/* The camera control is markup with a default baked into it — Chase checked, the pill at zero — and
+ * `settings.fieldCamera` comes out of storage, so the two start out able to disagree. Painting it here
+ * makes them agree from the first frame.
+ *
+ * It used to be painted by `buildSettings`, which is only reached the first time the panel is opened.
+ * That was never visible, but only because `setSettings` happens to build before it sets `data-open`,
+ * and a panel nobody has opened is a panel nobody is looking at. Both of those are true today and
+ * neither is a property anyone is holding on purpose: the first is the order of two statements, the
+ * second stops being true the moment something reads the tree without a person in front of it. What
+ * makes the markup right is that the setting was established, and that is here.
+ *
+ * `setCamera` keeps it right afterwards, from either surface. */
+paintCamera();
+
 layout = loadLayout();
-buildBoard();
+
+/* Braces as well as belt. `loadLayout` is where a bad tile is supposed to stop and it is the check
+ * that matters — but this call sits at module scope, so anything that ever did get past it would not
+ * merely lose a tile, it would abort the rest of this file. The heartbeat below would never start, the
+ * keydown listener would never be installed, `MODALS` would stay in its temporal dead zone so the
+ * stand-down throws on the first paint, and the driver would be left with an empty board that still
+ * opens Settings and looks perfectly healthy. Nothing a component can do to itself is worth that, so
+ * the first build is allowed to fail and the console comes up on the layout it ships with.
+ *
+ * Storage is left exactly as it was: the board that could not be built is still the board someone
+ * arranged, and overwriting it here would take away their only chance of getting it back. */
+try {
+  buildBoard();
+} catch (err) {
+  console.error("the saved board could not be built; falling back to the default layout", err);
+  layout = DEFAULT_LAYOUT.map((c) => ({ ...c }));
+  try {
+    buildBoard();
+  } catch (fatal) {
+    console.error("the default layout failed too; the board is empty, the console is not", fatal);
+  }
+}
 
 let pushedFrames = 0;
+/* Whether the last frame came in over a live link, so the moment one goes away can be spotted. */
+let wasConnected = false;
 
 function applyFrame(frame) {
   if (!frame || demo.on) return; // an explicit demo must not be overwritten by a real robot mid-look
   ntFrames++;
   const before = Object.keys(nt.v).length;
-  Object.assign(nt.v, frame.values);
+  const connected = !!frame.status?.connected;
+
+  /* The link went away, so everything it published went with it. The backend keeps its last values on
+   * a dropped socket — it only clears `connected` — so a frame from a dead link still arrives full of
+   * the robot that was there, and merging it forward left the store holding an enabled control word, a
+   * battery voltage and a pose, every one of them read as current. That is rule three by the back
+   * door: a stale number presented as a live one. Dropped rather than dimmed, so each tile falls back
+   * to the dash it already has for absent data. The rolling history is left alone — what a graph
+   * recorded did happen. */
+  if (connected) Object.assign(nt.v, frame.values);
+  else if (wasConnected) nt.v = Object.create(null);
+  wasConnected = connected;
+
   nt.status = frame.status;
   if (Object.keys(nt.v).length !== before) nt.keysDirty = true;
   onFrame();
@@ -2565,7 +3314,7 @@ setInterval(paint, 100);
  * binding is a single unmodified key — and that is exactly why the typing guard is not optional: a
  * bare "d" must never toggle demo data while someone is halfway through typing a topic path. */
 
-const MODALS = ["#pickModal", "#cfgModal", "#teamModal", "#layoutModal"];
+const MODALS = ["#pickModal", "#cfgModal"];
 
 function typingInField(target) {
   if (!target) return false;
@@ -2573,17 +3322,21 @@ function typingInField(target) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable === true;
 }
 
+function settingsOpen() {
+  return $("#settings").dataset.open === "true";
+}
+
 function overlayOpen() {
-  if ($("#about").dataset.open === "true") return true;
+  if (settingsOpen()) return true;
   return MODALS.some((id) => $(id).dataset.open === "true");
 }
 
 function closeOverlays() {
-  if ($("#about").dataset.open === "true") setAbout(false);
+  if (settingsOpen()) setSettings(false);
   /* Through its own close button, not by hiding the element: that button is what saves the edited
    * config and rebuilds the board, and skipping it left the board out of step with the settings. */
   if ($("#cfgModal").dataset.open === "true") $("#cfgClose").click();
-  for (const id of ["#pickModal", "#teamModal", "#layoutModal"]) $(id).dataset.open = "false";
+  $("#pickModal").dataset.open = "false";
 }
 
 /* Null prototype: a lookup by key name must never find `constructor` or `toString` and call it. */
@@ -2595,9 +3348,12 @@ const KEYS = Object.assign(Object.create(null), {
   d: () => setDemo(!demo.on),
   e: () => $("#editBtn").click(),
   a: () => openPicker(),
-  l: () => openLayoutModal(),
-  "?": () => setAbout(true),
-  F1: () => setAbout(true),
+  s: () => setSettings(true),
+  /* Both of these used to open a modal of their own. They still land where they always did — the
+   * layout on one, the product on the other — which is now a section rather than a destination. */
+  l: () => setSettings(true, "dashboard"),
+  "?": () => setSettings(true, "about"),
+  F1: () => setSettings(true, "about"),
 });
 
 window.addEventListener("keydown", (e) => {
@@ -2617,7 +3373,8 @@ window.addEventListener("keydown", (e) => {
   /* With something open, the only useful keys are the ones that close it or toggle it. Switching the
    * view behind a panel you cannot see is not a shortcut, it is a surprise. */
   if (overlayOpen()) {
-    if (e.key === "?" || e.key === "F1") { closeOverlays(); e.preventDefault(); }
+    const toggle = e.key === "?" || e.key === "F1" || (settingsOpen() && e.key.toLowerCase() === "s");
+    if (toggle) { closeOverlays(); e.preventDefault(); }
     return;
   }
 

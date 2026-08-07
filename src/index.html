@@ -9,37 +9,45 @@
   <div class="app" id="app" data-live="false" data-edit="false" data-linked="false" data-estop="false">
 
     <header class="top">
-      <!-- The wordmark is the way into the About page. A discreet target rather than a dock button:
-           the board and the dock are working surfaces and neither has room for vanity. -->
+      <!-- The wordmark opens Settings on About. A discreet target rather than a dock button: the board
+           and the dock are working surfaces and neither has room for vanity. -->
       <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog">
         <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
         <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
       </button>
-      <button class="chip" id="linkChip" title="Set team number"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
+      <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
       <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
       <span class="chip"><i class="d" id="dFms"></i>FMS</span>
       <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
       <div class="grow"></div>
-      <nav class="tabs" aria-label="Views">
-        <button class="tab" data-view="board" aria-selected="true">Dashboard</button>
-        <button class="tab" data-view="tune" aria-selected="false">Tune</button>
-        <button class="tab" data-view="logs" aria-selected="false">Logs</button>
-        <button class="tab" data-view="topics" aria-selected="false">Topics</button>
+      <!-- A tablist is one tab stop with arrow keys inside it, not four tab stops in a row. The roving
+           tabindex is maintained by showView; the arrows are wired by wireTablist. -->
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <button class="tab" role="tab" id="tab-board" aria-controls="board" data-view="board" aria-selected="true" tabindex="0">Dashboard</button>
+        <button class="tab" role="tab" id="tab-tune" aria-controls="view-tune" data-view="tune" aria-selected="false" tabindex="-1">Tune</button>
+        <button class="tab" role="tab" id="tab-logs" aria-controls="view-logs" data-view="logs" aria-selected="false" tabindex="-1">Logs</button>
+        <button class="tab" role="tab" id="tab-topics" aria-controls="view-topics" data-view="topics" aria-selected="false" tabindex="-1">Topics</button>
       </nav>
+      <button class="gear" id="settingsBtn" title="Settings  ·  S" aria-haspopup="dialog" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.1"/>
+          <path d="M19.1 14.6a1.5 1.5 0 0 0 .3 1.65l.05.06a1.85 1.85 0 1 1-2.62 2.62l-.06-.06a1.5 1.5 0 0 0-1.65-.3 1.5 1.5 0 0 0-.91 1.37v.16a1.85 1.85 0 1 1-3.7 0v-.09a1.5 1.5 0 0 0-.98-1.37 1.5 1.5 0 0 0-1.65.3l-.06.06a1.85 1.85 0 1 1-2.62-2.62l.06-.06a1.5 1.5 0 0 0 .3-1.65 1.5 1.5 0 0 0-1.38-.91H4a1.85 1.85 0 1 1 0-3.7h.09a1.5 1.5 0 0 0 1.37-.98 1.5 1.5 0 0 0-.3-1.65l-.06-.06a1.85 1.85 0 1 1 2.62-2.62l.06.06a1.5 1.5 0 0 0 1.65.3h.07a1.5 1.5 0 0 0 .91-1.38V4a1.85 1.85 0 1 1 3.7 0v.09a1.5 1.5 0 0 0 .91 1.37 1.5 1.5 0 0 0 1.65-.3l.06-.06a1.85 1.85 0 1 1 2.62 2.62l-.06.06a1.5 1.5 0 0 0-.3 1.65v.07a1.5 1.5 0 0 0 1.38.91H20a1.85 1.85 0 1 1 0 3.7h-.09a1.5 1.5 0 0 0-1.37.91z"/>
+        </svg>
+      </button>
     </header>
 
     <div class="views">
-      <div class="view board" data-view="board" data-active="true" id="board"></div>
+      <div class="view board" role="tabpanel" aria-labelledby="tab-board" data-view="board" data-active="true" id="board"></div>
 
-      <div class="view sheetwrap" data-view="tune">
+      <div class="view sheetwrap" role="tabpanel" id="view-tune" aria-labelledby="tab-tune" data-view="tune">
         <div class="sheet" id="tuneSheet"></div>
       </div>
 
-      <div class="view sheetwrap" data-view="logs">
+      <div class="view sheetwrap" role="tabpanel" id="view-logs" aria-labelledby="tab-logs" data-view="logs">
         <div class="sheet" id="logSheet"></div>
       </div>
 
-      <div class="view sheetwrap" data-view="topics">
+      <div class="view sheetwrap" role="tabpanel" id="view-topics" aria-labelledby="tab-topics" data-view="topics">
         <div class="sheet" id="topicSheet"></div>
       </div>
     </div>
@@ -60,18 +68,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         Add component
       </button>
-      <button class="dk" id="layoutBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v11M8 3 5 6.2M8 3l3 3.2"/><path d="M16 21V10m0 11 3-3.2M16 21l-3-3.2"/></svg>
-        Layout
-      </button>
-      <button class="dk" id="resetBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-        Reset
-      </button>
       <div class="grow"></div>
       <!-- Appears only once the link has actually dropped. Silence is the normal state. -->
       <button class="chip drops" id="dropChip" hidden title="Show this session's link history">—</button>
       <span class="chip" id="rttChip">RTT —</span>
+      <!-- Demo data is also a row in Settings, and that duplication is deliberate: while demo runs, the
+           fact that the numbers are invented has to be visible on the dashboard itself, not filed
+           away behind a panel nobody has open. -->
       <button class="dk" id="demoBtn" aria-pressed="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v18l15-9z"/></svg>
         Demo data
@@ -89,23 +92,6 @@
     </div>
   </div>
 
-  <!-- which robot to look for -->
-  <div class="modal" id="teamModal">
-    <div class="picker" style="max-width:420px">
-      <h3>Team number</h3>
-      <p>The console tries localhost, then <code>roborio-TEAM-frc.local</code>, then the pit static IP,
-         then the USB tether — cycling until one answers.</p>
-      <div class="cfgrow">
-        <label for="teamInput">Team</label>
-        <div>
-          <input type="number" id="teamInput" min="1" max="9999" step="1" />
-          <div class="hint" id="teamHint">Applies on the next connection attempt.</div>
-        </div>
-      </div>
-      <button class="close" id="teamClose">Done</button>
-    </div>
-  </div>
-
   <!-- per-component configuration -->
   <div class="modal" id="cfgModal">
     <div class="picker" style="max-width:560px">
@@ -116,112 +102,385 @@
     </div>
   </div>
 
-  <!-- layout portability -->
-  <div class="modal" id="layoutModal">
-    <div class="picker" style="max-width:560px">
-      <h3>Layout</h3>
-      <p>A board set up once, on every driver station. The file is plain JSON — commit it next to your
-         robot code and every laptop in the pit comes up the same.</p>
+  <!-- Settings: a mode of the instrument rather than a window floating over it. Full bleed, a quiet
+       rail of categories, one column of tall rows. About is the last section rather than a
+       destination of its own, because a product explaining itself is the end of the manual. -->
+  <!-- No aria-modal. There is no focus trap and the dashboard behind is not inert, and that is the
+       design rather than an oversight: rule two says nothing may impede driving, so this is a mode you
+       step out of and not a window that holds you. Claiming modality would have been the markup saying
+       one thing while the program did another. -->
+  <div class="settings" id="settings" role="dialog" aria-label="Settings">
 
-      <div class="pg">Export</div>
-      <div class="lrow">
-        <button class="lbtn" id="expFile">Save to file</button>
-        <button class="lbtn" id="expClip">Copy to clipboard</button>
+    <div class="srail">
+      <div class="srailhead">
+        <span>Settings</span>
+        <button class="sclose" id="settingsClose" title="Close  ·  Esc" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
       </div>
-
-      <div class="pg">Import</div>
-      <div class="lrow">
-        <button class="lbtn" id="impFile">Open a file</button>
-        <button class="lbtn" id="impClip">Paste from clipboard</button>
+      <div class="snavlist" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+        <button class="snav" role="tab" id="snav-robot" aria-controls="ssec-robot" data-sec="robot" aria-selected="true" tabindex="0">Robot</button>
+        <button class="snav" role="tab" id="snav-field" aria-controls="ssec-field" data-sec="field" aria-selected="false" tabindex="-1">Field view</button>
+        <button class="snav" role="tab" id="snav-dashboard" aria-controls="ssec-dashboard" data-sec="dashboard" aria-selected="false" tabindex="-1">Dashboard</button>
+        <button class="snav" role="tab" id="snav-data" aria-controls="ssec-data" data-sec="data" aria-selected="false" tabindex="-1">Data</button>
+        <button class="snav" role="tab" id="snav-updates" aria-controls="ssec-updates" data-sec="updates" aria-selected="false" tabindex="-1">Updates</button>
+        <button class="snav" role="tab" id="snav-about" aria-controls="ssec-about" data-sec="about" aria-selected="false" tabindex="-1">About</button>
       </div>
-      <textarea id="impText" rows="4" spellcheck="false" placeholder="…or paste the JSON here"></textarea>
-      <button class="lbtn wide" id="impPaste">Import what is pasted above</button>
-
-      <div class="lstatus" id="layoutStatus"></div>
-      <input type="file" id="impPicker" accept="application/json,.json" hidden />
-      <button class="close" id="layoutClose">Done</button>
     </div>
-  </div>
 
-  <!-- About: the one surface where the product gets to say what it is. Deliberately not a tile —
-       the board is for telemetry — and deliberately its own page rather than a .modal, because a
-       dialog box is the wrong shape for the thing being said. -->
-  <div class="about" id="about" role="dialog" aria-modal="true" aria-label="About Catalyst Console">
-    <div class="aboutdoc">
-      <button class="aboutx" id="aboutClose" title="Close  ·  Esc" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-      </button>
+    <div class="spane" id="spane">
+      <div class="sbody">
 
-      <header class="mast">
-        <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
-        <div class="mastname">
-          <h1>Catalyst<span>Console</span></h1>
-          <p>A driver station companion for teams running FrcCatalyst.</p>
-        </div>
-        <div class="mastver">
-          <b data-x="version">—</b>
-          <small data-x="versionSrc">reading version…</small>
-        </div>
-      </header>
+        <!-- ---------------------------------------------------------------- robot -->
+        <section class="ssec" role="tabpanel" id="ssec-robot" aria-labelledby="snav-robot" data-sec="robot" data-active="true">
+          <h2 class="stitle">Robot</h2>
+          <p class="slead">Which robot the console looks for, and how it is finding it.</p>
 
-      <div class="sweep" aria-hidden="true"><i></i></div>
+          <!-- The robot's own account of itself, published by FrcCatalyst under Catalyst/Robot. The
+               plan is drawn from the frame and module figures on the wire rather than from a stock
+               picture, so what is on screen is this robot and not a robot: wrong dimensions look
+               wrong. Nothing here is filled in by the console — a robot that publishes no sheet gets
+               the empty state, and a group whose keys are absent does not appear at all. -->
+          <div class="garage" id="garage" data-known="false">
+            <figure class="gplan">
+              <canvas id="garagePlan" width="600" height="420" aria-labelledby="gName"></canvas>
+              <figcaption id="gPlanNote"></figcaption>
+            </figure>
 
-      <section class="rules">
-        <h2 class="ah">The three rules</h2>
-        <p class="alead">Everything here answers to these, in order, and they are not negotiable.</p>
-        <ol>
-          <li>
-            <span class="rn">01</span>
-            <h3>It never controls the robot.</h3>
-            <p>FRC requires the official NI Driver Station, and only one driver station may hold the
-               robot connection. There is no code path in this program that opens that socket. It
-               reads NetworkTables and writes only what a dashboard writes — a tunable, an auto
-               chooser selection — and the backend refuses the control namespaces regardless of what
-               the interface asks for.</p>
-          </li>
-          <li>
-            <span class="rn">02</span>
-            <h3>Nothing it does may impede driving.</h3>
-            <p>No modal blocks the dashboard. No check gates anything. No update prompt ever lands
-               between a driver and their robot. Every failure degrades to a dimmed number and a
-               quiet chip in a corner, because a console that interrupts is worse than no console.</p>
-          </li>
-          <li>
-            <span class="rn">03</span>
-            <h3>It never invents a number.</h3>
-            <p>An unpublished topic shows a dash, never a plausible value. Demo data has to be
-               switched on deliberately and says so on screen while it runs. The <code>.dslog</code>
-               parser refuses versions it does not recognise rather than decoding them into nonsense.</p>
-          </li>
-        </ol>
-      </section>
+            <div class="ghead">
+              <h3 id="gName">—</h3>
+              <p id="gSub">—</p>
+            </div>
 
-      <section class="diag">
-        <h2 class="ah">Live diagnostics</h2>
-        <div class="dgrid">
-          <div class="dcell"><b data-x="dSource">—</b><small>Connected to</small></div>
-          <div class="dcell"><b data-x="dRtt">—</b><small>Round trip</small></div>
-          <div class="dcell"><b data-x="dTopics">—</b><small>Topics</small></div>
-          <div class="dcell"><b data-x="dUptime">—</b><small>Running for</small></div>
-          <div class="dcell"><b data-x="dFrames">—</b><small>NT frames</small></div>
-          <div class="dcell"><b data-x="dDrops">—</b><small>Link drops</small></div>
-        </div>
-        <div class="assets">
-          <span class="asset"><i class="d" data-x="dModelDot"></i>Field model <b data-x="dModel">checking…</b></span>
-          <span class="asset"><i class="d" data-x="dMapDot"></i>Collision map <b data-x="dMap">checking…</b></span>
-        </div>
-      </section>
+            <div class="gspecs" id="gSpecs"></div>
 
-      <div class="acols">
-        <section>
-          <h2 class="ah">Keyboard</h2>
-          <dl class="keys" id="keyList"></dl>
+            <div class="gempty" id="gEmpty">
+              <b>No robot has introduced itself</b>
+              <span>A robot running FrcCatalyst 1.10 or later publishes its name and specification
+                    the moment it boots, and this fills in on its own. Nothing needs configuring
+                    here — if it is blank, the robot has not said.</span>
+            </div>
+          </div>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Team number</b>
+                <span>Sets the addresses below. Stored by the app, not by the browser, so every
+                      layout on this machine looks for the same robot.</span>
+              </div>
+              <div class="sctl">
+                <input type="number" id="setTeam" min="1" max="9999" step="1" inputmode="numeric" />
+              </div>
+            </div>
+
+            <div class="srow stack">
+              <div class="slab">
+                <b>Addresses tried</b>
+                <span>The console cycles these until one answers — simulation on this machine, the
+                      field's mDNS name, the pit's static IP, then the USB tether.</span>
+              </div>
+              <ul class="saddr" id="addrList"></ul>
+            </div>
+          </div>
+
+          <div class="snote" id="teamNote">A change applies on the next connection attempt, which is about a second away while disconnected.</div>
         </section>
-        <section>
-          <h2 class="ah">Elsewhere</h2>
-          <div class="links" id="aboutLinks"></div>
-          <p class="credit">Built for FRC teams running FrcCatalyst.</p>
+
+        <!-- ----------------------------------------------------------- field view -->
+        <section class="ssec" role="tabpanel" id="ssec-field" aria-labelledby="snav-field" data-sec="field">
+          <h2 class="stitle">Field view</h2>
+          <p class="slead">How the field tile draws. Every change lands on the tile as you make it.</p>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Camera</b>
+                <span>Which camera the field tile is using. The buttons in the tile's own corner move
+                      this same setting. Chase follows the robot, overhead looks straight down, free
+                      holds still.</span>
+              </div>
+              <!-- Every control that shares the row's right edge sits in an .sctl, including the ones
+                   wide enough to look like they hold that edge on their own. They agree at this width
+                   and diverge at the one below 760px, where .sctl is what re-anchors them.
+
+                   Three controls are outside one, and none of them wants to be in it. The address list
+                   and the paste box are the full width of a .srow.stack, so an .sctl would only shrink
+                   them against an edge they are not measured from; the file input behind "Open a file"
+                   is hidden and has no box to align. An .sctl around any of the three would be a
+                   wrapper that does nothing, which is a worse lie than the one this note used to
+                   tell. -->
+              <div class="sctl">
+                <div class="choice" id="setCamera" style="--n:3" role="radiogroup" aria-label="Camera">
+                  <i class="choicesel" aria-hidden="true"></i>
+                  <button type="button" role="radio" data-v="chase" aria-checked="true">Chase</button>
+                  <button type="button" role="radio" data-v="top" aria-checked="false">Overhead</button>
+                  <button type="button" role="radio" data-v="free" aria-checked="false">Free</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Trail length</b>
+                <span>How much of the path behind the robot is kept on screen. Zero draws no trail
+                      at all.</span>
+              </div>
+              <div class="sctl">
+                <input type="range" id="setTrail" min="0" max="400" step="20" />
+                <output class="sval" id="setTrailVal">—</output>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Baked field model</b>
+                <span>Draws the official field CAD when a build has one bundled. Switched off, the
+                      tile keeps the procedural outline, which costs a fraction as much to draw on an
+                      older laptop and tells the driver the same thing.</span>
+              </div>
+              <div class="sctl">
+                <button class="tog" id="setModel" role="switch" aria-checked="true" aria-label="Use the baked field model"><i></i></button>
+              </div>
+            </div>
+          </div>
         </section>
+
+        <!-- ------------------------------------------------------------ dashboard -->
+        <section class="ssec" role="tabpanel" id="ssec-dashboard" aria-labelledby="snav-dashboard" data-sec="dashboard">
+          <h2 class="stitle">Dashboard</h2>
+          <p class="slead">The board itself — how it travels between driver stations, and how long it
+             holds on to what it is told.</p>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Export the layout</b>
+                <span>Plain JSON. Commit it next to your robot code and every laptop in the pit comes
+                      up with the same board.</span>
+              </div>
+              <div class="sctl">
+                <button class="sbtn" id="expFile">Save to file</button>
+                <button class="sbtn" id="expClip">Copy</button>
+              </div>
+            </div>
+
+            <!-- One label, one control, like every other row — the mirror of the export row above it.
+                 This used to be four controls and a status line stacked into a single 359px row, which
+                 made it the one place in the panel that looked like a web form. -->
+            <div class="srow">
+              <div class="slab">
+                <b>Import a layout</b>
+                <span>Checked whole before anything is applied. A file with a single bad tile in it is
+                      refused with the reason, and the board you are looking at is left alone.</span>
+              </div>
+              <div class="sctl">
+                <button class="sbtn" id="impFile">Open a file</button>
+                <button class="sbtn" id="impClip">Paste from clipboard</button>
+              </div>
+              <input type="file" id="impPicker" accept="application/json,.json" hidden />
+            </div>
+
+            <!-- The floor under the row above, and its own row rather than an appendage of it. On a
+                 laptop with no file dialog and no clipboard permission this is the only way in, and it
+                 is where an export lands when there is nowhere else to put it. -->
+            <div class="srow stack">
+              <div class="slab">
+                <b id="impTextLabel">Paste it in by hand</b>
+                <span>For a machine where neither the file dialog nor the clipboard is available.</span>
+              </div>
+              <textarea id="impText" rows="4" spellcheck="false" aria-labelledby="impTextLabel"
+                        placeholder="Paste the layout JSON here"></textarea>
+              <div class="sctl">
+                <button class="sbtn" id="impPaste">Import</button>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Reset the board</b>
+                <span>Back to the layout the console ships with. Anything you have added or moved is
+                      discarded, so it asks once.</span>
+              </div>
+              <div class="sctl">
+                <button class="sbtn" id="resetBoard">Reset</button>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Alert hold</b>
+                <span>An alert that clears is held on screen, dimmed, for this long. Robot alerts sitting
+                      near their threshold raise and clear repeatedly, and a tile that strobes next to a
+                      driver is worse than useless.</span>
+              </div>
+              <div class="sctl">
+                <input type="range" id="setAlertHold" min="0" max="8000" step="250" />
+                <output class="sval" id="setAlertHoldVal">—</output>
+              </div>
+            </div>
+          </div>
+
+          <!-- Under the rows rather than inside one, the same as the team note and the update note. A
+               row says what a control does; what happened when you used it is the section speaking. -->
+          <div class="lstatus" id="layoutStatus" role="status"></div>
+        </section>
+
+        <!-- ----------------------------------------------------------------- data -->
+        <section class="ssec" role="tabpanel" id="ssec-data" aria-labelledby="snav-data" data-sec="data">
+          <h2 class="stitle">Data</h2>
+          <p class="slead">What the console will and will not make up.</p>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Demo data</b>
+                <span>Feeds every tile from a synthetic robot so the board can be looked at without
+                      one.</span>
+              </div>
+              <!-- Amber rather than blue, alone among the switches. See .tog.hazard in styles.css. -->
+              <div class="sctl">
+                <button class="tog hazard" id="setDemoTog" role="switch" aria-checked="false" aria-label="Demo data"><i></i></button>
+              </div>
+            </div>
+          </div>
+
+          <p class="sprose">
+            Demo data is a match on repeat: twenty seconds of auto, then teleop counting down, with a
+            drivetrain, a battery under load and a pose driving a circle. It exists for setting a board
+            up in the hotel the night before, and for showing someone what a tile does without a robot
+            on the cart.
+          </p>
+          <p class="sprose">
+            <b>It is off by default and it is never remembered.</b> A dashboard that quietly invents
+            telemetry is a hazard, so switching it on is deliberate, the dock button stays lit the whole
+            time it runs, and a restart always comes back to real data or to nothing at all. Switching it
+            on stands this panel down as well, exactly as a robot enabling does — a live board is what
+            matters the moment anything goes live.
+          </p>
+        </section>
+
+        <!-- -------------------------------------------------------------- updates -->
+        <section class="ssec" role="tabpanel" id="ssec-updates" aria-labelledby="snav-updates" data-sec="updates">
+          <h2 class="stitle">Updates</h2>
+          <p class="slead">Looked for once at launch, quietly, and after that only when you ask.</p>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Installed version</b>
+                <span>Read from the application itself. A version typed into the interface is a version
+                      that eventually goes stale.</span>
+              </div>
+              <div class="sctl">
+                <b class="sval wide" data-x="version">—</b>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Check for an update</b>
+                <span>Asks GitHub for the latest release. Nothing installs on its own, and nothing here
+                      ever interrupts driving.</span>
+              </div>
+              <div class="sctl">
+                <button class="sbtn" id="checkUpdate">Check now</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="snote" id="updateNote">—</div>
+          <button class="sbtn below" id="installUpdate" hidden>Install</button>
+
+          <p class="sprose">
+            A driver station is usually on a field network with no route to the internet, so a check that
+            fails is the normal case and not a fault. When that happens this page says so plainly and
+            nothing else changes.
+          </p>
+        </section>
+
+        <!-- ---------------------------------------------------------------- about -->
+        <section class="ssec" role="tabpanel" id="ssec-about" aria-labelledby="snav-about" data-sec="about">
+          <header class="mast">
+            <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+            <div class="mastname">
+              <h1>Catalyst<span>Console</span></h1>
+              <p>A driver station companion for teams running FrcCatalyst.</p>
+            </div>
+            <div class="mastver">
+              <b data-x="version2">—</b>
+              <small data-x="versionSrc">reading version…</small>
+            </div>
+          </header>
+
+          <div class="sweep" aria-hidden="true"><i></i></div>
+
+          <section>
+            <h2 class="ah">The three rules</h2>
+            <p class="alead">Everything here answers to these, in order, and they are not negotiable.</p>
+            <ol class="rulelist">
+              <li>
+                <span class="rn">01</span>
+                <div>
+                  <h3>It never controls the robot.</h3>
+                  <p>FRC requires the official NI Driver Station, and only one driver station may hold the
+                     robot connection. There is no code path in this program that opens that socket. It
+                     reads NetworkTables and writes only what a dashboard writes — a tunable, an auto
+                     chooser selection — and the backend refuses the control namespaces regardless of what
+                     the interface asks for.</p>
+                </div>
+              </li>
+              <li>
+                <span class="rn">02</span>
+                <div>
+                  <h3>Nothing it does may impede driving.</h3>
+                  <p>No modal blocks the dashboard. No check gates anything. No update prompt ever lands
+                     between a driver and their robot. This panel closes itself the instant the robot is
+                     enabled, and every failure degrades to a dimmed number and a quiet chip in a corner,
+                     because a console that interrupts is worse than no console.</p>
+                </div>
+              </li>
+              <li>
+                <span class="rn">03</span>
+                <div>
+                  <h3>It never invents a number.</h3>
+                  <p>An unpublished topic shows a dash, never a plausible value. Demo data has to be
+                     switched on deliberately and says so on screen while it runs. The <code>.dslog</code>
+                     parser refuses versions it does not recognise rather than decoding them into nonsense.</p>
+                </div>
+              </li>
+            </ol>
+          </section>
+
+          <section class="diag">
+            <h2 class="ah">Live diagnostics</h2>
+            <div class="dgrid">
+              <div class="dcell"><b data-x="dSource">—</b><small>Connected to</small></div>
+              <div class="dcell"><b data-x="dRtt">—</b><small>Round trip</small></div>
+              <div class="dcell"><b data-x="dTopics">—</b><small>Topics</small></div>
+              <div class="dcell"><b data-x="dUptime">—</b><small>Running for</small></div>
+              <div class="dcell"><b data-x="dFrames">—</b><small>NT frames</small></div>
+              <div class="dcell"><b data-x="dDrops">—</b><small>Link drops</small></div>
+            </div>
+            <div class="assets">
+              <span class="asset"><i class="d" data-x="dModelDot"></i>Field model <b data-x="dModel">checking…</b></span>
+              <span class="asset"><i class="d" data-x="dMapDot"></i>Collision map <b data-x="dMap">checking…</b></span>
+            </div>
+          </section>
+
+          <div class="acols">
+            <section>
+              <h2 class="ah">Keyboard</h2>
+              <dl class="keys" id="keyList"></dl>
+            </section>
+            <section>
+              <h2 class="ah">Elsewhere</h2>
+              <div class="links" id="aboutLinks"></div>
+              <p class="credit">Built for FRC teams running FrcCatalyst.</p>
+            </section>
+          </div>
+        </section>
+
       </div>
     </div>
   </div>

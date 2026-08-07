@@ -30,6 +30,12 @@ export function createField(canvas, opts) {
   const length = Number(opts.length) > 1 ? Number(opts.length) : 16.54;
   const width = Number(opts.width) > 1 ? Number(opts.width) : 8.07;
   const trailLen = Math.max(0, opts.trail | 0);
+  /* Whether to go looking for the baked model at all. It is a preference about this laptop rather than
+     anything this scene can work out, so it arrives as an argument. The console used to express it by
+     shimming `window.fetch` to answer 404 for the model's own URL — which worked, and which meant this
+     module could be told a file was missing while it sat on disk. Anyone who read only one of the two
+     files would have had no way to know. Default on, so a caller that says nothing gets the model. */
+  const useModel = opts.model !== false;
 
   /* The frame poses are mapped through. It starts as the tile's configured field size, which is what
      the procedural outline is drawn from, and is replaced by the baked map's own dimensions when one
@@ -157,6 +163,10 @@ export function createField(canvas, opts) {
      already (see the flood fill in scripts/field-collision.mjs) — this is the same mistake in the
      other repo. */
   async function loadFieldModel() {
+    /* Switched off is the same outcome as not bundled, by the same route out: the procedural outline
+       is already on screen and simply stays there. */
+    if (!useModel) return false;
+
     const response = await fetch("./vendor/field.glb", { method: "HEAD" }).catch(() => null);
     if (!response || !response.ok) return false;
 
