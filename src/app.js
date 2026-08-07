@@ -213,6 +213,13 @@ function demoTick() {
   set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.8);
   set("/Catalyst/Robot/Hardware/CanDevices", "num", 11);
   set("/Catalyst/Robot/Hardware/Inventory", "strs", ["Kraken X60|8", "CANcoder|4", "Pigeon 2|1"]);
+  set("/Catalyst/Robot/Hardware/Devices", "strs", [
+    "canivore|1|Kraken X60", "canivore|2|Kraken X60", "canivore|3|CANcoder",
+    "canivore|4|Kraken X60", "canivore|5|Kraken X60", "canivore|6|CANcoder",
+    "canivore|7|Kraken X60", "canivore|8|Kraken X60", "canivore|9|CANcoder",
+    "canivore|10|Kraken X60", "canivore|11|Kraken X60", "canivore|12|CANcoder",
+    "rio|20|Kraken X60", "rio|30|Pigeon 2",
+  ]);
   set("/Catalyst/Robot/Hardware/Gyro", "str", "Pigeon 2");
   /* What the demo robot is made to do. A real robot's list is written by the library as each piece
    * is constructed, so it is exactly as long as the robot is capable — this one is set out by hand
@@ -3365,6 +3372,65 @@ function paintGarage() {
     ).join("")}</div>`).join("");
 
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
+  paintDeviceTree();
+  paintPowerPanel();
+}
+
+/* Every CAN device, on the bus it is actually on. The sheet already said "11 CAN devices" and "8 ×
+ * Kraken X60", which answers a question nobody has: at 2am in the pit the question is which id is on
+ * which wire, and whether the one that stopped answering is on the rio bus or the CANivore. */
+function paintDeviceTree() {
+  const rows = (arr(`${SPEC_ROOT}Hardware/Devices`) || [])
+    .map((r) => String(r).split("|"))
+    .filter((p) => p.length === 3);
+
+  const card = $("#gTreeCard");
+  card.hidden = rows.length === 0;
+  if (!rows.length) return;
+
+  const buses = new Map();
+  for (const [bus, id, type] of rows) {
+    if (!buses.has(bus)) buses.set(bus, []);
+    buses.get(bus).push([id, type]);
+  }
+
+  $("#gTreeCount").textContent = String(rows.length);
+  $("#gTree").innerHTML = [...buses].map(([bus, devices]) => `
+    <div class="gbus">
+      <div class="gbusname">${escapeHtml(bus)}<span>${devices.length}</span></div>
+      ${devices.map(([id, type]) =>
+        `<div class="gdev"><i>${escapeHtml(id)}</i><span>${escapeHtml(type)}</span></div>`).join("")}
+    </div>`).join("");
+}
+
+/* The distribution panel as a panel. A list of five channels does not show you that channels 9 to 19
+ * are empty, and the shape of what is free is most of what you want when adding a mechanism. */
+function paintPowerPanel() {
+  const used = new Map(
+    (arr(`${SPEC_ROOT}Power/ChannelsInUse`) || [])
+      .map((r) => String(r).split("|"))
+      .filter((p) => p.length === 2 && p[1])
+      .map(([channel, what]) => [Number(channel), what]),
+  );
+  const total = num(`${SPEC_ROOT}Power/Channels`);
+
+  const card = $("#gPowerCard");
+  /* Without a channel count there is no panel to draw — a strip sized to whatever happens to be in
+   * use would invent the shape of a distribution board this console was never told about. */
+  card.hidden = !total || !used.size;
+  if (card.hidden) return;
+
+  $("#gPowerCount").textContent = `${used.size} of ${total}`;
+  const slots = [];
+  for (let i = 0; i < total; i++) {
+    slots.push(`<div class="gslot" data-on="${used.has(i)}" title="${
+      escapeHtml(used.get(i) || `channel ${i}, free`)}">${i}</div>`);
+  }
+  $("#gPower").innerHTML = slots.join("");
+  $("#gPowerKey").innerHTML = [...used.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([channel, what]) => `<div><b>${channel}</b>${escapeHtml(what)}</div>`)
+    .join("");
 }
 
 /* The sheet as plain text, for the pit. At inspection someone is reading frame perimeter and weight

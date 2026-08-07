@@ -182,6 +182,22 @@
               <p id="gSub">—</p>
             </div>
 
+            <!-- Built from Hardware/Devices and Power/*. Both are lists the robot publishes and the
+                 sheet was reducing to a count; what a pit crew needs at 2am is which id is on which
+                 bus and which breaker feeds what, not how many there are of each. -->
+            <div class="gviz" id="gViz">
+              <section class="gcard" id="gTreeCard" hidden>
+                <h4>CAN devices <b id="gTreeCount"></b></h4>
+                <div class="gtree" id="gTree"></div>
+              </section>
+
+              <section class="gcard" id="gPowerCard" hidden>
+                <h4>Power distribution <b id="gPowerCount"></b></h4>
+                <div class="gpower" id="gPower"></div>
+                <div class="gpowerkey" id="gPowerKey"></div>
+              </section>
+            </div>
+
             <div class="gspecs" id="gSpecs"></div>
 
             <div class="gfoot">
@@ -201,10 +217,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Units</b>
-                <span>How measurements read on the spec sheet above. The robot always publishes
-                      metric — this converts for display, so nothing on the wire changes. FRC writes
-                      its frame and height rules in inches. Board tiles are unaffected: each one
-                      carries the unit its own topic is published in.</span>
+                <span>Spec sheet only. The wire stays metric.</span>
               </div>
               <div class="sctl">
                 <div class="choice" id="setUnits" style="--n:2" role="radiogroup" aria-label="Units">
@@ -218,8 +231,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Team number</b>
-                <span>Sets the addresses below. Stored by the app, not by the browser, so every
-                      layout on this machine looks for the same robot.</span>
+                <span>Sets the addresses below.</span>
               </div>
               <div class="sctl">
                 <input type="number" id="setTeam" min="1" max="9999" step="1" inputmode="numeric" />
@@ -229,8 +241,7 @@
             <div class="srow stack">
               <div class="slab">
                 <b>Addresses tried</b>
-                <span>The console cycles these until one answers — simulation on this machine, the
-                      field's mDNS name, the pit's static IP, then the USB tether.</span>
+                <span>Tried in order until one answers.</span>
               </div>
               <ul class="saddr" id="addrList"></ul>
             </div>
@@ -248,9 +259,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Camera</b>
-                <span>Which camera the field tile is using. The buttons in the tile's own corner move
-                      this same setting. Chase follows the robot, overhead looks straight down, free
-                      holds still.</span>
+                <span>Where the field tile starts.</span>
               </div>
               <!-- Every control that shares the row's right edge sits in an .sctl, including the ones
                    wide enough to look like they hold that edge on their own. They agree at this width
@@ -275,8 +284,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Trail length</b>
-                <span>How much of the path behind the robot is kept on screen. Zero draws no trail
-                      at all.</span>
+                <span>How much of the path stays drawn.</span>
               </div>
               <div class="sctl">
                 <input type="range" id="setTrail" min="0" max="400" step="20" />
@@ -287,9 +295,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Baked field model</b>
-                <span>Draws the official field CAD when a build has one bundled. Switched off, the
-                      tile keeps the procedural outline, which costs a fraction as much to draw on an
-                      older laptop and tells the driver the same thing.</span>
+                <span>Off falls back to a drawn outline.</span>
               </div>
               <div class="sctl">
                 <button class="tog" id="setModel" role="switch" aria-checked="true" aria-label="Use the baked field model"><i></i></button>
@@ -308,8 +314,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Opens on</b>
-                <span>Which view the console comes up in. A team that lives in Tune during a practice
-                      day should not have to press a key to get there every launch.</span>
+                <span>Which view the console launches into.</span>
               </div>
               <div class="sctl">
                 <div class="choice" id="setStartView" style="--n:4" role="radiogroup" aria-label="Opening view">
@@ -325,8 +330,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Export the layout</b>
-                <span>Plain JSON. Commit it next to your robot code and every laptop in the pit comes
-                      up with the same board.</span>
+                <span>Plain JSON. Commit it beside your robot code.</span>
               </div>
               <div class="sctl">
                 <button class="sbtn" id="expFile">Save to file</button>
@@ -340,8 +344,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Import a layout</b>
-                <span>Checked whole before anything is applied. A file with a single bad tile in it is
-                      refused with the reason, and the board you are looking at is left alone.</span>
+                <span>Replaces the current board.</span>
               </div>
               <div class="sctl">
                 <button class="sbtn" id="impFile">Open a file</button>
@@ -368,8 +371,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Reset the board</b>
-                <span>Back to the layout the console ships with. Anything you have added or moved is
-                      discarded, so it asks once.</span>
+                <span>Back to the default tiles.</span>
               </div>
               <div class="sctl">
                 <button class="sbtn" id="resetBoard">Reset</button>
@@ -379,9 +381,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Alert hold</b>
-                <span>An alert that clears is held on screen, dimmed, for this long. Robot alerts sitting
-                      near their threshold raise and clear repeatedly, and a tile that strobes next to a
-                      driver is worse than useless.</span>
+                <span>How long a cleared alert stays dimmed.</span>
               </div>
               <div class="sctl">
                 <input type="range" id="setAlertHold" min="0" max="8000" step="250" />
@@ -404,8 +404,7 @@
             <div class="srow">
               <div class="slab">
                 <b>Demo data</b>
-                <span>Feeds every tile from a synthetic robot so the board can be looked at without
-                      one.</span>
+                <span>Invented telemetry, for a board with no robot.</span>
               </div>
               <!-- Amber rather than blue, alone among the switches. See .tog.hazard in styles.css. -->
               <div class="sctl">
@@ -438,8 +437,6 @@
             <div class="srow">
               <div class="slab">
                 <b>Installed version</b>
-                <span>Read from the application itself. A version typed into the interface is a version
-                      that eventually goes stale.</span>
               </div>
               <div class="sctl">
                 <b class="sval wide" data-x="version">—</b>
@@ -449,8 +446,6 @@
             <div class="srow">
               <div class="slab">
                 <b>Check for an update</b>
-                <span>Asks GitHub for the latest release. Nothing installs on its own, and nothing here
-                      ever interrupts driving.</span>
               </div>
               <div class="sctl">
                 <button class="sbtn" id="checkUpdate">Check now</button>

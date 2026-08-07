@@ -648,6 +648,51 @@ input, textarea { user-select: text; }
 .grow span { font: 400 var(--fs-small) var(--sans); color: var(--ink-2); }
 .grow b { font: 500 var(--fs-small) var(--mono); color: var(--ink); text-align: right; }
 
+/* ---- the two diagrams ----
+   Cards rather than more rows, because neither of these is a label-and-value: one is a topology and
+   the other is a panel you look at the shape of. */
+.gviz {
+  width: 100%; margin-top: 34px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px;
+}
+.gcard { background: var(--tile-2); border-radius: 16px; padding: 20px 22px; min-width: 0; }
+.gcard h4 {
+  margin: 0 0 16px; display: flex; align-items: baseline; gap: 9px;
+  font: 700 var(--fs-micro) var(--sans); letter-spacing: var(--track-micro);
+  text-transform: uppercase; color: var(--ink-3-on-tile);
+}
+.gcard h4 b { font-family: var(--mono); font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+
+/* A bus and the ids hanging off it. Indented and rule-led rather than boxed: the point being made is
+   that these devices are on one wire, and a box would say the opposite. */
+.gbus + .gbus { margin-top: 16px; }
+.gbusname {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  font: 600 var(--fs-small) var(--sans); color: var(--ink);
+  padding-bottom: 7px; border-bottom: 1px solid var(--hair);
+}
+.gbusname span { font: 500 var(--fs-micro) var(--mono); color: var(--ink-3-on-tile); }
+.gdev {
+  display: flex; align-items: center; gap: 11px; padding: 7px 0 7px 13px;
+  border-left: 1px solid var(--hair); margin-left: 3px;
+}
+.gdev i {
+  flex: none; min-width: 26px; text-align: center; font: 600 var(--fs-micro) var(--mono);
+  color: var(--ink-2); background: var(--tile-3); border-radius: 6px; padding: 3px 6px; font-style: normal;
+}
+.gdev span { font: 500 var(--fs-small) var(--sans); color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The breaker panel, at the shape a glance can read: which slots are taken, and where the gaps are. */
+.gpower { display: grid; grid-template-columns: repeat(auto-fit, minmax(30px, 1fr)); gap: 5px; }
+.gslot {
+  aspect-ratio: 1; border-radius: 7px; background: var(--tile); display: grid; place-items: center;
+  font: 600 var(--fs-micro) var(--mono); color: var(--ink-3); min-width: 0;
+}
+.gslot[data-on="true"] { background: var(--pill); color: var(--ink); }
+.gpowerkey { margin-top: 15px; display: grid; gap: 6px; }
+.gpowerkey div { display: flex; gap: 10px; font: 500 var(--fs-small) var(--sans); color: var(--ink-2); }
+.gpowerkey b { flex: none; min-width: 26px; font-family: var(--mono); font-weight: 600; color: var(--ink); }
+
 .gfoot {
   width: 100%; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--hair-dense);
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
