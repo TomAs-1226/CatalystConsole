@@ -1,0 +1,14 @@
+C:\Users\yu_th\dev\CatalystConsole\README.md
+C:\Users\yu_th\dev\CatalystConsole\docs\README.md
+C:\Users\yu_th\dev\CatalystConsole\docs\hub-schedule.md
+C:\Users\yu_th\dev\CatalystConsole\docs\installing.md
+C:\Users\yu_th\dev\CatalystConsole\docs\mcp.md
+C:\Users\yu_th\dev\CatalystConsole\docs\robot-identity.md
+C:\Users\yu_th\dev\CatalystConsole\docs\settings.md
+C:\Users\yu_th\dev\CatalystConsole\docs\widgets.md
+C:\Users\yu_th\dev\CatalystConsole\src\index.html
+C:\Users\yu_th\dev\CatalystConsole\docs\assets\banner.svg
+C:\Users\yu_th\dev\CatalystConsole\src-tauri\icons\128x128.png
+C:\Users\yu_th\dev\CatalystConsole\src-tauri\icons\128x128@2x.png
+C:\Users\yu_th\dev\CatalystConsole\src-tauri\icons\32x32.png
+C:\Users\yu_th\dev\CatalystConsole\src-tauri\icons\icon.png

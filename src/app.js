@@ -2984,8 +2984,10 @@ function applySearch(raw) {
   for (const sec of root.querySelectorAll(".ssec")) {
     let hits = 0;
     for (const row of sec.querySelectorAll(".srow")) {
-      /* The label, its explanation and any text on the control itself. Someone hunting for "inches"
-       * should land on Units, whose own word is "Imperial". */
+      /* The label, its explanation and any text on the control, so "imperial" reaches Units through
+       * the segmented control rather than the label. Worth knowing what this does NOT do: it matches
+       * the words on screen and nothing else, so a synonym finds nothing. Cutting the row copy down
+       * narrowed what is searchable along with it. */
       const on = row.textContent.toLowerCase().includes(query);
       row.hidden = !on;
       if (on) hits++;
@@ -3753,10 +3755,16 @@ window.addEventListener("keydown", (e) => {
      * longer focused. */
     /* The search box is the exception, because a filter is state on screen rather than text being
      * composed: Escape there means "show me everything again", which is what it means in every other
-     * search field anyone has used. The panel stays open and a second Escape closes it. */
+     * search field anyone has used.
+     *
+     * It blurs on the way out, and that is the whole point of the line. Without it the next Escape
+     * lands on the branch below, which only blurs, so closing the panel from a search took three
+     * presses: clear, blur, close. Two is the promise everywhere else in here and there is no reason
+     * this one should cost more. */
     if (e.target === $("#setSearch") && e.target.value) {
       clearSearchState();
       showSection(currentSection);
+      e.target.blur();
       e.preventDefault();
       return;
     }

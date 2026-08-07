@@ -1,6 +1,6 @@
 {
   "name": "catalyst-console",
-  "version": "0.8.1",
+  "version": "1.0.0",
   "private": true,
   "description": "Driver station companion dashboard for FrcCatalyst",
   "scripts": {

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="Catalyst Console — a driver station companion for FRC teams">
+  <title>Catalyst Console</title>
+
+  <defs>
+    <!-- The console's own ground, not the library's. Siblings rather than copies. -->
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16171b"/>
+      <stop offset="100%" stop-color="#0a0b0d"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="76%" cy="42%" r="52%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.055"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e94560" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#e94560" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e94560" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="320" rx="18" fill="url(#ground)"/>
+  <rect width="1200" height="320" rx="18" fill="url(#pool)"/>
+
+  <!-- The board, suggested rather than drawn: this is a dashboard of tiles and that is the one
+       thing a banner should say before any words do. -->
+  <g opacity="0.5">
+    <g fill="#212227">
+      <rect x="726" y="74"  width="126" height="78"  rx="11"/>
+      <rect x="864" y="74"  width="196" height="78"  rx="11"/>
+      <rect x="1072" y="74" width="62"  height="78"  rx="11"/>
+      <rect x="726" y="164" width="196" height="82"  rx="11"/>
+      <rect x="934" y="164" width="90"  height="82"  rx="11"/>
+      <rect x="1036" y="164" width="98" height="82"  rx="11"/>
+    </g>
+    <!-- A trace in one tile, and a full gauge ring in another. Enough to read as instruments. -->
+    <polyline points="742,132 762,118 782,124 802,102 822,112 842,94"
+              fill="none" stroke="#4d90fe" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1103" cy="113" r="20" fill="none" stroke="#2c2e34" stroke-width="5"/>
+    <path d="M1103 93a20 20 0 0 1 14.1 34.1" fill="none" stroke="#30d158" stroke-width="5" stroke-linecap="round"/>
+    <rect x="748" y="196" width="152" height="7" rx="3.5" fill="#2c2e34"/>
+    <rect x="748" y="196" width="96"  height="7" rx="3.5" fill="#e94560"/>
+    <rect x="748" y="216" width="120" height="7" rx="3.5" fill="#2c2e34"/>
+    <rect x="748" y="216" width="44"  height="7" rx="3.5" fill="#ff9f0a"/>
+  </g>
+
+  <!-- The mark -->
+  <g transform="translate(88 108) scale(2.55)">
+    <path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z" fill="#e94560"/>
+  </g>
+
+  <!-- One text element with two tspans rather than two absolutely-placed texts. The second flows off
+       the end of the first whatever the viewer's fonts turn out to be, which matters here: this is
+       rendered by GitHub on someone else's machine, and a hard-coded offset that looks right in
+       Segoe UI opens a gap or an overlap in anything else. -->
+  <text x="152" y="150" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="60">
+    <tspan font-weight="700" letter-spacing="-2.4" fill="#ffffff">Catalyst</tspan><tspan
+           font-weight="200" letter-spacing="-1.6" fill="#9a9ba1" dx="16">Console</tspan>
+  </text>
+
+  <rect x="153" y="176" width="300" height="1" fill="url(#sweep)"/>
+
+  <text x="152" y="212" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif"
+        font-size="19" font-weight="500" fill="#9a9ba1">A driver station companion for FRC teams running FrcCatalyst.</text>
+
+  <!-- The three rules, because they are the product. -->
+  <g font-family="Consolas, ui-monospace, monospace" font-size="13" font-weight="600" fill="#63656b">
+    <text x="152" y="252">01  It never controls the robot.</text>
+    <text x="152" y="274">02  Nothing it does may impede driving.</text>
+    <text x="152" y="296">03  It never invents a number.</text>
+  </g>
+</svg>

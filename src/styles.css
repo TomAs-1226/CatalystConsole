@@ -492,7 +492,7 @@ input, textarea { user-select: text; }
 .settings[data-search="true"] .garage,
 .settings[data-search="true"] .ssec[data-hits="0"] { display: none; }
 .settings[data-search="true"] .ssec + .ssec { margin-top: 40px; }
-/* No entrance animation while filtering: the sections are being narrowed, not arrived at, and six
+/* No entrance animation while filtering: the sections are being narrowed, not arrived at, and seven
    of them sliding up on every keystroke is a strobe. */
 .settings[data-search="true"] .ssec[data-active="true"] { animation: none; }
 .snohits { margin: 8px 0 0; font-size: var(--fs-body); color: var(--ink-2); }

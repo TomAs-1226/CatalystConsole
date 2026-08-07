@@ -1,11 +1,52 @@
-# Catalyst Console
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="Catalyst Console — a driver station companion for FRC teams" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/TomAs-1226/CatalystConsole/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TomAs-1226/CatalystConsole?style=flat-square&color=e94560&label=release"></a>
+  <a href="https://github.com/TomAs-1226/FrcCatalyst"><img alt="FrcCatalyst" src="https://img.shields.io/badge/FrcCatalyst-1.12%2B-e94560?style=flat-square"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-2c2e34?style=flat-square">
+  <img alt="Runtime" src="https://img.shields.io/badge/Tauri%202-no%20framework-2c2e34?style=flat-square">
+</p>
 
 A driver station companion for teams running [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst).
 It sits next to the NI Driver Station and shows what the robot is doing — telemetry, alerts, live
-tuning, Physics Core state, a 3D field view, and readable Driver Station logs.
+tuning, Physics Core state, a 3D field view, the robot's own spec sheet, and readable Driver Station
+logs.
 
 It is a Tauri app: a small Rust backend and a plain HTML/CSS/JS frontend running in the WebView2 that
-ships with Windows. There is no framework, no bundler, and no network fetch at runtime.
+ships with Windows. There is no framework and no bundler, and nothing it draws comes off the network —
+three.js is vendored and the field is built locally, because a dashboard that needs the internet to
+draw a field fails in exactly the venue it is meant for. The one request it ever makes is the update
+check described below, which fails harmlessly when there is no route out. The whole installer is
+under four megabytes.
+
+---
+
+## Install
+
+Download the installer from [Releases](https://github.com/TomAs-1226/CatalystConsole/releases/latest)
+and run it. Windows x64; nothing else to install, because WebView2 is already on the machine.
+
+After that it updates itself: it checks once at launch, quietly, and puts a chip in the corner if
+there is a newer build. Nothing downloads until you press the button, and nothing ever asks during a
+match. On a field network the check simply fails, which is the normal case and is reported as such
+rather than as a fault.
+
+There is nothing to configure to see telemetry. Set your team number once in **Settings → Robot** and
+the console finds the robot on its own.
+
+## What you get
+
+| | |
+|---|---|
+| **A board you build** | Tiles bound to NetworkTables keys you choose — gauges, graphs, alerts, a match clock, a 3D field. Nothing is hard-coded to a season. Drag to arrange, then export the layout as JSON and every laptop in the pit comes up the same. |
+| **The robot's spec sheet** | A robot on FrcCatalyst 1.10+ introduces itself: name, team, drivetrain geometry, mass, power, the Catalyst features it runs. Drawn to scale from its own published figures. |
+| **A device tree** | Every CAN device with its bus and id, and the power distribution as the board it is — so you can see which breaker feeds what and which slots are free. |
+| **Live tuning** | Change a tunable and watch the robot respond, without a redeploy. |
+| **Physics Core** | Slip, tipping margin, traction usage and localisation confidence, when the robot publishes them. |
+| **Driver Station logs** | The `.dslog` and `.dsevents` files the DS already writes, parsed and readable — brownouts, radio drops, watchdog trips, with the timeline. |
+| **Diagnostics for an agent** | A read-only MCP server, so an AI assistant can inspect the robot without being able to touch it. |
 
 ---
 
@@ -43,7 +84,7 @@ outside what a dashboard normally does.
 off to the one already running, raises it, and exits. Two consoles would mean two NetworkTables clients
 on one robot and a driver reading whichever happened to be on top.
 
-## Running it
+## Building it from source
 
 ```bash
 npm install && npm run vendor && npm run dev
@@ -108,11 +149,12 @@ moment you move it, and the whole panel stands down the instant the robot is ena
 That last part is rule two: whatever the console has to say about itself, none of it is worth reading
 over the top of a state lamp.
 
-Six sections, on a rail down the left.
+Seven sections, on a rail down the left.
 
 | Section | What is in it |
 | --- | --- |
 | **Robot** | the spec sheet the robot published, units, team number, the addresses being tried |
+| **Devices** | every CAN device by bus and id, and the power distribution drawn as a panel |
 | **Field view** | camera, trail length, whether the baked field model is used |
 | **Dashboard** | which view the console opens on, layout export and import, reset, alert hold |
 | **Data** | demo data, and what it is for |
@@ -250,9 +292,10 @@ containing an array of entries:
 ]
 ```
 
-`key`, `name`, and `group` are required. An entry with no `min`/`max` whose current value is a boolean
-renders as a toggle; anything else renders as a slider, with the readout showing exactly as many
-decimals as `step` can resolve.
+Only `key` is required — a missing `name` falls back to the last segment of the key, and a missing
+`group` to "General". What decides the control is the value's own type on the wire: a boolean renders
+as a toggle and anything else as a slider, with the readout showing exactly as many decimals as `step`
+can resolve. Declaring `min`/`max` on a boolean does not turn it into a slider.
 
 The console shows what is in that list and nothing else. It never infers that a topic looks tunable, so
 a value you did not declare cannot be changed from here. Writes go straight to `key` — persist anything
@@ -472,3 +515,24 @@ src/field3d.js            the procedural 3D field
 `nt4.rs` batches values into a map and flushes on a fixed cadence rather than emitting at wire rate.
 The robot publishes at 50 Hz across hundreds of topics; pushing each change straight into the webview
 would spend the whole frame budget in IPC. UI cost is independent of how chatty the robot is.
+
+---
+
+## Documentation
+
+| | |
+|---|---|
+| [Installing and updating](docs/installing.md) | Getting it onto a driver station laptop, and how updates work. |
+| [Settings](docs/settings.md) | Every section and every row, plus search and where each setting is stored. |
+| [The robot's spec sheet](docs/robot-identity.md) | What a robot publishes about itself, and the one line of robot code that starts it. |
+| [Components](docs/widgets.md) | Every tile, what it binds to, and how to configure it. |
+| [Hub activation](docs/hub-schedule.md) | How the REBUILT hub schedule is derived from the rules and the FMS game data. |
+| [Diagnostics MCP](docs/mcp.md) | The read-only tool surface, for agents. |
+
+## Licence and credits
+
+Built for FRC teams running FrcCatalyst. The field model is derived from the published REBUILT field
+CAD; the game rules it encodes come from the season manual, and the manual is always the authority.
+
+If something here disagrees with what your robot is actually doing, trust the robot — and please open
+an issue, because a dashboard that is confidently wrong is worse than one that says it does not know.

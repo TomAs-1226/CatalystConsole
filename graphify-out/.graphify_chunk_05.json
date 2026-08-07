@@ -1,0 +1,400 @@
+{
+  "nodes": [
+    {
+      "id": "docs_assets_banner_project_banner",
+      "label": "The project banner",
+      "file_type": "image",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "A 1200x320 hand-authored SVG banner on a near-black vertical gradient with a soft radial light pool at upper right. Left half: the red bolt mark at 2.55x scale, the wordmark 'Catalyst' in heavy white beside 'Console' in light grey, a one-line strapline, and a red-to-transparent sweep rule under it. Right half: a suggested dashboard. Not a photograph or a screenshot — the whole thing is drawn in primitives so it stays a few kilobytes and renders under the same no-network constraint the app itself works under."
+    },
+    {
+      "id": "docs_assets_banner_suggested_board",
+      "label": "The board, suggested rather than drawn",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Six rounded dark rectangles at 50% opacity stand in for tiles, with one blue trace polyline, one green gauge arc on a grey track, and two progress bars — one red, one amber. Enough to read as instruments without being a legible screenshot: this is a dashboard of tiles, and that is the one thing a banner should say before any words do."
+    },
+    {
+      "id": "docs_assets_banner_three_rules_as_the_product",
+      "label": "The three rules set in monospace on the banner",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Three numbered monospace lines at the foot of the left column — 01 It never controls the robot, 02 Nothing it does may impede driving, 03 It never invents a number — set in a dim grey rather than the headline white. The source comment says why they are there at all: 'The three rules, because they are the product.' The rules appear in the marketing artwork, the README, the docs index and the running About panel, which is four independent restatements of the same three sentences."
+    },
+    {
+      "id": "docs_assets_banner_palette",
+      "label": "The console's own palette",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Catalyst red #e94560 for the mark and the sweep, near-black grounds #16171b to #0a0b0d, grey #9a9ba1 for secondary text, with status colours quoted in the mock tiles: blue #4d90fe for a trace, green #30d158 for a healthy gauge, amber #ff9f0a for a warning bar. The source calls the ground 'The console's own ground, not the library's. Siblings rather than copies' — deliberately adjacent to FrcCatalyst's identity without being derived from it."
+    },
+    {
+      "id": "src_tauri_icons_icon_app_icon",
+      "label": "The application icon",
+      "file_type": "image",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "A steering wheel drawn as a flat outline in Catalyst red on a near-black rounded square: an outer ring, a hub, one spoke to twelve o'clock and two falling to about four and eight. Squared-off shoulders on the lower spokes give it the silhouette of a racing wheel rather than a car's. No text, no bolt mark — the icon does not reuse the wordmark's lightning glyph."
+    },
+    {
+      "id": "src_tauri_icons_icon_steering_wheel_motif",
+      "label": "The steering wheel motif",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "The mark says driver station rather than robot: a wheel is what the human holds, which is the half of the system this product serves. Read against rule 1 it is a deliberate near-miss — the app is named for the driver's seat and iconified with a control the app itself explicitly refuses to be."
+    },
+    {
+      "id": "src_tauri_icons_32x32_small_icon",
+      "label": "The 32px application icon",
+      "file_type": "image",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\32x32.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "The same steering wheel at taskbar and title-bar size. At 32px the hub and spokes fuse into a single mass and only the ring, the gaps and the red-on-black contrast survive, which is what makes it findable on a driver station taskbar next to the NI Driver Station."
+    },
+    {
+      "id": "src_tauri_icons_128x128_medium_icon",
+      "label": "The 128px application icon",
+      "file_type": "image",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "The same artwork at desktop-shortcut size, where the three spokes and the hub separate cleanly."
+    },
+    {
+      "id": "src_tauri_icons_128x128_2x_retina_icon",
+      "label": "The 128px @2x application icon",
+      "file_type": "image",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128@2x.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "The 256px rendering of the same steering wheel for high-DPI displays. The set is one drawing rasterised at four sizes rather than four separately optimised marks."
+    },
+    {
+      "id": "src_tauri_icons_icon_set",
+      "label": "The Tauri icon set",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "One steering-wheel drawing rasterised at 32, 128, 256 and full size for the Windows installer, the taskbar and the shortcut. Consistent with the banner's palette — the same Catalyst red on the same near-black — but not with its glyph, since the banner leads with the bolt and the icon with the wheel."
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_assets_banner_project_banner",
+      "target": "readme_catalyst_console",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_three_rules_as_the_product",
+      "target": "readme_rule_1_never_controls_the_robot",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_three_rules_as_the_product",
+      "target": "readme_rule_2_never_impedes_driving",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_three_rules_as_the_product",
+      "target": "readme_rule_3_never_invents_a_number",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_three_rules_as_the_product",
+      "target": "src_index_three_rules_in_about",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_three_rules_as_the_product",
+      "target": "docs_readme_three_rules_restated",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_suggested_board",
+      "target": "docs_assets_banner_project_banner",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_suggested_board",
+      "target": "docs_widgets_widget_catalogue",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_palette",
+      "target": "docs_assets_banner_project_banner",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_palette",
+      "target": "readme_frccatalyst",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_assets_banner_project_banner",
+      "target": "src_index_top_strip",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_app_icon",
+      "target": "src_tauri_icons_icon_steering_wheel_motif",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_steering_wheel_motif",
+      "target": "readme_ni_driver_station",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_steering_wheel_motif",
+      "target": "readme_rule_1_never_controls_the_robot",
+      "relation": "conceptually_related_to",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.3,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_app_icon",
+      "target": "src_tauri_icons_icon_set",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_32x32_small_icon",
+      "target": "src_tauri_icons_icon_set",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\32x32.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_128x128_medium_icon",
+      "target": "src_tauri_icons_icon_set",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_128x128_2x_retina_icon",
+      "target": "src_tauri_icons_icon_set",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128@2x.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_32x32_small_icon",
+      "target": "src_tauri_icons_icon_app_icon",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\32x32.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_128x128_medium_icon",
+      "target": "src_tauri_icons_icon_app_icon",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_128x128_2x_retina_icon",
+      "target": "src_tauri_icons_128x128_medium_icon",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\128x128@2x.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_set",
+      "target": "docs_assets_banner_palette",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_32x32_small_icon",
+      "target": "readme_one_console_at_a_time",
+      "relation": "conceptually_related_to",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.2,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\32x32.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "src_tauri_icons_icon_set",
+      "target": "docs_installing_standalone_installer",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "the_rules_restated_everywhere",
+      "label": "The three rules restated across every surface",
+      "nodes": [
+        "docs_assets_banner_three_rules_as_the_product",
+        "src_index_three_rules_in_about",
+        "docs_readme_three_rules_restated",
+        "readme_rule_1_never_controls_the_robot",
+        "readme_rule_2_never_impedes_driving",
+        "readme_rule_3_never_invents_a_number"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\docs\\assets\\banner.svg"
+    },
+    {
+      "id": "icon_set_one_drawing_four_sizes",
+      "label": "One drawing rasterised at four sizes",
+      "nodes": [
+        "src_tauri_icons_icon_app_icon",
+        "src_tauri_icons_32x32_small_icon",
+        "src_tauri_icons_128x128_medium_icon",
+        "src_tauri_icons_128x128_2x_retina_icon"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\yu_th\\dev\\CatalystConsole\\src-tauri\\icons\\icon.png"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 3717
+}

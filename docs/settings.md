@@ -24,7 +24,7 @@ panel. Nothing the console has to say about itself is worth reading at the momen
 
 ## Searching
 
-Twenty-odd settings across seven sections is past the point where remembering which one holds what is
+Fifteen settings across seven sections is past the point where remembering which one holds what is
 free, so the box above the rail filters every row in every section at once.
 
 Matches stay where they live. Nothing is cloned into a results list — the row you find is the row
@@ -33,8 +33,10 @@ same way as one found by navigating. Section headings stay for context; the sect
 and the garage card are hidden while a filter is up, because they are page furniture rather than
 settings.
 
-The label, its explanation and any text on the control are all searched, so *inches* finds Units,
-whose own word is *Imperial*. A query that matches nothing says so, quoting what you typed.
+The label, its explanation and any text on the control are all searched, so *imperial* finds Units
+through the segmented control rather than through the label. It matches the words that are on screen
+and nothing else — there are no synonyms, so *inches* finds nothing even though inches are what
+Imperial means. A query that matches nothing says so, quoting what you typed.
 
 Escape in the box clears the filter and leaves the panel open; a second Escape closes the panel.
 Picking a section from the rail also drops the filter, since a section chosen while a filter is up
@@ -64,8 +66,10 @@ number belongs to the desktop app.
 Its own section rather than a footnote to the spec sheet. The sheet answers "what is this robot"; this
 answers "what is on it and where", which is a different question asked at a different time.
 
-**CAN devices** are drawn as a tree, one group per bus, ids down the side and sorted numerically. It
-needs a robot on FrcCatalyst 1.12 or later, which publishes `Hardware/Devices` as `bus|id|type`.
+**CAN devices** are drawn as a tree, one group per bus, ids down the side. It needs a robot on
+FrcCatalyst 1.12 or later, which publishes `Hardware/Devices` as `bus|id|type`. The ordering is the
+library's — it sorts by bus and then numerically by id before publishing, and the console renders the
+list as it arrives, so a tree that comes out jumbled is a robot-side question and not a console one.
 Earlier versions publish only the count and the by-type inventory, both of which still appear on the
 spec sheet under Robot.
 
