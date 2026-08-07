@@ -75,7 +75,7 @@
   --fs-body: 14.5px;                    /* what a row is called, what the rail calls a section */
   --fs-head: 20px;                      /* numerals meant to be read, subheads inside About */
   --fs-title: 30px;                     /* the name of a section */
-  --fs-mast: clamp(32px, 4.4vw, 46px);  /* the wordmark, which is a mark and not a heading */
+  --fs-mast: clamp(32px, 4.4vw, 46px);  /* names rather than headings: the wordmark, and the robot's */
   /* Uppercase micro-labels tracked one way rather than three. */
   --track-micro: 0.12em;
 }
@@ -540,9 +540,17 @@ input, textarea { user-select: text; }
    only how the console goes looking. Card rather than rows: everything in it arrived together, from
    one source, and none of it is editable here. */
 .garage {
-  margin-top: 22px; background: var(--tile); border-radius: 18px; padding: 30px 30px 26px;
+  margin-top: 22px; border-radius: 20px; padding: 8px 30px 30px;
   display: grid; justify-items: center;
+  /* Lit from above rather than a flat card, so the robot reads as sitting on a surface. The stop at
+     58% is where the plan ends and the sheet begins. */
+  background:
+    radial-gradient(120% 62% at 50% 0%, rgba(255,255,255,0.055), rgba(255,255,255,0) 58%),
+    var(--tile);
 }
+/* No drawing, so no stage light and no hero spacing — it becomes an ordinary card of facts. */
+.garage[data-plan="false"] { padding-top: 30px; background: var(--tile); }
+.garage[data-plan="false"] .ghead { margin-top: 0; }
 .garage[data-known="false"] .gplan,
 .garage[data-known="false"] .ghead,
 .garage[data-known="false"] .gspecs { display: none; }
@@ -554,20 +562,24 @@ input, textarea { user-select: text; }
 
 /* Drawn, not photographed. The canvas is sized in CSS and scaled for the device ratio in script, so
    the hairlines stay hairlines on a high-density panel. */
-.gplan { margin: 0; display: grid; justify-items: center; gap: 10px; }
-.gplan canvas { width: 300px; height: 210px; display: block; }
+/* The plan is the hero, so it gets the room a hero needs. */
+.gplan { margin: 0; display: grid; justify-items: center; gap: 14px; }
+.gplan canvas { width: 380px; height: 320px; max-width: 100%; display: block; }
 .gplan figcaption {
   font: 700 var(--fs-micro) var(--sans); letter-spacing: var(--track-micro); text-transform: uppercase;
   color: var(--ink-3-on-tile);
 }
 
-.ghead { text-align: center; margin-top: 16px; }
-.ghead h3 { margin: 0; font: 300 var(--fs-title) var(--sans); letter-spacing: -0.018em; color: var(--ink); }
-.ghead p { margin: 5px 0 0; font: 500 var(--fs-small) var(--sans); color: var(--ink-3-on-tile); }
+.ghead { text-align: center; margin-top: 22px; }
+.ghead h3 {
+  margin: 0; font: 200 var(--fs-mast) var(--sans); letter-spacing: -0.028em; line-height: 1.04;
+  color: var(--ink); text-wrap: balance;
+}
+.ghead p { margin: 9px 0 0; font: 500 var(--fs-small) var(--sans); color: var(--ink-3-on-tile); }
 
 .gspecs {
-  margin-top: 30px; width: 100%;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 26px 40px;
+  margin-top: 38px; width: 100%; padding-top: 30px; border-top: 1px solid var(--hair);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 30px 44px;
 }
 .ggroup { display: grid; align-content: start; }
 .ggroup h4 {

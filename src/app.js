@@ -2930,30 +2930,59 @@ const pairs = (key, fmt) => {
   return rows && rows.length ? rows.map((r) => fmt(...String(r).split("|"))).join(", ") : null;
 };
 
+/* Readers, so the table below stays a table. `n` treats zero as absent, which is safe because the
+ * library only ever publishes a figure it has checked is positive — see SpecSheet.positive. `b` does
+ * not, because false is a real answer to "is this on CAN FD". */
+const S = {
+  s: (k) => str(`${SPEC_ROOT}${k}`),
+  n: (k, fmt) => { const v = num(`${SPEC_ROOT}${k}`); return v ? fmt(v) : null; },
+  b: (k, yes, no) => { const v = bool(`${SPEC_ROOT}${k}`); return v === null ? null : (v ? yes : no); },
+  mm: (k) => S.n(k, (v) => `${(v * 1000).toFixed(0)} mm`),
+};
+
 /* Declarative on purpose. A spec sheet grows every season, and a table is the difference between
  * adding a line and editing a render function. Each entry returns a formatted string or null, and
  * null means the robot did not publish it — so it is left out rather than dashed. A dash would say
  * "this robot has no gyro"; absence says "it did not mention one", and only the second is true. */
 const SPEC_GROUPS = [
   ["Software", [
-    ["Catalyst", () => str(`${SPEC_ROOT}Software/CatalystVersion`)],
-    ["Robot code", () => str(`${SPEC_ROOT}Software/RobotCodeVersion`)],
-    ["WPILib", () => str(`${SPEC_ROOT}Software/WPILibVersion`)],
-    ["roboRIO image", () => str(`${SPEC_ROOT}Software/RioImage`)],
+    ["Catalyst", () => {
+      const v = S.s("Software/CatalystVersion");
+      if (!v) return null;
+      /* The sha earns its place beside the version because a team mid-season is usually running a
+       * build between releases, and "1.10.0" alone cannot tell two of those apart. */
+      const sha = S.s("Software/CatalystGitSha");
+      const dirty = bool(`${SPEC_ROOT}Software/CatalystGitDirty`);
+      return sha ? `${v} · ${sha}${dirty ? " dirty" : ""}` : v;
+    }],
+    ["Robot code", () => S.s("Software/RobotCodeVersion")],
+    ["Built", () => S.s("Software/RobotCodeBuild") || S.s("Software/CatalystCommitTime")],
+    ["WPILib", () => S.s("Software/WPILibVersion")],
+    ["Java", () => S.s("Software/JavaVersion")],
+  ]],
+  ["Controller", [
+    ["Model", () => S.s("Identity/Controller")],
+    ["Serial", () => S.s("Identity/RioSerial")],
+    ["Image", () => S.s("Software/RioImage")],
+    ["FPGA", () => S.s("Software/FpgaVersion")],
+    ["Comment", () => S.s("Identity/RioComment")],
   ]],
   ["Drivetrain", [
-    ["Type", () => str(`${SPEC_ROOT}Drivetrain/Type`)],
-    ["Modules", () => { const n = num(`${SPEC_ROOT}Drivetrain/Modules`); return n ? String(n) : null; }],
-    ["Top speed", () => { const v = num(`${SPEC_ROOT}Drivetrain/MaxSpeedMps`); return v ? `${v.toFixed(2)} m/s` : null; }],
-    ["Track width", () => { const v = num(`${SPEC_ROOT}Drivetrain/TrackWidthMeters`); return v ? metres(v) : null; }],
-    ["Wheelbase", () => { const v = num(`${SPEC_ROOT}Drivetrain/WheelBaseMeters`); return v ? metres(v) : null; }],
-    ["Wheel radius", () => { const v = num(`${SPEC_ROOT}Drivetrain/WheelRadiusMeters`); return v ? `${(v * 1000).toFixed(0)} mm` : null; }],
-    ["Drive ratio", () => { const v = num(`${SPEC_ROOT}Drivetrain/DriveGearRatio`); return v ? `${v.toFixed(2)}:1` : null; }],
-    ["Odometry", () => { const v = num(`${SPEC_ROOT}Drivetrain/OdometryHz`); return v ? `${v.toFixed(0)} Hz` : null; }],
+    ["Type", () => S.s("Drivetrain/Type")],
+    ["Modules", () => S.n("Drivetrain/Modules", (v) => String(v))],
+    ["Top speed", () => S.n("Drivetrain/MaxSpeedMps", (v) => `${v.toFixed(2)} m/s`)],
+    ["Rotation", () => S.n("Drivetrain/MaxAngularRateRadPerSec", (v) => `${(v * 180 / Math.PI).toFixed(0)} °/s`)],
+    ["Track width", () => S.n("Drivetrain/TrackWidthMeters", metres)],
+    ["Wheelbase", () => S.n("Drivetrain/WheelBaseMeters", metres)],
+    ["Wheel radius", () => S.mm("Drivetrain/WheelRadiusMeters")],
+    ["Drive ratio", () => S.n("Drivetrain/DriveGearRatio", (v) => `${v.toFixed(2)}:1`)],
+    ["Steer ratio", () => S.n("Drivetrain/SteerGearRatio", (v) => `${v.toFixed(2)}:1`)],
+    ["Odometry", () => S.n("Drivetrain/OdometryHz", (v) => `${v.toFixed(0)} Hz`)],
+    ["CAN bus", () => S.b("Drivetrain/CanFd", "CAN FD", "CAN 2.0")],
   ]],
   ["Chassis", [
-    ["Mass", () => { const v = num(`${SPEC_ROOT}Chassis/MassKg`); return v ? `${v.toFixed(1)} kg` : null; }],
-    ["Moment", () => { const v = num(`${SPEC_ROOT}Chassis/MoiKgM2`); return v ? `${v.toFixed(2)} kg·m²` : null; }],
+    ["Mass", () => S.n("Chassis/MassKg", (v) => `${v.toFixed(1)} kg`)],
+    ["Moment", () => S.n("Chassis/MoiKgM2", (v) => `${v.toFixed(2)} kg·m²`)],
     ["Frame", () => {
       const l = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`), w = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
       return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
@@ -2962,29 +2991,49 @@ const SPEC_GROUPS = [
       const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`), w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
       return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
     }],
-    ["Height", () => { const v = num(`${SPEC_ROOT}Chassis/HeightMeters`); return v ? metres(v) : null; }],
+    /* Arithmetic on two published numbers, the same licence the library takes for bumper-to-bumper,
+     * and the figure a driver actually wants: it is the width that has to clear a gap on the
+     * diagonal. Absent whenever either side it is built from is. */
+    ["Diagonal", () => {
+      const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`), w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
+      return l && w ? `${(Math.hypot(l, w) * 1000).toFixed(0)} mm` : null;
+    }],
+    ["Bumper depth", () => S.mm("Chassis/BumperThicknessMeters")],
+    ["Height", () => S.n("Chassis/HeightMeters", metres)],
+  ]],
+  ["Traction", [
+    ["Wheel grip", () => S.n("Drivetrain/WheelCof", (v) => `${v.toFixed(2)} µ`)],
+    ["Slip current", () => S.n("Drivetrain/SlipCurrentAmps", (v) => `${v.toFixed(0)} A`)],
+    ["Drive limit", () => S.n("Drivetrain/DriveCurrentLimitAmps", (v) => `${v.toFixed(0)} A`)],
   ]],
   ["Power", [
-    ["Battery", () => str(`${SPEC_ROOT}Power/Battery`)],
-    ["Distribution", () => str(`${SPEC_ROOT}Power/Module`)],
+    ["Battery", () => S.s("Power/Battery")],
+    ["Distribution", () => S.s("Power/Module")],
     ["Channels used", () => {
       const used = arr(`${SPEC_ROOT}Power/ChannelsInUse`), total = num(`${SPEC_ROOT}Power/Channels`);
       if (!used || !used.length) return null;
       return total ? `${used.length} of ${total}` : String(used.length);
     }],
-    ["Brownout", () => { const v = num(`${SPEC_ROOT}Power/BrownoutVolts`); return v ? `${v.toFixed(2)} V` : null; }],
+    ["Brownout", () => S.n("Power/BrownoutVolts", (v) => `${v.toFixed(2)} V`)],
   ]],
   ["Hardware", [
-    ["CAN devices", () => { const n = num(`${SPEC_ROOT}Hardware/CanDevices`); return n ? String(n) : null; }],
+    ["CAN devices", () => S.n("Hardware/CanDevices", (v) => String(v))],
     ["Inventory", () => pairs("Hardware/Inventory", (type, count) => `${count} × ${type}`)],
-    ["Gyro", () => str(`${SPEC_ROOT}Hardware/Gyro`)],
+    ["Gyro", () => {
+      const g = S.s("Hardware/Gyro"), id = num(`${SPEC_ROOT}Hardware/GyroCanId`);
+      return g ? (id ? `${g} · id ${id}` : g) : null;
+    }],
     ["Cameras", () => { const c = arr(`${SPEC_ROOT}Hardware/Cameras`); return c && c.length ? c.join(", ") : null; }],
   ]],
 ];
 
 /* A plan of this robot, to scale, from the figures on the wire. Bumpers, frame and module positions
  * are each drawn only if the robot published them, so a partial sheet gives a partial drawing rather
- * than a confident wrong one. Nose points up, which is +x in WPILib's frame. */
+ * than a confident wrong one. Nose points up, which is +x in WPILib's frame.
+ *
+ * Rendered rather than diagrammed: this is the one place in the program that is allowed to be a
+ * picture of your robot, and a hairline outline does not read as one. Everything it draws is still
+ * a published measurement — what is invented here is the lighting, not the geometry. */
 function drawPlan(canvas) {
   const frameL = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`);
   const frameW = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
@@ -3010,40 +3059,92 @@ function drawPlan(canvas) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, cw, ch);
 
-  const pad = 26;
+  const pad = 44;
   const scale = Math.min((cw - pad * 2) / outerW, (ch - pad * 2) / outerL);
   const cx = cw / 2, cy = ch / 2;
   /* Robot +x is forward and +y is to the left; screen y grows downward. */
   const px = (x, y) => [cx - y * scale, cy - x * scale];
+  const box = (lengthM, widthM) => [cx - (widthM * scale) / 2, cy - (lengthM * scale) / 2,
+                                     widthM * scale, lengthM * scale];
 
-  const rect = (lengthM, widthM, stroke, width, dash) => {
-    const w = widthM * scale, h = lengthM * scale;
-    g.save();
-    g.strokeStyle = stroke; g.lineWidth = width; g.setLineDash(dash || []);
-    g.beginPath();
-    const r = Math.min(9, w / 6, h / 6);
-    g.roundRect(cx - w / 2, cy - h / 2, w, h, r);
-    g.stroke();
-    g.restore();
-  };
+  /* Alliance colour comes off FMS, so an unknown alliance draws neutral rather than picking one.
+   * Getting this wrong would be the console asserting a side it was never told. */
+  const red = bool("/FMSInfo/IsRedAlliance");
+  const bumper = red === null ? "#4c4e57" : red ? "#c8323f" : "#3663c4";
+  const bumperLit = red === null ? "#5b5d67" : red ? "#e04353" : "#4d7ddd";
 
-  if (bumpL && bumpW) rect(bumpL, bumpW, "rgba(233,69,96,0.5)", 2);
-  if (frameL && frameW) rect(frameL, frameW, "rgba(255,255,255,0.34)", 1.5, bumpL ? [] : [5, 4]);
+  /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
+  const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
+  pool.addColorStop(0, "rgba(255,255,255,0.055)");
+  pool.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = pool;
+  g.fillRect(0, 0, cw, ch);
+
+  const outer = box(outerL, outerW);
+  const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
+
+  g.save();
+  g.shadowColor = "rgba(0,0,0,0.55)";
+  g.shadowBlur = 26;
+  g.shadowOffsetY = 10;
+
+  if (bumpL && bumpW) {
+    /* Bumpers first and filled, because on a real robot they are the outline anyone recognises. */
+    const grad = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
+    grad.addColorStop(0, bumperLit);
+    grad.addColorStop(1, bumper);
+    g.fillStyle = grad;
+    g.beginPath(); g.roundRect(...outer, radius); g.fill();
+  } else {
+    /* No bumper figures, so nothing is drawn as though there were: the frame carries the silhouette
+     * and the dashed edge says the outer dimension is not known. */
+    g.strokeStyle = "rgba(255,255,255,0.2)"; g.lineWidth = 1.5; g.setLineDash([6, 5]);
+    g.beginPath(); g.roundRect(...outer, radius); g.stroke();
+    g.setLineDash([]);
+  }
+  g.restore();
+
+  if (frameL && frameW) {
+    const inner = box(frameL, frameW);
+    const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
+    const deck = g.createLinearGradient(0, inner[1], 0, inner[1] + inner[3]);
+    deck.addColorStop(0, "#2b2d34");
+    deck.addColorStop(1, "#1c1e23");
+    g.fillStyle = deck;
+    g.beginPath(); g.roundRect(...inner, ir); g.fill();
+    g.strokeStyle = "rgba(255,255,255,0.10)"; g.lineWidth = 1;
+    g.beginPath(); g.roundRect(...inner, ir); g.stroke();
+  }
 
   if (mods && mods.length >= 2) {
-    g.fillStyle = "rgba(255,255,255,0.82)";
+    /* Wheels, oriented fore-aft, sized off the published radius when there is one. */
+    const wr = num(`${SPEC_ROOT}Drivetrain/WheelRadiusMeters`);
+    const wl = (wr ? wr * 2 * scale : 22), ww = Math.max(7, wl * 0.34);
     for (let i = 0; i + 1 < mods.length; i += 2) {
       const [sx, sy] = px(mods[i], mods[i + 1]);
-      g.beginPath(); g.arc(sx, sy, 5, 0, Math.PI * 2); g.fill();
+      g.save();
+      g.shadowColor = "rgba(0,0,0,0.5)"; g.shadowBlur = 7;
+      const tyre = g.createLinearGradient(sx - ww / 2, 0, sx + ww / 2, 0);
+      tyre.addColorStop(0, "#101114");
+      tyre.addColorStop(0.45, "#34363d");
+      tyre.addColorStop(1, "#101114");
+      g.fillStyle = tyre;
+      g.beginPath(); g.roundRect(sx - ww / 2, sy - wl / 2, ww, wl, ww / 2.4); g.fill();
+      g.restore();
     }
   }
 
-  /* Which way is forward, so the plan cannot be read upside down. */
-  const nose = (outerL / 2) * scale;
-  g.strokeStyle = "rgba(255,255,255,0.45)"; g.lineWidth = 1.5;
-  g.beginPath();
-  g.moveTo(cx - 7, cy - nose - 9); g.lineTo(cx, cy - nose - 16); g.lineTo(cx + 7, cy - nose - 9);
-  g.stroke();
+  /* Which way is forward. A brighter band across the front bumper rather than a floating arrow —
+   * it reads at a glance and it is where a team paints their number. */
+  g.save();
+  g.beginPath(); g.roundRect(...outer, radius); g.clip();
+  const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
+  nose.addColorStop(0, "rgba(255,255,255,0.30)");
+  nose.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = nose;
+  g.fillRect(outer[0], outer[1], outer[2], 16);
+  g.restore();
+
   return true;
 }
 
@@ -3062,18 +3163,40 @@ function paintGarage() {
   const plan = $("#garagePlan");
   const drew = drawPlan(plan);
   plan.parentElement.style.display = drew ? "" : "none";
+  /* The card is lit for a picture. A robot that published a name and no geometry is the ordinary
+   * case, not a broken one, so the lighting goes with the drawing rather than hanging over a gap. */
+  root.dataset.plan = String(drew);
+  /* Says what the drawing is actually built from, so nobody reads a partial plan as a full one. */
+  const drawn = [
+    num(`${SPEC_ROOT}Chassis/BumperLengthMeters`) && "bumpers",
+    num(`${SPEC_ROOT}Chassis/FrameLengthMeters`) && "frame",
+    (arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`) || []).length >= 2 && "modules",
+  ].filter(Boolean);
+  const red = bool("/FMSInfo/IsRedAlliance");
   $("#gPlanNote").textContent = drew
-    ? (num(`${SPEC_ROOT}Chassis/BumperLengthMeters`) ? "Bumpers, frame and modules to scale" : "Frame and modules to scale")
+    ? `${drawn.join(", ")} to scale${red === null ? "" : red ? "  ·  red alliance" : "  ·  blue alliance"}`
     : "";
 
-  const html = [];
-  for (const [title, rows] of SPEC_GROUPS) {
-    const got = rows.map(([label, read]) => [label, read()]).filter(([, v]) => v !== null && v !== undefined && v !== "");
-    if (!got.length) continue;
-    html.push(`<div class="ggroup"><h4>${title}</h4>${
-      got.map(([label, v]) => `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`).join("")
-    }</div>`);
-  }
+  const group = (title, got) => got.length
+    ? `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${got.map(([label, v]) =>
+        `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`).join("")}</div>`
+    : "";
+
+  const html = SPEC_GROUPS.map(([title, rows]) => group(
+    title,
+    rows.map(([label, read]) => [label, read()]).filter(([, v]) => v !== null && v !== undefined && v !== ""),
+  ));
+
+  /* The channel map, listed rather than counted. The count above answers "how loaded is the PDH";
+   * this answers "which breaker is the one that just popped", and only the robot knows it. Named
+   * left and numbered right so the numbers align with every other row on the sheet. */
+  const channels = arr(`${SPEC_ROOT}Power/ChannelsInUse`) || [];
+  html.push(group("Power channels", channels
+    .map((row) => String(row).split("|"))
+    .filter((p) => p.length === 2 && p[1])
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([channel, what]) => [what, channel])));
+
   $("#gSpecs").innerHTML = html.join("");
 }
 
