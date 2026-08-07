@@ -214,6 +214,16 @@ function demoTick() {
   set("/Catalyst/Robot/Hardware/CanDevices", "num", 11);
   set("/Catalyst/Robot/Hardware/Inventory", "strs", ["Kraken X60|8", "CANcoder|4", "Pigeon 2|1"]);
   set("/Catalyst/Robot/Hardware/Gyro", "str", "Pigeon 2");
+  /* What the demo robot is made to do. A real robot's list is written by the library as each piece
+   * is constructed, so it is exactly as long as the robot is capable — this one is set out by hand
+   * to show a sheet with something in every group. */
+  set("/Catalyst/Robot/Catalyst/InUse", "strs",
+    ["Autopilot", "Goal Director", "Physics Core", "Sequence", "Strategist"]);
+  set("/Catalyst/Robot/Catalyst/Autopilot/Names", "strs", ["Cycle"]);
+  set("/Catalyst/Robot/Catalyst/GoalDirector/Names", "strs", ["Stow"]);
+  set("/Catalyst/Robot/Catalyst/PhysicsCore/Names", "strs", ["BALANCED"]);
+  set("/Catalyst/Robot/Catalyst/Sequence/Names", "strs", ["ThreePiece", "LeaveAndShoot"]);
+  set("/Catalyst/Robot/Catalyst/Strategist/Names", "strs", ["CoPilot"]);
 
   set("/Catalyst/Alerts/Errors", "strs", []);
   set("/Catalyst/Alerts/Warnings", "strs",
@@ -459,11 +469,21 @@ const CAMERAS = ["chase", "top", "free"];
 const TRAIL_MAX = 400;
 const ALERT_HOLD_MAX = 8000;
 
+/* Order is load-bearing: the number keys index into this. Declared up here rather than beside
+ * `showView` because `loadSettings` validates the opening view against it and runs first. */
+const VIEWS = ["board", "tune", "logs", "topics"];
+const UNITS = ["metric", "imperial"];
+
 const SETTINGS_DEFAULTS = {
   fieldCamera: "chase",
   fieldTrail: 220,
   fieldModel: true,
   alertHoldMs: 2500,
+  /* Metric by default because that is what the robot publishes and what WPILib works in, so it is
+   * the only setting here that involves no conversion and therefore no rounding. Teams who measure
+   * their frame in inches can say so. */
+  units: "metric",
+  startView: "board",
 };
 
 /* Read one key at a time and check every one. Storage can hold anything — an older build wrote it,
@@ -479,6 +499,8 @@ function loadSettings() {
     if (typeof saved.fieldModel === "boolean") s.fieldModel = saved.fieldModel;
     if (Number.isFinite(saved.fieldTrail)) s.fieldTrail = Math.round(clamp(saved.fieldTrail, 0, TRAIL_MAX));
     if (Number.isFinite(saved.alertHoldMs)) s.alertHoldMs = Math.round(clamp(saved.alertHoldMs, 0, ALERT_HOLD_MAX));
+    if (UNITS.includes(saved.units)) s.units = saved.units;
+    if (VIEWS.includes(saved.startView)) s.startView = saved.startView;
   } catch { /* corrupt storage is not worth a dialog; the defaults are a working console */ }
   return s;
 }
@@ -2019,9 +2041,6 @@ $("#impPaste").onclick = () => applyLayoutText($("#impText").value, null);
 
 const app = $("#app");
 
-/* Order is load-bearing: the number keys index into this. */
-const VIEWS = ["board", "tune", "logs", "topics"];
-
 function activeView() {
   return document.querySelector('.view[data-active="true"]')?.dataset.view || "board";
 }
@@ -2666,12 +2685,18 @@ function holdLabel(ms) {
 
 /* The moving pill, positioned by index rather than by measuring: each segment is exactly one slot
  * wide, so one slot of travel is one hundred per cent of its own width. */
-function paintCamera() {
-  const choice = $("#setCamera");
+/** Mark the selected option and slide the pill onto it. One slot of travel is 100% of its own width. */
+function paintChoice(id, value) {
+  const choice = $(id);
+  if (!choice) return;
   const buttons = [...choice.querySelectorAll("button")];
-  const i = Math.max(0, buttons.findIndex((b) => b.dataset.v === settings.fieldCamera));
+  const i = Math.max(0, buttons.findIndex((b) => b.dataset.v === value));
   buttons.forEach((b, n) => b.setAttribute("aria-checked", String(n === i)));
   choice.querySelector(".choicesel").style.transform = `translateX(${i * 100}%)`;
+}
+
+function paintCamera() {
+  paintChoice("#setCamera", settings.fieldCamera);
 }
 
 /** Push the camera setting into every field tile that is already on the board. */
@@ -2754,6 +2779,28 @@ function buildSettings() {
   /* --- robot --- */
   teamNoteDefault = $("#teamNote").textContent.trim();
   $("#setTeam").onchange = applyTeam;
+
+  for (const b of $("#setUnits").querySelectorAll("button")) {
+    b.onclick = () => {
+      settings.units = b.dataset.v;
+      saveSettings();
+      paintChoice("#setUnits", settings.units);
+      /* The sheet is formatted at paint time, so re-running it is the whole conversion. Tiles pick
+       * the new units up on their next frame, which is within 100 ms. */
+      paintGarage();
+    };
+  }
+
+  for (const b of $("#setStartView").querySelectorAll("button")) {
+    b.onclick = () => {
+      settings.startView = b.dataset.v;
+      saveSettings();
+      paintChoice("#setStartView", settings.startView);
+      /* Deliberately does not switch the view now. This says where the console opens, and yanking
+       * someone out of Settings into Logs to demonstrate that would be the setting acting on the
+       * wrong occasion. */
+    };
+  }
 
   /* --- field view --- */
   for (const b of $("#setCamera").querySelectorAll("button")) {
@@ -2920,7 +2967,24 @@ function assetLabel(a) {
  * refreshes it on request, so a console that connects mid-match still gets the sheet. */
 const SPEC_ROOT = "/Catalyst/Robot/";
 
-const metres = (v) => `${v.toFixed(v < 1 ? 3 : 2)} m`;
+/* The robot publishes SI, because that is what WPILib works in. Imperial is a display choice made
+ * here, and it is worth offering: FRC writes its frame perimeter and height rules in inches, so a
+ * team checking whether they are legal is converting these numbers by hand otherwise. Every figure
+ * on the wire stays metric — only the label changes. */
+const IN_PER_M = 39.3700787;
+const imperial = () => settings.units === "imperial";
+
+const metres = (v) => (imperial()
+  ? `${(v * IN_PER_M).toFixed(1)} in`
+  : `${v.toFixed(v < 1 ? 3 : 2)} m`);
+const millis = (v) => (imperial()
+  ? `${(v * IN_PER_M).toFixed(2)} in`
+  : `${(v * 1000).toFixed(0)} mm`);
+const mass = (v) => (imperial() ? `${(v * 2.2046226).toFixed(1)} lb` : `${v.toFixed(1)} kg`);
+const speed = (v) => (imperial() ? `${(v * 3.2808399).toFixed(2)} ft/s` : `${v.toFixed(2)} m/s`);
+const span = (l, w) => (imperial()
+  ? `${(l * IN_PER_M).toFixed(1)} × ${(w * IN_PER_M).toFixed(1)} in`
+  : `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm`);
 
 /* Composite rows arrive pipe-delimited — "8|Kraken X60", "3|Climber" — because that is how the
  * library already serialises a device list. Split rather than parsed: a value containing a pipe is
@@ -2937,7 +3001,7 @@ const S = {
   s: (k) => str(`${SPEC_ROOT}${k}`),
   n: (k, fmt) => { const v = num(`${SPEC_ROOT}${k}`); return v ? fmt(v) : null; },
   b: (k, yes, no) => { const v = bool(`${SPEC_ROOT}${k}`); return v === null ? null : (v ? yes : no); },
-  mm: (k) => S.n(k, (v) => `${(v * 1000).toFixed(0)} mm`),
+  mm: (k) => S.n(k, millis),
 };
 
 /* Declarative on purpose. A spec sheet grows every season, and a table is the difference between
@@ -2970,7 +3034,7 @@ const SPEC_GROUPS = [
   ["Drivetrain", [
     ["Type", () => S.s("Drivetrain/Type")],
     ["Modules", () => S.n("Drivetrain/Modules", (v) => String(v))],
-    ["Top speed", () => S.n("Drivetrain/MaxSpeedMps", (v) => `${v.toFixed(2)} m/s`)],
+    ["Top speed", () => S.n("Drivetrain/MaxSpeedMps", speed)],
     ["Rotation", () => S.n("Drivetrain/MaxAngularRateRadPerSec", (v) => `${(v * 180 / Math.PI).toFixed(0)} °/s`)],
     ["Track width", () => S.n("Drivetrain/TrackWidthMeters", metres)],
     ["Wheelbase", () => S.n("Drivetrain/WheelBaseMeters", metres)],
@@ -2981,22 +3045,22 @@ const SPEC_GROUPS = [
     ["CAN bus", () => S.b("Drivetrain/CanFd", "CAN FD", "CAN 2.0")],
   ]],
   ["Chassis", [
-    ["Mass", () => S.n("Chassis/MassKg", (v) => `${v.toFixed(1)} kg`)],
+    ["Mass", () => S.n("Chassis/MassKg", mass)],
     ["Moment", () => S.n("Chassis/MoiKgM2", (v) => `${v.toFixed(2)} kg·m²`)],
     ["Frame", () => {
       const l = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`), w = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
-      return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
+      return l && w ? span(l, w) : null;
     }],
     ["Bumper to bumper", () => {
       const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`), w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
-      return l && w ? `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm` : null;
+      return l && w ? span(l, w) : null;
     }],
     /* Arithmetic on two published numbers, the same licence the library takes for bumper-to-bumper,
      * and the figure a driver actually wants: it is the width that has to clear a gap on the
      * diagonal. Absent whenever either side it is built from is. */
     ["Diagonal", () => {
       const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`), w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
-      return l && w ? `${(Math.hypot(l, w) * 1000).toFixed(0)} mm` : null;
+      return l && w ? millis(Math.hypot(l, w)) : null;
     }],
     ["Bumper depth", () => S.mm("Chassis/BumperThicknessMeters")],
     ["Height", () => S.n("Chassis/HeightMeters", metres)],
@@ -3067,11 +3131,12 @@ function drawPlan(canvas) {
   const box = (lengthM, widthM) => [cx - (widthM * scale) / 2, cy - (lengthM * scale) / 2,
                                      widthM * scale, lengthM * scale];
 
-  /* Alliance colour comes off FMS, so an unknown alliance draws neutral rather than picking one.
-   * Getting this wrong would be the console asserting a side it was never told. */
-  const red = bool("/FMSInfo/IsRedAlliance");
-  const bumper = red === null ? "#4c4e57" : red ? "#c8323f" : "#3663c4";
-  const bumperLit = red === null ? "#5b5d67" : red ? "#e04353" : "#4d7ddd";
+  /* Deliberately not the alliance colour. Alliance is match state — it flips between matches and a
+   * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
+   * colour depending on when you happened to open it. This card describes the machine, and the
+   * machine is the same robot on either side. */
+  const bumper = "#4c4e57";
+  const bumperLit = "#5b5d67";
 
   /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
   const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
@@ -3172,20 +3237,33 @@ function paintGarage() {
     num(`${SPEC_ROOT}Chassis/FrameLengthMeters`) && "frame",
     (arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`) || []).length >= 2 && "modules",
   ].filter(Boolean);
-  const red = bool("/FMSInfo/IsRedAlliance");
-  $("#gPlanNote").textContent = drew
-    ? `${drawn.join(", ")} to scale${red === null ? "" : red ? "  ·  red alliance" : "  ·  blue alliance"}`
-    : "";
+  $("#gPlanNote").textContent = drew ? `${drawn.join(", ")} to scale` : "";
 
   const group = (title, got) => got.length
     ? `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${got.map(([label, v]) =>
         `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`).join("")}</div>`
     : "";
 
-  const html = SPEC_GROUPS.map(([title, rows]) => group(
+  /* What the robot is made to do, ahead of what it is made of. Two robots can have identical
+   * drivetrains and motor counts and still be completely different machines, and this is the only
+   * part of the sheet that says so. The library records each entry as the component is built, so an
+   * absent feature means the robot did not run it — not that it failed to mention it. */
+  const inUse = arr(`${SPEC_ROOT}Catalyst/InUse`) || [];
+  const html = [group("Catalyst", inUse.map((feature) => {
+    const key = String(feature).replace(/ /g, "");
+    const names = arr(`${SPEC_ROOT}Catalyst/${key}/Names`) || [];
+    const count = num(`${SPEC_ROOT}Catalyst/${key}/Count`);
+    /* Named instances say more than a tally, so the tally only appears when there is nothing to
+     * name, or when there are more than will fit on one line. */
+    if (names.length && names.length <= 3) return [feature, names.join(", ")];
+    if (names.length) return [feature, `${names.length}`];
+    return [feature, count ? String(count) : "yes"];
+  }))];
+
+  html.push(...SPEC_GROUPS.map(([title, rows]) => group(
     title,
     rows.map(([label, read]) => [label, read()]).filter(([, v]) => v !== null && v !== undefined && v !== ""),
-  ));
+  )));
 
   /* The channel map, listed rather than counted. The count above answers "how loaded is the PDH";
    * this answers "which breaker is the one that just popped", and only the robot knows it. Named
@@ -3347,6 +3425,8 @@ function refreshTopicList() {
  *
  * `setCamera` keeps it right afterwards, from either surface. */
 paintCamera();
+paintChoice("#setUnits", settings.units);
+paintChoice("#setStartView", settings.startView);
 
 layout = loadLayout();
 
@@ -3371,6 +3451,11 @@ try {
     console.error("the default layout failed too; the board is empty, the console is not", fatal);
   }
 }
+
+/* After the board exists, so the view being opened has something in it. The markup opens on the
+ * dashboard; this is the only place the preference is applied, because switching later would mean a
+ * visible flick from one view to another on every launch. */
+if (settings.startView !== "board") showView(settings.startView);
 
 let pushedFrames = 0;
 /* Whether the last frame came in over a live link, so the moment one goes away can be spotted. */

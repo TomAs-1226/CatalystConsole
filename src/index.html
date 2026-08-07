@@ -165,6 +165,22 @@
           <div class="srows">
             <div class="srow">
               <div class="slab">
+                <b>Units</b>
+                <span>How measurements read on the sheet above and across the board. The robot always
+                      publishes metric — this converts for display, so nothing on the wire changes.
+                      FRC writes its frame and height rules in inches.</span>
+              </div>
+              <div class="sctl">
+                <div class="choice" id="setUnits" style="--n:2" role="radiogroup" aria-label="Units">
+                  <i class="choicesel" aria-hidden="true"></i>
+                  <button type="button" role="radio" data-v="metric" aria-checked="true">Metric</button>
+                  <button type="button" role="radio" data-v="imperial" aria-checked="false">Imperial</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
                 <b>Team number</b>
                 <span>Sets the addresses below. Stored by the app, not by the browser, so every
                       layout on this machine looks for the same robot.</span>
@@ -253,6 +269,23 @@
              holds on to what it is told.</p>
 
           <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Opens on</b>
+                <span>Which view the console comes up in. A team that lives in Tune during a practice
+                      day should not have to press a key to get there every launch.</span>
+              </div>
+              <div class="sctl">
+                <div class="choice" id="setStartView" style="--n:4" role="radiogroup" aria-label="Opening view">
+                  <i class="choicesel" aria-hidden="true"></i>
+                  <button type="button" role="radio" data-v="board" aria-checked="true">Dashboard</button>
+                  <button type="button" role="radio" data-v="tune" aria-checked="false">Tune</button>
+                  <button type="button" role="radio" data-v="logs" aria-checked="false">Logs</button>
+                  <button type="button" role="radio" data-v="topics" aria-checked="false">Topics</button>
+                </div>
+              </div>
+            </div>
+
             <div class="srow">
               <div class="slab">
                 <b>Export the layout</b>

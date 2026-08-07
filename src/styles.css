@@ -467,6 +467,10 @@ input, textarea { user-select: text; }
 .spane::-webkit-scrollbar { width: 7px; }
 .spane::-webkit-scrollbar-thumb { background: var(--tile-3); border-radius: 4px; }
 .sbody { max-width: 880px; margin: 0 auto; padding: 30px 52px 90px; }
+/* About is a document, not a column of rows. 880px is the right measure for a label beside a
+   control; for prose meant to be read across it just makes the page taller than it needs to be, so
+   this section gets the pane's real width and lays out in columns instead. */
+.sbody:has(> .ssec[data-sec="about"][data-active="true"]) { max-width: 1320px; }
 
 .ssec { display: none; }
 .ssec[data-active="true"] { display: block; animation: secIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -728,12 +732,22 @@ input, textarea { user-select: text; }
 .ah { margin: 0 0 4px; font-size: var(--fs-micro); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
 .alead { margin: 0 0 22px; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.5; }
 
-/* One column, numeral in the margin, hairline between. Three columns fitted the old full-width page;
-   in a settings pane it would set the centrepiece of this product in three narrow gutters. */
-.rulelist { list-style: none; margin: 0; padding: 0; }
+/* Three columns, because the pane is wide enough for them now — see the About width rule. Read
+   across rather than scrolled through: the three rules are one idea in three parts, and a reader who
+   has to scroll to reach the third has stopped holding the first two. Below 1080px there is no
+   longer room for a decent measure, so it folds back to one column with the numeral in the margin. */
+.rulelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0 44px; }
 .rulelist li {
   display: grid; grid-template-columns: 62px 1fr; gap: 26px;
   padding: 24px 0; border-top: 1px solid var(--hair);
+}
+@media (min-width: 1080px) {
+  .rulelist { grid-template-columns: repeat(3, 1fr); }
+  /* Numeral over the heading rather than beside it — a 62px gutter inside a third of the width is
+     most of the column spent on a two-digit number. */
+  .rulelist li { grid-template-columns: 1fr; gap: 14px; align-content: start; }
+  /* The measure is the column now, so the 66ch cap has nothing left to do and only fights it. */
+  .rulelist li p { max-width: none; }
 }
 /* Outlined rather than filled: at this size a solid coral numeral would out-shout the sentence it
    is numbering, and the sentence is the point. */
@@ -761,6 +775,12 @@ input, textarea { user-select: text; }
 
 .acols { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 46px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 14px 0 0; font-size: var(--fs-small); }
+@media (min-width: 1080px) {
+  /* The shortcut list is itself two columns and the link buttons are one, so an even split leaves
+     the keys cramped beside a column of half-empty buttons. */
+  .acols { grid-template-columns: 1.7fr 1fr; }
+  .keys { grid-template-columns: auto 1fr auto 1fr; gap: 9px 16px; }
+}
 .keys dt { display: flex; gap: 4px; align-items: center; }
 .keys dd { margin: 0; color: var(--ink-2); align-self: center; }
 /* A filled cap rather than an outlined one, for the same reason the inputs lost their borders: this
