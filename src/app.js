@@ -3372,8 +3372,16 @@ function paintGarage() {
     ).join("")}</div>`).join("");
 
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
+}
+
+/* The wiring, which is its own section. Both halves hide themselves when the robot published nothing
+ * for them, so the empty state is "neither drew" rather than a flag kept in step by hand. */
+function paintDevices() {
   paintDeviceTree();
   paintPowerPanel();
+  const drew = !$("#gTreeCard").hidden || !$("#gPowerCard").hidden;
+  $("#gViz").hidden = !drew;
+  $("#devEmpty").hidden = drew;
 }
 
 /* Every CAN device, on the bus it is actually on. The sheet already said "11 CAN devices" and "8 ×
@@ -3455,6 +3463,7 @@ function paintSettings() {
   const x = settingsRefs;
 
   if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
 
   x.dSource.textContent = demo.on

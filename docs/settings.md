@@ -24,7 +24,7 @@ panel. Nothing the console has to say about itself is worth reading at the momen
 
 ## Searching
 
-Twenty-odd settings across six sections is past the point where remembering which one holds what is
+Twenty-odd settings across seven sections is past the point where remembering which one holds what is
 free, so the box above the rail filters every row in every section at once.
 
 Matches stay where they live. Nothing is cloned into a results list — the row you find is the row
@@ -58,6 +58,24 @@ connects, and stays on its empty state when none does.
 
 Without a backend — under `npm run serve` — the team field is disabled and says so, because the
 number belongs to the desktop app.
+
+## Devices
+
+Its own section rather than a footnote to the spec sheet. The sheet answers "what is this robot"; this
+answers "what is on it and where", which is a different question asked at a different time.
+
+**CAN devices** are drawn as a tree, one group per bus, ids down the side and sorted numerically. It
+needs a robot on FrcCatalyst 1.12 or later, which publishes `Hardware/Devices` as `bus|id|type`.
+Earlier versions publish only the count and the by-type inventory, both of which still appear on the
+spec sheet under Robot.
+
+**Power distribution** is drawn as the board: every slot the robot said it has, the taken ones filled,
+and the channel map underneath. It appears only when the robot published a channel count — a strip
+sized to whatever happens to be in use would be inventing the shape of a distribution board nobody
+described.
+
+Neither half is a setting, so neither is reachable by search. If the robot published nothing for
+either, the section says so.
 
 ## Field view
 

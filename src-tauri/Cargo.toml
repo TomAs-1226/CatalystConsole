@@ -1,6 +1,6 @@
 [package]
 name = "catalyst-console"
-version = "0.8.0"
+version = "0.8.1"
 description = "Catalyst Console — a driver station companion dashboard"
 edition = "2021"
 rust-version = "1.77"

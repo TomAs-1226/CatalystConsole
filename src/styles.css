@@ -652,9 +652,14 @@ input, textarea { user-select: text; }
    Cards rather than more rows, because neither of these is a label-and-value: one is a topology and
    the other is a panel you look at the shape of. */
 .gviz {
-  width: 100%; margin-top: 34px;
+  width: 100%; margin-top: 26px;
   display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px;
 }
+.gviz[hidden] { display: none; }
+/* The devices empty state sits on the section ground rather than inside a card, so it gets the panel
+   ink rather than the on-tile ink. */
+#devEmpty { justify-items: start; text-align: left; padding: 30px 0 0; }
+#devEmpty span { color: var(--ink-2); }
 .gcard { background: var(--tile-2); border-radius: 16px; padding: 20px 22px; min-width: 0; }
 .gcard h4 {
   margin: 0 0 16px; display: flex; align-items: baseline; gap: 9px;

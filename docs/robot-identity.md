@@ -67,6 +67,10 @@ sheet grouped the way a spec sheet is read.
 | **Hardware** | CAN device count, motor and sensor inventory, gyro and its id, cameras |
 | **Power channels** | every PDH channel the robot named, in channel order |
 
+The CAN device tree and the power distribution panel used to sit under this sheet and now have
+their own **Devices** section — see [settings.md](settings.md). The sheet keeps the counts,
+because a count is the right shape for a glance and a tree is the right shape for a diagnosis.
+
 Two of those are worked out here rather than read: the bumper **diagonal**, which is the width that
 has to clear a gap on the angle, and **channels used**, which counts the named channels against the
 module's total. Both are arithmetic on figures the robot published, and both disappear when either
