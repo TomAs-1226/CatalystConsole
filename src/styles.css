@@ -449,15 +449,65 @@ input, textarea { user-select: text; }
 .sclose:hover { background: var(--tile-2); color: var(--ink); }
 .sclose:active { transform: scale(0.94); }
 
+/* Filled field, no border, matching the panel's own grammar rather than the pickers'. */
+.ssearch { position: relative; margin: 0 6px 14px; }
+.ssearch svg {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; color: var(--ink-3); pointer-events: none;
+}
+.ssearch input {
+  width: 100%; height: 40px; border: 0; border-radius: 999px; background: var(--tile-2);
+  color: var(--ink); font: 500 var(--fs-small) var(--sans); padding: 0 14px 0 36px; min-width: 0;
+}
+/* The placeholder is this field's only label — there is no caption above it, just a magnifier — so
+   it does not get the micro-label ink. --ink-3 measured 2.72:1 on the filled ground. */
+.ssearch input::placeholder { color: var(--ink-3-on-tile); }
+/* The browser's own clear affordance is a grey cross on a dark field, and this panel already has
+   Escape doing the same job. */
+.ssearch input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
 .snavlist { display: flex; flex-direction: column; gap: 2px; }
 .snav {
   flex: none; height: 46px; padding: 0 18px; text-align: left;
   border: 0; border-radius: 999px; background: transparent; color: var(--ink-2);
   font: 600 var(--fs-body) var(--sans); letter-spacing: -0.01em; cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
   transition: background-color 180ms ease, color 180ms ease, transform 70ms ease;
 }
 .snav:hover { background: var(--tile-2); color: var(--ink); }
+/* Sized to sit beside the label rather than compete with it — the rail is meant to be quiet, and an
+   icon that reads before its own word is an icon doing the label's job badly. */
+.snav svg { flex: none; width: 19px; height: 19px; opacity: 0.72; }
 .snav[aria-selected="true"] { background: var(--pill); color: var(--ink); }
+.snav[aria-selected="true"] svg { opacity: 1; }
+
+/* ---- searching ----
+   Every section is shown at once and the rows that do not match are hidden, so a result is the row
+   itself and changing it changes the setting. Cloning matches into a results list would mean either
+   re-binding every handler or wiring a copy to nothing. Section headings stay for context; the leads
+   and the garage go, because they are page furniture rather than settings. */
+.settings[data-search="true"] .ssec { display: block; }
+.settings[data-search="true"] .slead,
+.settings[data-search="true"] .snote,
+.settings[data-search="true"] .garage,
+.settings[data-search="true"] .ssec[data-hits="0"] { display: none; }
+.settings[data-search="true"] .ssec + .ssec { margin-top: 40px; }
+/* No entrance animation while filtering: the sections are being narrowed, not arrived at, and six
+   of them sliding up on every keystroke is a strobe. */
+.settings[data-search="true"] .ssec[data-active="true"] { animation: none; }
+.snohits { margin: 8px 0 0; font-size: var(--fs-body); color: var(--ink-2); }
+.snohits b { color: var(--ink); font-weight: 600; }
+
+.relnotes { margin-top: 22px; background: var(--tile); border-radius: 16px; padding: 20px 22px; }
+.relnotes .ah { margin-bottom: 12px; }
+.relnotes span { color: var(--ink-2); }
+/* Preformatted because it is someone else's plain text and its line breaks are the only structure it
+   has. Wrapped rather than scrolled sideways: a release note is read, not inspected. */
+.relnotes pre {
+  margin: 0; max-height: 260px; overflow: auto;
+  font: 400 var(--fs-small)/1.62 var(--sans); color: var(--ink-2);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .snav:active { transform: scale(0.985); }
 
 /* The gutter is reserved whether or not this section needs it. Without that, moving from a section
@@ -597,6 +647,12 @@ input, textarea { user-select: text; }
 .grow:last-child { border-bottom: 0; }
 .grow span { font: 400 var(--fs-small) var(--sans); color: var(--ink-2); }
 .grow b { font: 500 var(--fs-small) var(--mono); color: var(--ink); text-align: right; }
+
+.gfoot {
+  width: 100%; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--hair-dense);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.ghint { font: 500 var(--fs-small) var(--sans); color: var(--ink-3-on-tile); }
 
 @media (max-width: 760px) {
   .garage { padding: 24px 18px 20px; }
@@ -773,7 +829,10 @@ input, textarea { user-select: text; }
 .asset { display: inline-flex; align-items: center; gap: 7px; }
 .asset b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
 
-.acols { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 46px; }
+/* Single column is the base and the wide layout is the exception, so this folds at exactly the
+   width .rulelist does. Collapsing it from a separate max-width rule left a band between the two
+   breakpoints where the rules had stacked but these had not. */
+.acols { display: grid; grid-template-columns: 1fr; gap: 44px; margin-top: 46px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 14px 0 0; font-size: var(--fs-small); }
 @media (min-width: 1080px) {
   /* The shortcut list is itself two columns and the link buttons are one, so an even split leaves
@@ -803,7 +862,6 @@ kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 
 @media (max-width: 1040px) {
   .settings { grid-template-columns: 184px 1fr; }
   .sbody { padding: 30px 30px 80px; }
-  .acols { grid-template-columns: 1fr; gap: 24px; }
   .mast { flex-wrap: wrap; }
   .mastver { text-align: left; }
   .choice { min-width: 0; }

@@ -1,7 +1,8 @@
 # Widgets
 
 Every tile binds to NetworkTables keys you choose, so none of this is hard-coded to a season or a
-robot. Add, remove, resize and rearrange from the dock; the layout is remembered.
+robot. Add, remove, resize and rearrange from the dock; the layout is remembered, and
+**Settings → Dashboard** exports it, imports it and resets it. See [Settings](settings.md).
 
 ## Match
 
@@ -52,6 +53,11 @@ a tile that strobes next to a driver.
 trail, and bumpers in your alliance colour. Three cameras: chase, overhead, free orbit. The chase
 camera swings around field elements that block the line of sight rather than leaving you looking at
 the back of a truss.
+
+The camera, the trail length and whether the baked field CAD is drawn are in
+**Settings → Field view**. The camera buttons in the tile's own corner move the same setting — there
+is one camera and both surfaces change it through one function, because a tile quietly holding a
+camera of its own is how the two came to disagree.
 
 ## Pit
 

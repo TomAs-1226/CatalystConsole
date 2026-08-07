@@ -2547,7 +2547,7 @@ const SHORTCUTS = [
   [["E"], "Edit layout"],
   [["A"], "Add a component"],
   [["L"], "Settings, on the layout"],
-  [["?"], "Settings, on this page"],
+  [["?", "F1"], "Settings, on About"],
   [["Esc"], "Close whatever is open"],
 ];
 
@@ -2745,6 +2745,17 @@ function applyUpdateInfo(info) {
   install.hidden = !(info && info.available);
   if (info && info.available) install.textContent = `Install v${info.version}`;
 
+  /* Release notes only when there is a release to take. Showing the installed version's own notes
+   * would be a changelog, and this page is a decision: take this or do not. `textContent`, never
+   * `innerHTML` — the body arrives from the network and this program has no business executing it. */
+  const notes = $("#relNotes");
+  const body = info && info.available ? String(info.notes || "").trim() : "";
+  notes.hidden = !body;
+  if (body) {
+    $("#relNotesVer").textContent = `v${info.version}`;
+    $("#relNotesBody").textContent = body;
+  }
+
   if (!invoke) {
     if (x) x.versionSrc.textContent = "no backend — version unknown";
     setUpdateNote("There is no backend here. The version and the update check both come from the desktop app.");
@@ -2777,6 +2788,23 @@ function buildSettings() {
   wireTablist(root.querySelector(".snavlist"));
 
   /* --- robot --- */
+  $("#setSearch").oninput = (e) => applySearch(e.target.value);
+
+  $("#gCopy").onclick = async () => {
+    const text = sheetAsText();
+    const note = $("#gCopyNote");
+    if (!text) { note.textContent = "Nothing to copy yet."; return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      note.textContent = "Copied.";
+    } catch {
+      /* Clipboard access can be refused, and saying "copied" when nothing was is the interface
+       * inventing a fact about itself. */
+      note.textContent = "The clipboard refused. Select the sheet and copy it by hand.";
+    }
+    setTimeout(() => { note.textContent = ""; }, 4000);
+  };
+
   teamNoteDefault = $("#teamNote").textContent.trim();
   $("#setTeam").onchange = applyTeam;
 
@@ -2922,8 +2950,57 @@ function buildSettings() {
   updateCheck().then(applyUpdateInfo);
 }
 
+/* Filter every row in every section at once, in place. A match stays where it lives and keeps the
+ * handler it was built with, so a setting found by searching is changed the same way as one found by
+ * navigating — which is the whole point of searching for it. */
+function clearSearchState() {
+  const root = $("#settings");
+  root.dataset.search = "false";
+  $("#setSearch").value = "";
+  for (const row of root.querySelectorAll(".srow")) row.hidden = false;
+  for (const sec of root.querySelectorAll(".ssec")) delete sec.dataset.hits;
+  $("#setNoHits").hidden = true;
+}
+
+function applySearch(raw) {
+  const root = $("#settings");
+  const query = (raw || "").trim().toLowerCase();
+
+  if (!query) {
+    clearSearchState();
+    showSection(currentSection);
+    return;
+  }
+  root.dataset.search = "true";
+
+  let total = 0;
+  for (const sec of root.querySelectorAll(".ssec")) {
+    let hits = 0;
+    for (const row of sec.querySelectorAll(".srow")) {
+      /* The label, its explanation and any text on the control itself. Someone hunting for "inches"
+       * should land on Units, whose own word is "Imperial". */
+      const on = row.textContent.toLowerCase().includes(query);
+      row.hidden = !on;
+      if (on) hits++;
+    }
+    sec.dataset.hits = String(hits);
+    /* About holds prose rather than rows, so it never matches and never claims to. */
+    if (hits) sec.dataset.active = "true";
+    else delete sec.dataset.active;
+    total += hits;
+  }
+
+  $("#setNoHitsQ").textContent = raw.trim();
+  $("#setNoHits").hidden = total > 0;
+  $("#spane").scrollTop = 0;
+  paintSettings();
+}
+
 function showSection(name) {
   const root = $("#settings");
+  /* A section picked while a filter is up would be hidden by it, so navigating drops the filter and
+   * then goes where it was asked. A no-op when nothing is being searched. */
+  clearSearchState();
   if (!root.querySelector(`.ssec[data-sec="${name}"]`)) name = "robot";
   currentSection = name;
   for (const nav of root.querySelectorAll(".snav")) {
@@ -2944,7 +3021,9 @@ function setSettings(open, section) {
   if (!open) { root.dataset.open = "false"; return; }
 
   if (!settingsRefs) buildSettings();
-  if (section) showSection(section);
+  /* A filter left up from last time would have the panel open on a search nobody is running. */
+  clearSearchState();
+  showSection(section || currentSection);
   probeAssets();
   refreshTeam();
   /* A fresh open starts with an empty import box and nothing claimed about the last one. */
@@ -2967,6 +3046,9 @@ function assetLabel(a) {
  * refreshes it on request, so a console that connects mid-match still gets the sheet. */
 const SPEC_ROOT = "/Catalyst/Robot/";
 
+/** The last sheet the panel rendered, so copying it cannot disagree with what is on screen. */
+let sheetForCopy = null;
+
 /* The robot publishes SI, because that is what WPILib works in. Imperial is a display choice made
  * here, and it is worth offering: FRC writes its frame perimeter and height rules in inches, so a
  * team checking whether they are legal is converting these numbers by hand otherwise. Every figure
@@ -2986,7 +3068,8 @@ const span = (l, w) => (imperial()
   ? `${(l * IN_PER_M).toFixed(1)} × ${(w * IN_PER_M).toFixed(1)} in`
   : `${(l * 1000).toFixed(0)} × ${(w * 1000).toFixed(0)} mm`);
 
-/* Composite rows arrive pipe-delimited — "8|Kraken X60", "3|Climber" — because that is how the
+/* Composite rows arrive pipe-delimited — "Kraken X60|8" for the inventory, "3|Climber" for a power
+ * channel — the order differs per key and each caller names its own halves. That is how the
  * library already serialises a device list. Split rather than parsed: a value containing a pipe is
  * the library's problem to prevent, not something to guess at here. */
 const pairs = (key, fmt) => {
@@ -3239,17 +3322,18 @@ function paintGarage() {
   ].filter(Boolean);
   $("#gPlanNote").textContent = drew ? `${drawn.join(", ")} to scale` : "";
 
-  const group = (title, got) => got.length
-    ? `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${got.map(([label, v]) =>
-        `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`).join("")}</div>`
-    : "";
+  /* Built as data first and rendered from it, so the copy button can write exactly what is on the
+   * screen — in whatever units are selected — instead of deriving it a second time and risking the
+   * two versions disagreeing about the same robot. */
+  const groups = [];
+  const group = (title, got) => { if (got.length) groups.push([title, got]); };
 
   /* What the robot is made to do, ahead of what it is made of. Two robots can have identical
    * drivetrains and motor counts and still be completely different machines, and this is the only
    * part of the sheet that says so. The library records each entry as the component is built, so an
    * absent feature means the robot did not run it — not that it failed to mention it. */
   const inUse = arr(`${SPEC_ROOT}Catalyst/InUse`) || [];
-  const html = [group("Catalyst", inUse.map((feature) => {
+  group("Catalyst", inUse.map((feature) => {
     const key = String(feature).replace(/ /g, "");
     const names = arr(`${SPEC_ROOT}Catalyst/${key}/Names`) || [];
     const count = num(`${SPEC_ROOT}Catalyst/${key}/Count`);
@@ -3258,24 +3342,46 @@ function paintGarage() {
     if (names.length && names.length <= 3) return [feature, names.join(", ")];
     if (names.length) return [feature, `${names.length}`];
     return [feature, count ? String(count) : "yes"];
-  }))];
+  }));
 
-  html.push(...SPEC_GROUPS.map(([title, rows]) => group(
-    title,
-    rows.map(([label, read]) => [label, read()]).filter(([, v]) => v !== null && v !== undefined && v !== ""),
-  )));
+  for (const [title, rows] of SPEC_GROUPS) {
+    group(title, rows.map(([label, read]) => [label, read()])
+      .filter(([, v]) => v !== null && v !== undefined && v !== ""));
+  }
 
   /* The channel map, listed rather than counted. The count above answers "how loaded is the PDH";
    * this answers "which breaker is the one that just popped", and only the robot knows it. Named
    * left and numbered right so the numbers align with every other row on the sheet. */
   const channels = arr(`${SPEC_ROOT}Power/ChannelsInUse`) || [];
-  html.push(group("Power channels", channels
+  group("Power channels", channels
     .map((row) => String(row).split("|"))
     .filter((p) => p.length === 2 && p[1])
     .sort((a, b) => Number(a[0]) - Number(b[0]))
-    .map(([channel, what]) => [what, channel])));
+    .map(([channel, what]) => [what, channel]));
 
-  $("#gSpecs").innerHTML = html.join("");
+  $("#gSpecs").innerHTML = groups.map(([title, rows]) =>
+    `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${rows.map(([label, v]) =>
+      `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
+    ).join("")}</div>`).join("");
+
+  sheetForCopy = { name, sub: $("#gSub").textContent, groups };
+}
+
+/* The sheet as plain text, for the pit. At inspection someone is reading frame perimeter and weight
+ * off a screen and writing them on a form; this is that, without the transcription. Written from the
+ * same data the panel rendered, so it says what the screen says including the chosen units. */
+function sheetAsText() {
+  if (!sheetForCopy) return "";
+  const lines = [sheetForCopy.name];
+  if (sheetForCopy.sub) lines.push(sheetForCopy.sub);
+  /* Widest label across the whole sheet, so every group's values line up in one column rather than
+   * each group finding its own — the point of plain text here is that it is readable pasted. */
+  const pad = Math.max(...sheetForCopy.groups.flatMap(([, rows]) => rows.map(([l]) => l.length)));
+  for (const [title, rows] of sheetForCopy.groups) {
+    lines.push("", title.toUpperCase());
+    for (const [label, v] of rows) lines.push(`  ${label.padEnd(pad)}  ${v}`);
+  }
+  return lines.join("\n");
 }
 
 function paintSettings() {
@@ -3570,6 +3676,15 @@ window.addEventListener("keydown", (e) => {
      * the layout modal blanks the paste box, so a stray Escape after pasting a board someone sent you
      * used to destroy it. Blur first; a second Escape then closes, because by then the field is no
      * longer focused. */
+    /* The search box is the exception, because a filter is state on screen rather than text being
+     * composed: Escape there means "show me everything again", which is what it means in every other
+     * search field anyone has used. The panel stays open and a second Escape closes it. */
+    if (e.target === $("#setSearch") && e.target.value) {
+      clearSearchState();
+      showSection(currentSection);
+      e.preventDefault();
+      return;
+    }
     if (typingInField(e.target)) { e.target.blur(); e.preventDefault(); return; }
     if (overlayOpen()) { closeOverlays(); e.preventDefault(); }
     return;

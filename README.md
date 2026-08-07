@@ -1,6 +1,6 @@
 # Catalyst Console
 
-A driver station companion for teams running [FrcCatalyst](https://github.com/TomAs-Dev/FrcCatalyst).
+A driver station companion for teams running [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst).
 It sits next to the NI Driver Station and shows what the robot is doing — telemetry, alerts, live
 tuning, Physics Core state, a 3D field view, and readable Driver Station logs.
 
@@ -91,7 +91,54 @@ setting to forget:
 | `10.TE.AM.2` | in the pit, static IP |
 | `172.22.11.2` | USB tether |
 
-Set your team number in `candidate_addresses` in `src-tauri/src/main.rs`.
+Set your team number in **Settings → Robot**, or by clicking the link chip in the top strip, which
+goes to the same place. It is kept by the backend in the app's own config directory rather than in
+the webview's storage, because `--mcp` has to read the same answer with no webview involved. A change
+lands on the next connection attempt, about a second away while disconnected.
+
+## Settings
+
+One panel, opened with the gear or **S**, holding everything the console lets you change about
+itself. It replaced a set of modals hanging off chips in the top strip, and About with it: there is
+one place to look and one place to change.
+
+It is a mode of the instrument rather than a window over it. Nothing in it is modal — no focus trap,
+and the board behind stays live — nothing has an apply button, because a control is the truth the
+moment you move it, and the whole panel stands down the instant the robot is enabled or E-stopped.
+That last part is rule two: whatever the console has to say about itself, none of it is worth reading
+over the top of a state lamp.
+
+Six sections, on a rail down the left.
+
+| Section | What is in it |
+| --- | --- |
+| **Robot** | the spec sheet the robot published, units, team number, the addresses being tried |
+| **Field view** | camera, trail length, whether the baked field model is used |
+| **Dashboard** | which view the console opens on, layout export and import, reset, alert hold |
+| **Data** | demo data, and what it is for |
+| **Updates** | installed version, the check, the release notes, install |
+| **About** | the three rules, live diagnostics, the keyboard shortcuts, links |
+
+Typing in the box above the rail filters every row in every section at once and leaves each match
+where it lives, so a setting found by searching is changed the same way as one found by navigating —
+it is the same row, with the handler it was built with. Escape clears the filter; a second Escape
+closes the panel.
+
+Two of them are new enough to be worth calling out:
+
+**Units** — metric or imperial. It changes how the spec sheet reads and nothing else; the robot
+always publishes SI and nothing on the wire moves. It is there because FRC writes its frame perimeter
+and height rules in inches, so a team checking whether they are legal is otherwise converting by hand
+at exactly the moment they cannot afford an arithmetic mistake.
+
+**Opens on** — which view the console comes up in. A team living in Tune on a practice day should not
+have to press a key every launch. Setting it deliberately does not switch the view now.
+
+Everything except the team number is kept in local storage, validated key by key on the way back in:
+a value out of range is pulled back into it and anything else falls back to the default, because a
+bad number out of storage lands in a component that has no business validating a setting.
+
+See [docs/settings.md](docs/settings.md) for the rows one at a time.
 
 ---
 
@@ -108,16 +155,27 @@ worth adopting.
 | `/FMSInfo/FMSControlData` | control word — enabled, auto, test, E-stop, FMS and DS attached |
 | `/FMSInfo/IsRedAlliance` | alliance colour, which drives the bumpers in the field view |
 | `/FMSInfo/EventName`, `/FMSInfo/MatchNumber` | shown in the title strip |
-| `/FMSInfo/MatchTime` | match countdown |
+| `/FMSInfo/GameSpecificMessage` | which alliance's hub goes inactive first — see below |
 
 All of `/FMSInfo` is read-only from the console's side, enforced in `nt_set`, not just in the UI.
+
+**The match clock is not in there.** That table carries the control word, the alliance, the event and
+the game-specific message, and no time at all — so robot code has to publish one:
+
+```java
+CatalystLog.log("Match/TimeLeft", DriverStation.getMatchTime());
+```
+
+The console tries `/Catalyst/Match/TimeLeft`, then `/SmartDashboard/MatchTime`, then
+`/FMSInfo/MatchTime`, and takes the first that exists. With none of them the match timer and the hub
+countdown show dashes rather than counting down from a number nobody published.
 
 ### The robot's own account of itself
 
 A robot running FrcCatalyst 1.10 or later publishes a spec sheet under `/Catalyst/Robot/`, and
-**Settings → Robot** shows it: the name, a plan of the chassis drawn to scale from the frame and
-module figures on the wire, and the specification grouped as software, drivetrain, chassis, power
-and hardware. Adopting it is one line in `RobotContainer`:
+**Settings → Robot** shows it: the name, a plan of the chassis drawn to scale from the frame, bumper
+and module figures on the wire, and the specification grouped as software, controller, drivetrain,
+chassis, traction, power and hardware. Adopting it is one line in `RobotContainer`:
 
 ```java
 RobotIdentity.declare("Ratchet");
@@ -125,17 +183,30 @@ RobotIdentity.declare("Ratchet");
 
 Everything else is derived. The library reads the team number, the roboRIO and its image, its own
 version, WPILib's, the CAN inventory, the gyro, and — once a `SwerveSubsystem` exists — the module
-positions, track width, wheelbase, gearing and top speed. None of it is a parameter you keep in step
-by hand.
+positions, track width, wheelbase and top speed. Gear ratios are the exception: Phoenix will not hand
+them back from a constructed drivetrain, so they appear only if you pass the module constants to the
+builder.
+
+From 1.11 the sheet leads with which parts of the library the robot actually runs — Autopilot,
+Strategist, Sequence, Goal Director, Physics Core — each recorded by the component as it is built
+rather than declared anywhere. Two robots can have the same drivetrain and the same motor count and
+still be completely different machines, and this is the only part of the sheet that says so.
 
 The console draws only what arrived. A key the robot did not publish produces no row, and a group
 with nothing in it produces no group — so a robot with no swerve shows no drivetrain section rather
-than a column of zeros. That is the same rule three the rest of the console answers to, and it is
-why the plan is drawn from the published dimensions rather than from a stock picture: wrong
-dimensions look wrong.
+than a column of zeros. A dash there would say *this robot has no gyro*; absence says *it did not
+mention one*, and only the second is true. It is the same rule three the rest of the console answers
+to, and it is why the plan is drawn from the published dimensions rather than from a stock picture:
+wrong dimensions look wrong.
+
+**Copy the spec sheet** writes the whole thing out as plain text, in whatever units are selected. At
+inspection someone is reading frame perimeter and weight off a screen and writing them on a form;
+this is that, without the transcription.
 
 Switch on **Demo data** to see the panel populated without a robot. The demo sheet is deliberately
 incomplete, because a partial sheet is the ordinary case.
+
+The whole of it is in [docs/robot-identity.md](docs/robot-identity.md).
 
 ### Alerts
 
@@ -247,7 +318,17 @@ writes `selected` when you pick one — the same key Shuffleboard writes.
 
 ## Components
 
-Add, remove, resize, and rearrange from the dock. The layout persists locally.
+Add, remove, resize, and rearrange from the dock. The layout persists locally, and is exported and
+imported from **Settings → Dashboard**.
+
+A stored board that cannot be read does not take the console with it. Each tile is checked on the way
+out of storage and an unreadable one is dropped with a warning to the console log — silence and nine
+of ten tiles beats a dialog and none — and if building the board throws anyway, the console falls
+back to the layout it ships with and carries on. That is not tidiness: the build runs at module
+scope, so a throw there used to abort the rest of the file, taking the repaint loop, the keyboard
+listener and the panel stand-down with it and leaving a driver an empty board that still looked
+healthy. Storage is left untouched either way, because the board that could not be built is still the
+board somebody arranged.
 
 | Component | Notes |
 | --- | --- |
@@ -382,7 +463,7 @@ src-tauri/src/main.rs     Tauri commands, the address list, the write guard, and
 src-tauri/src/nt4.rs      NetworkTables 4 client — WebSocket, msgpack, 20 Hz batched flush
 src-tauri/src/dslog.rs    .dslog / .dsevents parsers
 src-tauri/src/mcp.rs      the read-only diagnostics MCP server behind --mcp
-src/index.html            the shell: top strip, views, dock, two modals
+src/index.html            the shell: top strip, views, dock, the two component modals, Settings
 src/styles.css            the design system
 src/app.js                NT store, component registry, layout, every component
 src/field3d.js            the procedural 3D field

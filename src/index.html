@@ -118,18 +118,48 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
+      <!-- Twenty-odd settings across six sections is past the point where remembering which one holds
+           what is free. Typing here filters every row in every section at once and leaves them
+           where they are, so a match is changed in place rather than in a copy of itself. -->
+      <div class="ssearch">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off"
+               spellcheck="false" aria-label="Search settings" />
+      </div>
+
       <div class="snavlist" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
-        <button class="snav" role="tab" id="snav-robot" aria-controls="ssec-robot" data-sec="robot" aria-selected="true" tabindex="0">Robot</button>
-        <button class="snav" role="tab" id="snav-field" aria-controls="ssec-field" data-sec="field" aria-selected="false" tabindex="-1">Field view</button>
-        <button class="snav" role="tab" id="snav-dashboard" aria-controls="ssec-dashboard" data-sec="dashboard" aria-selected="false" tabindex="-1">Dashboard</button>
-        <button class="snav" role="tab" id="snav-data" aria-controls="ssec-data" data-sec="data" aria-selected="false" tabindex="-1">Data</button>
-        <button class="snav" role="tab" id="snav-updates" aria-controls="ssec-updates" data-sec="updates" aria-selected="false" tabindex="-1">Updates</button>
-        <button class="snav" role="tab" id="snav-about" aria-controls="ssec-about" data-sec="about" aria-selected="false" tabindex="-1">About</button>
+        <button class="snav" role="tab" id="snav-robot" aria-controls="ssec-robot" data-sec="robot" aria-selected="true" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="8.5" cy="10.5" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M9 14.5h6"/></svg>
+          Robot
+        </button>
+        <button class="snav" role="tab" id="snav-field" aria-controls="ssec-field" data-sec="field" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.4"/></svg>
+          Field view
+        </button>
+        <button class="snav" role="tab" id="snav-dashboard" aria-controls="ssec-dashboard" data-sec="dashboard" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
+          Dashboard
+        </button>
+        <button class="snav" role="tab" id="snav-data" aria-controls="ssec-data" data-sec="data" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"/><path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3"/></svg>
+          Data
+        </button>
+        <button class="snav" role="tab" id="snav-updates" aria-controls="ssec-updates" data-sec="updates" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="m8 10.5 4 4 4-4"/><path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17"/></svg>
+          Updates
+        </button>
+        <button class="snav" role="tab" id="snav-about" aria-controls="ssec-about" data-sec="about" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.8v.2"/></svg>
+          About
+        </button>
       </div>
     </div>
 
     <div class="spane" id="spane">
       <div class="sbody">
+
+        <!-- Only ever seen while searching, and only when nothing matched. -->
+        <p class="snohits" id="setNoHits" hidden>Nothing here matches <b id="setNoHitsQ"></b>.</p>
 
         <!-- ---------------------------------------------------------------- robot -->
         <section class="ssec" role="tabpanel" id="ssec-robot" aria-labelledby="snav-robot" data-sec="robot" data-active="true">
@@ -154,6 +184,11 @@
 
             <div class="gspecs" id="gSpecs"></div>
 
+            <div class="gfoot">
+              <button class="sbtn" id="gCopy">Copy the spec sheet</button>
+              <span class="ghint" id="gCopyNote"></span>
+            </div>
+
             <div class="gempty" id="gEmpty">
               <b>No robot has introduced itself</b>
               <span>A robot running FrcCatalyst 1.10 or later publishes its name and specification
@@ -166,9 +201,10 @@
             <div class="srow">
               <div class="slab">
                 <b>Units</b>
-                <span>How measurements read on the sheet above and across the board. The robot always
-                      publishes metric — this converts for display, so nothing on the wire changes.
-                      FRC writes its frame and height rules in inches.</span>
+                <span>How measurements read on the spec sheet above. The robot always publishes
+                      metric — this converts for display, so nothing on the wire changes. FRC writes
+                      its frame and height rules in inches. Board tiles are unaffected: each one
+                      carries the unit its own topic is published in.</span>
               </div>
               <div class="sctl">
                 <div class="choice" id="setUnits" style="--n:2" role="radiogroup" aria-label="Units">
@@ -423,6 +459,15 @@
           </div>
 
           <div class="snote" id="updateNote">—</div>
+
+          <!-- What is actually in the release, before deciding to take it. The text is the release's
+               own, so it is shown as plain text rather than rendered: a note that arrived over the
+               network is not markup this program should be executing. -->
+          <section class="relnotes" id="relNotes" hidden>
+            <h3 class="ah">What is in <span id="relNotesVer">it</span></h3>
+            <pre id="relNotesBody"></pre>
+          </section>
+
           <button class="sbtn below" id="installUpdate" hidden>Install</button>
 
           <p class="sprose">
