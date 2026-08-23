@@ -3484,6 +3484,19 @@ function paintGarage() {
 
 const CORE = "/Catalyst/Systemcore/";
 
+/* paint() runs at 10 Hz and again on every NetworkTables frame, and most of this page does not
+   change between them: a team number, a set of network interfaces and a pair of brownout thresholds
+   are fixed for the life of the match. Rewriting innerHTML anyway would destroy and rebuild those
+   nodes tens of times a second, which costs layout, drops any text the user had selected, and
+   restarts the bar transitions mid-flight.
+
+   Comparing the string first is far cheaper than the write it avoids. */
+function setHtml(el, html) {
+  if (el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+}
+
 /* The wording and the thresholds live in core-format.js so they can be tested: the states they
    describe - a full disk, a worn-out eMMC, a pinned core - are exactly the ones nobody can
    reproduce on a robot without breaking it. */
@@ -3572,25 +3585,32 @@ function paintCoreCan(x) {
   if (card.hidden) return;
 
   card.hidden = false;
-  x.buses.innerHTML = CORE_CAN_GROUPS.map(([title, buses]) => {
-    const rows = buses.map((bus) => {
-      const i = Number(bus.slice(-1));
-      const v = i < util.length ? util[i] : null;
-      if (v === null) return "";
-      const pct = v * 100;
-      const level = coreLevel(pct, 70, 85);
-      /* A bus with nothing on it is not a problem, and dimming it keeps the eye on the ones
-         carrying load rather than spreading attention over five equal-looking rows. */
-      return `<div class="cbus" data-idle="${pct < 1}">
+
+  /* The rows are rebuilt only when the set of buses changes, which is once. Their widths and
+     numbers change every frame and are written straight to the nodes. */
+  const shape = CORE_CAN_GROUPS.map(([, buses]) =>
+    buses.filter((b) => Number(b.slice(-1)) < util.length).join(",")).join("|");
+  setHtml(x.buses, CORE_CAN_GROUPS.map(([title, buses]) => {
+    const rows = buses
+      .filter((bus) => Number(bus.slice(-1)) < util.length)
+      .map((bus) => `<div class="cbus" data-bus="${bus}">
           <span>${escapeHtml(bus)}</span>
-          <div class="ctrack"><i style="width:${Math.min(100, pct).toFixed(1)}%" data-level="${level}"></i></div>
-          <b>${pct.toFixed(0)}%</b>
-        </div>`;
-    }).join("");
-    return rows.trim()
-      ? `<div class="cgroup"><h4>${escapeHtml(title)}</h4>${rows}</div>`
-      : "";
-  }).join("");
+          <div class="ctrack"><i></i></div>
+          <b></b>
+        </div>`).join("");
+    return rows ? `<div class="cgroup"><h4>${escapeHtml(title)}</h4>${rows}</div>` : "";
+  }).join("") + `<!--${shape}-->`);
+
+  for (const row of x.buses.querySelectorAll(".cbus")) {
+    const pct = util[Number(row.dataset.bus.slice(-1))] * 100;
+    const bar = row.querySelector("i");
+    bar.style.width = `${Math.min(100, pct).toFixed(1)}%`;
+    bar.dataset.level = coreLevel(pct, 70, 85);
+    row.querySelector("b").textContent = `${pct.toFixed(0)}%`;
+    /* A bus with nothing on it is not a problem, and dimming it keeps the eye on the ones carrying
+       load rather than spreading attention over five equal-looking rows. */
+    row.dataset.idle = String(pct < 1);
+  }
 
   /* Counts since boot, not a live state. A bus that dropped three times and is up now is a
      different problem from one that is down, and the wording has to keep them apart. */
@@ -3601,7 +3621,7 @@ function paintCoreCan(x) {
   if (nowDown) bits.push('<b class="bad">a bus is down right now</b>');
   if (down !== null && down > 0) bits.push(`dropped <b>${down.toFixed(0)}</b> time${down === 1 ? "" : "s"} since boot`);
   if (unavail !== null && unavail > 0) bits.push(`unavailable <b>${unavail.toFixed(0)}</b> time${unavail === 1 ? "" : "s"}`);
-  x.canFaults.innerHTML = bits.join(" &middot; ");
+  setHtml(x.canFaults, bits.join(" &middot; "));
 }
 
 /* eMMC wear. */
@@ -3641,7 +3661,7 @@ function paintCorePower(x) {
   if (rail !== null) rows.push(["3.3 V rail", `${rail.toFixed(2)} A`, ""]);
 
   x.powerCard.hidden = !rows.length;
-  x.power.innerHTML = coreRows(rows);
+  setHtml(x.power, coreRows(rows));
 }
 
 function paintCoreMachine(x) {
@@ -3657,7 +3677,7 @@ function paintCoreMachine(x) {
   if (nics && nics.length) rows.push(["Network", nics.join(", "), ""]);
 
   x.idCard.hidden = !rows.length;
-  x.ident.innerHTML = coreRows(rows);
+  setHtml(x.ident, coreRows(rows));
 }
 
 function coreRows(rows) {
