@@ -272,3 +272,7 @@ pub fn read_samples(path: &Path) -> DsSamples {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "dslog_tests.rs"]
+mod tests;
