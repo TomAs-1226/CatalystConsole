@@ -138,6 +138,12 @@ fn ds_sessions(dir: Option<String>) -> Vec<dslog::DsSession> {
     dslog::list_sessions(&path, 40)
 }
 
+/// What the log reader supports, so an empty session list can explain itself.
+#[tauri::command]
+fn ds_support_note() -> &'static str {
+    dslog::support_note()
+}
+
 #[tauri::command]
 fn ds_events(path: String) -> Vec<dslog::DsEvent> {
     dslog::read_events(&PathBuf::from(format!("{path}.dsevents")))
@@ -398,6 +404,7 @@ fn run_gui() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             ds_sessions,
+            ds_support_note,
             ds_events,
             ds_samples,
             ds_log_dir,

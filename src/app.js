@@ -862,6 +862,63 @@ define("battery", {
   },
 });
 
+/* --- systemcore -------------------------------------------------------------- */
+
+define("systemcore", {
+  name: "Systemcore",
+  group: "Health",
+  desc: "What the control system reports about itself: CPU, memory, storage, brownout",
+  w: 3, h: 2,
+  config: [
+    { key: "warn", label: "Warn above (%)", type: "number", def: 80 },
+    { key: "crit", label: "Critical above (%)", type: "number", def: 90 },
+  ],
+  render(body) {
+    // Systemcore measures its own CPU, RAM, storage and power and publishes them on its system
+    // NetworkTables server; Catalyst mirrors them under /Catalyst/Systemcore/ so they arrive on the
+    // same connection as everything else. A roboRIO reported almost none of this, which is why a
+    // robot that browned out because logs filled the disk used to fail pointing at nothing.
+    ["CpuPercent", "RamFraction", "StorageFraction", "BatteryVolts", "BrownedOut"]
+      .forEach((k) => track("/Catalyst/Systemcore/" + k));
+    body.innerHTML = `
+      <div class="fill">
+        <div class="row"><span class="k">CPU</span><span class="n" data-x="cpu">—</span><span class="u">%</span></div>
+        <div class="row"><span class="k">RAM</span><span class="n" data-x="ram">—</span><span class="u">%</span></div>
+        <div class="row"><span class="k">Disk</span><span class="n" data-x="disk">—</span><span class="u">%</span></div>
+        <div class="cap" data-x="cap">waiting for Systemcore</div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const pct = (key, scale) => {
+      const v = num("/Catalyst/Systemcore/" + key, null);
+      return v === null ? null : v * scale;
+    };
+    const paint = (el, v) => {
+      el.textContent = v === null ? "—" : v.toFixed(0);
+      el.className = `n ${v === null ? "" : v >= cfg.crit ? "crit" : v >= cfg.warn ? "warn" : "ok"}`;
+    };
+
+    const cpu = pct("CpuPercent", 1);
+    const ram = pct("RamFraction", 100);
+    const disk = pct("StorageFraction", 100);
+    paint(x.cpu, cpu);
+    paint(x.ram, ram);
+    paint(x.disk, disk);
+
+    if (cpu === null && ram === null && disk === null) {
+      // Absent rather than zero. Off Systemcore there is no system server, and reporting 0% would
+      // read as a very healthy machine rather than as no machine.
+      x.cap.textContent = "no Systemcore detected — simulation, or a roboRIO";
+      return;
+    }
+    const volts = num("/Catalyst/Systemcore/BatteryVolts", null);
+    const brownedOut = bool("/Catalyst/Systemcore/BrownedOut", false);
+    x.cap.innerHTML = brownedOut
+      ? `<b class="crit">BROWNED OUT</b>${volts === null ? "" : ` at ${volts.toFixed(2)} V`}`
+      : (volts === null ? "healthy" : `battery <b>${volts.toFixed(2)} V</b>`);
+  },
+});
+
 /* --- power / loop ------------------------------------------------------------ */
 
 define("health", {
@@ -1017,8 +1074,12 @@ define("swerve", {
   desc: "Four module angles and speeds, drawn as they are actually pointing",
   w: 3, h: 2,
   config: [
-    { key: "topic", label: "Module states topic", type: "topic", def: "/Catalyst/Drive/ModuleStates",
-      hint: "The WPILib convention: a number array of [angleRad, speedMps] per module, four modules." },
+    // Catalyst 2.x publishes this as ModuleVelocities, following WPILib's rename of
+    // SwerveModuleState to SwerveModuleVelocity. It also still publishes ModuleStates as a
+    // deprecated alias through the 2027 season, so a saved layout pointing at the old path keeps
+    // working - but new layouts should use the accurate name.
+    { key: "topic", label: "Module velocities topic", type: "topic", def: "/Catalyst/Drive/ModuleVelocities",
+      hint: "A number array of [angleRad, speedMps] per module, four modules. Catalyst 1.x published this at /Catalyst/Drive/ModuleStates." },
     { key: "max", label: "Max speed (m/s)", type: "number", def: 5.0 },
   ],
   render(body) {
