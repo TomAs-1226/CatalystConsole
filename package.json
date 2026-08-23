@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"src/**/*.test.js\"",
+    "tauri": "tauri",
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",

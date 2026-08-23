@@ -63,6 +63,10 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      # tauri-action runs `npm run tauri build`, which needs the Tauri CLI from devDependencies.
+      - name: Install frontend dependencies
+        run: npm install
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
