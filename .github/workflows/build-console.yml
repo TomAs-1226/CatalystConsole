@@ -11,13 +11,13 @@
 #   TAURI_SIGNING_PRIVATE_KEY           contents of the console's updater key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the key password (empty string if none)
 #
-# Tag `console-v<version>` to release, or run it by hand from the Actions tab.
+# Tag `v<version>` to release, matching every release this repo already has, or run it by hand.
 name: Build Catalyst Console
 
 on:
   workflow_dispatch:
   push:
-    tags: ["console-v*"]
+    tags: ["v*"]
 
 jobs:
   # Fast gate. The heavy matrix below takes minutes per platform, and there is no sense burning that
@@ -78,7 +78,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'console-v__VERSION__' }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: "Catalyst Console v__VERSION__"
           releaseBody: "Driver station dashboard. Windows installer + universal macOS .dmg, and the signed `latest.json` the console's auto-updater pulls from. The desktop app's build also fetches the bare `catalyst-console.exe` from here."
           releaseDraft: false
@@ -109,5 +109,5 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "console-v$version" }
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "v$version" }
           gh release upload $tag src-tauri/target/release/catalyst-console.exe --clobber
