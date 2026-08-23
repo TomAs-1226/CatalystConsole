@@ -1,0 +1,109 @@
+# Build Catalyst Console and publish a signed release.
+#
+# The console had no release workflow, which broke the chain the desktop app depends on: the app's
+# build fetches `catalyst-console.exe` from this repository's latest release, so without one it kept
+# bundling whatever was released last — and the app's own auto-updater then shipped a current app
+# around a stale console.
+#
+# It also publishes the signed `latest.json` the console's own updater pulls from.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           contents of the console's updater key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the key password (empty string if none)
+#
+# Tag `console-v<version>` to release, or run it by hand from the Actions tab.
+name: Build Catalyst Console
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["console-v*"]
+
+jobs:
+  # Fast gate. The heavy matrix below takes minutes per platform, and there is no sense burning that
+  # to discover a broken formatter rule that node --test would have caught in a second.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test
+        run: node --test "src/**/*.test.js"
+
+  build:
+    needs: check
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest       # universal (Apple Silicon + Intel)
+            args: "--target universal-apple-darwin"
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'console-v__VERSION__' }}
+          releaseName: "Catalyst Console v__VERSION__"
+          releaseBody: "Driver station dashboard. Windows installer + universal macOS .dmg, and the signed `latest.json` the console's auto-updater pulls from. The desktop app's build also fetches the bare `catalyst-console.exe` from here."
+          releaseDraft: false
+
+  # The app bundles the bare executable, not the installer, so it has to be attached separately —
+  # tauri-action uploads only the packaged artefacts.
+  attach-bare-exe:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Build the executable
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "console-v$version" }
+          gh release upload $tag src-tauri/target/release/catalyst-console.exe --clobber
