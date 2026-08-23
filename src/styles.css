@@ -1061,3 +1061,61 @@ kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 
 @media (prefers-reduced-motion: reduce) {
   .ctrack > i { transition: none; }
 }
+
+/* --- what the on-device agent adds ---------------------------------------
+
+   Same visual language as the cards above, because the reader should not have to know which values
+   arrived over NetworkTables and which came from the agent. The only place the distinction is drawn
+   is the footer note, and that is there to answer "why is there less here than on the other robot". */
+
+.ccores { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.ccore { display: grid; grid-template-columns: 26px 1fr 42px; align-items: center; gap: 10px; }
+.ccore > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: var(--ink-3-on-tile);
+}
+.ccore > b { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ccore .mhz { display: block; font-size: 9.5px; color: var(--ink-3); font-weight: 500; }
+
+.csplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 28px; }
+.csplit h4 {
+  margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-3-on-tile);
+}
+.crows.tight .crow { padding: 6px 0; font-size: 12.5px; }
+.crow .sub { color: var(--ink-3); font-size: 11px; margin-left: 6px; }
+
+.ccounters {
+  margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 24px;
+}
+.ccounters:empty { display: none; }
+.ccounter { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ccounter b { color: var(--ink); font-weight: 600; }
+.ccounter .bad { color: var(--crit); }
+.ccounter .name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-3-on-tile);
+}
+
+.clog { margin-top: 16px; }
+.clog summary {
+  cursor: pointer; font-size: 12px; color: var(--ink-2); user-select: none;
+  padding: 4px 0;
+}
+.clog summary:hover { color: var(--ink); }
+.clog pre {
+  margin: 10px 0 0; padding: 12px 14px; max-height: 260px; overflow: auto;
+  background: var(--black); border: 1px solid var(--hair); border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.55; color: var(--ink-2); white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cagent {
+  margin-top: 4px; font-size: 12px; line-height: 1.6; color: var(--ink-3-on-tile);
+}
+.cagent:empty { display: none; }
+.cagent code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  background: var(--tile-2); padding: 1px 5px; border-radius: 4px; color: var(--ink-2);
+}

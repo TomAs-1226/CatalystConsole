@@ -216,6 +216,49 @@
               </div>
             </div>
 
+            <!-- Per-core load. The summary figure hides the shape of the problem: one core pinned
+                 while three idle averages to 25% and reads as a quiet machine, but it is a thread
+                 stuck in a loop and the robot program is on that core. Agent only - NetworkTables
+                 carries one number for the whole SoC. -->
+            <div class="ccard" data-x="coresCard" hidden>
+              <h3>Processor cores</h3>
+              <p class="cnote">Each core separately, with the clock it is running at. A single
+                 pinned core is invisible in the average.</p>
+              <div class="ccores" data-x="cores"></div>
+              <div class="cfaults" data-x="throttle"></div>
+            </div>
+
+            <!-- The robot program as a process, which is the one thing NetworkTables can never
+                 report about - least of all after it has crashed, which is exactly when somebody
+                 wants to know what it said. -->
+            <div class="ccard" data-x="programCard" hidden>
+              <h3>Robot program</h3>
+              <p class="cnote">How the program itself is doing, from the machine rather than from
+                 the program. A robot that crashes and comes straight back looks fine from a
+                 driver&rsquo;s station and looks like this from here.</p>
+              <div class="crows" data-x="program"></div>
+              <details class="clog" data-x="logWrap">
+                <summary>Recent output</summary>
+                <pre data-x="log"></pre>
+              </details>
+            </div>
+
+            <!-- What is using the machine, and what is using the disk. "Storage is at 94%" is not
+                 actionable; "your logs are 22 GB of it" is. -->
+            <div class="ccard" data-x="loadCard" hidden>
+              <h3>What is using it</h3>
+              <div class="csplit">
+                <div>
+                  <h4>Processes</h4>
+                  <div class="crows tight" data-x="procs"></div>
+                </div>
+                <div>
+                  <h4>Storage</h4>
+                  <div class="crows tight" data-x="dirs"></div>
+                </div>
+              </div>
+            </div>
+
             <!-- CAN, per bus, grouped by the SPI controller each hangs off. The grouping is the
                  point: two buses at 55% each look fine alone and can still saturate the controller
                  they share, and nothing else on the robot will tell you that. -->
@@ -226,6 +269,10 @@
                  split across two controllers.</p>
               <div class="cbuses" data-x="buses"></div>
               <div class="cfaults" data-x="canFaults"></div>
+              <!-- Frame-level counters, agent only. Utilisation says how busy a bus is; these say
+                   whether it is healthy, and a bus dropping frames at a comfortable 30% shows up in
+                   exactly one of the two. -->
+              <div class="ccounters" data-x="canCounters"></div>
             </div>
 
             <!-- Flash wear. Slow, and the only thing here that does not recover: deleting logs frees
@@ -254,6 +301,8 @@
               <h3>Machine</h3>
               <div class="crows" data-x="ident"></div>
             </div>
+
+            <div class="cagent" data-x="agentNote"></div>
 
             <div class="cempty" data-x="empty">
               <b>No Systemcore is reporting</b>

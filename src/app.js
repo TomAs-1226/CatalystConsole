@@ -3533,6 +3533,164 @@ const CORE_CAN_GROUPS = [
   ["Controller 3", ["can_s3", "can_s4"]],
 ];
 
+/* ------------------------------------------------ the agent, when it is installed
+
+   Systemcore publishes a summary of itself on NetworkTables and Catalyst mirrors it, but a summary
+   is what it is: one processor figure for four cores, a storage percentage with no idea what filled
+   it, and nothing about the robot program's own process. The questions asked in the ninety seconds
+   before a match are the ones it cannot answer - which core is pinned and by what, what is using the
+   disk, how many times the robot program has restarted, whether CAN saw bus errors.
+
+   Catalyst ships an optional package that runs on the Systemcore itself and serves that from /proc
+   and /sys. This talks to it when it is there, and the page works without it - everything the agent
+   adds is additional, never a replacement for a reading that already arrives over NetworkTables.
+
+   Polled slowly and on its own clock. It is a diagnostic, not an instrument: a driver never looks at
+   this mid-match, and a page open in the pit should not be asking a robot for a process list ten
+   times a second. */
+
+const AGENT_PORT = 9010;
+const AGENT_POLL_MS = 3000;
+/* After this many silent failures the page stops asking and says the agent is not installed. Three
+   rather than one because a robot that has just rebooted refuses connections for a few seconds, and
+   flickering between "installed" and "not installed" is worse than either. */
+const AGENT_GIVE_UP_AFTER = 3;
+
+const coreAgent = { data: null, at: 0, misses: 0, inFlight: false, reachable: null };
+
+function agentUrl(path) {
+  /* The agent is on the robot, so it is wherever NetworkTables found one. A host with a port on it
+     is the NT port, not the agent's. */
+  const host = String(nt.status.address || "").replace(/:\d+$/, "");
+  return host ? `http://${host}:${AGENT_PORT}${path}` : null;
+}
+
+/* A plausible machine, for demo mode.
+ *
+ * The same reasoning as the NetworkTables demo data: nobody should have to find a robot, install a
+ * package on it and connect to it before they can find out whether this page works. It is a machine
+ * in good order under load rather than a perfect one - one core carrying the robot program, a
+ * program that has restarted once, and a log with something in it. */
+function demoAgentSnapshot(t) {
+  const load = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7));
+  const core = (i, base) => ({
+    core: i,
+    percent: Math.round((base + 28 * load) * 10) / 10,
+    mhz: 1500 + Math.round(900 * load),
+  });
+  return {
+    identity: {
+      hostname: "robot", os: "Systemcore OS 2027.0.0-beta14", osVersion: "2027.0.0",
+      kernel: "6.12.77-rt", model: "Raspberry Pi Compute Module 5",
+      uptimeSeconds: 1180 + t, agentVersion: "2.0.0",
+    },
+    cpu: {
+      /* One core busier than the rest, because that is what a robot program looks like. */
+      cores: [core(0, 44), core(1, 12), core(2, 9), core(3, 7)],
+      loadAverage: [1.2, 0.9, 0.7],
+      model: "Cortex-A76",
+      throttling: {
+        underVoltageNow: false, frequencyCappedNow: false, throttledNow: false,
+        softTempLimitNow: false, throttledSinceBoot: false, underVoltageSinceBoot: false,
+      },
+    },
+    thermal: [{ zone: "cpu-thermal", celsius: 46 + 12 * load }],
+    memory: {
+      totalBytes: 8.0e9, availableBytes: 5.4e9, usedBytes: 2.6e9,
+      cachedBytes: 3.1e9, swapTotalBytes: 0, swapFreeBytes: 0,
+    },
+    storage: {
+      mounts: [{ mount: "/", device: "/dev/mmcblk0p2", filesystem: "ext4",
+                 totalBytes: 32.0e9, usedBytes: 15.0e9, freeBytes: 17.0e9 }],
+      directories: [
+        { path: "/home/systemcore", bytes: 9.4e9 },
+        { path: "/var/log", bytes: 2.1e9 },
+      ],
+    },
+    processes: {
+      count: 148,
+      topByCpu: [
+        { pid: 812, name: "java", cpuPercent: 38 + 20 * load, rssBytes: 512e6 },
+        { pid: 431, name: "MrcCommDaemon", cpuPercent: 6.2, rssBytes: 48e6 },
+        { pid: 502, name: "limelight", cpuPercent: 4.1, rssBytes: 96e6 },
+        { pid: 1, name: "systemd", cpuPercent: 0.2, rssBytes: 12e6 },
+      ],
+      topByMemory: [],
+    },
+    can: [
+      { name: "can_s0", up: true, state: "ERROR-ACTIVE", bitrate: 1000000, restarts: 0,
+        rxPackets: 1842300, txPackets: 921100, rxErrors: 0, txErrors: 0,
+        rxDropped: 0, txDropped: 0 },
+      { name: "can_s2", up: true, state: "ERROR-ACTIVE", bitrate: 1000000, restarts: 0,
+        rxPackets: 412900, txPackets: 208400, rxErrors: 0, txErrors: 0,
+        rxDropped: 0, txDropped: 0 },
+    ],
+    network: [],
+    robotProgram: {
+      unit: "robot.service", state: "active", subState: "running",
+      /* One restart, because that is the case worth showing: it looks completely normal from a
+         driver's station and this page is the only thing that says it happened. */
+      restarts: 1, runningForSeconds: 640 + t, memoryBytes: 512e6, pid: 812,
+      log: [
+        "2027-03-14T10:21:02+0000 robot: ********** Robot program starting **********",
+        "2027-03-14T10:21:03+0000 robot: Catalyst 2.0.0-alpha.1 (systemcore)",
+        "2027-03-14T10:21:03+0000 robot: CANRegistry: 13 devices on can_s0, 3 on can_s2",
+        "2027-03-14T10:21:04+0000 robot: Physics Core: shadow mode",
+        "2027-03-14T10:21:04+0000 robot: Robot code ready",
+      ],
+    },
+    sampledAt: Date.now() / 1000,
+  };
+}
+
+async function pollAgent() {
+  if (coreAgent.inFlight) return;
+  if (demo.on) {
+    /* Demo mode stands in for the agent too, so the whole page can be seen without a robot. */
+    coreAgent.data = demoAgentSnapshot((performance.now() - demo.t0) / 1000);
+    coreAgent.reachable = true;
+    return;
+  }
+  if (!nt.status.connected) {
+    coreAgent.reachable = false;
+    coreAgent.data = null;
+    return;
+  }
+  const url = agentUrl("/api/system");
+  if (!url) return;
+
+  coreAgent.inFlight = true;
+  try {
+    /* A timeout, because the failure being guarded against is not an error response - it is a robot
+       that has gone away mid-request and a fetch that never settles. */
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2500);
+    const res = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    coreAgent.data = await res.json();
+    coreAgent.at = performance.now();
+    coreAgent.misses = 0;
+    coreAgent.reachable = true;
+  } catch {
+    /* Silent. A robot without the package installed is the common case, not a fault, and an alert
+       about it every three seconds would train people to ignore alerts. */
+    coreAgent.misses += 1;
+    if (coreAgent.misses >= AGENT_GIVE_UP_AFTER) {
+      coreAgent.reachable = false;
+      coreAgent.data = null;
+    }
+  } finally {
+    coreAgent.inFlight = false;
+  }
+}
+
+/* Only while somebody is looking at the page. */
+setInterval(() => {
+  if ($("#settings").dataset.open === "true" && currentSection === "core") pollAgent();
+}, AGENT_POLL_MS);
+
 function paintCore() {
   /* buildSettings already collected every [data-x] in the settings tree, and this section is
      inside it, so there is nothing of its own to wire. */
@@ -3575,6 +3733,136 @@ function paintCore() {
   paintCoreWear(x);
   paintCorePower(x);
   paintCoreMachine(x);
+  paintCoreAgent(x);
+}
+
+/* Everything the on-device agent adds. Each card hides itself when the agent is not there, so the
+   page degrades to the NetworkTables view rather than showing a row of empty sections. */
+function paintCoreAgent(x) {
+  /* Demo mode refreshes it here rather than waiting for the poll, so the page is complete the
+     moment it opens instead of filling in three seconds later. */
+  if (demo.on) {
+    coreAgent.data = demoAgentSnapshot((performance.now() - demo.t0) / 1000);
+    coreAgent.reachable = true;
+  }
+  const a = coreAgent.data;
+
+  x.coresCard.hidden = !a?.cpu?.cores?.length;
+  x.programCard.hidden = !a?.robotProgram?.state;
+  x.loadCard.hidden = !a?.processes?.topByCpu?.length;
+  if (!a) {
+    setHtml(x.canCounters, "");
+    paintAgentNote(x);
+    return;
+  }
+
+  paintAgentCores(x, a.cpu);
+  paintAgentProgram(x, a.robotProgram);
+  paintAgentLoad(x, a);
+  paintAgentCanCounters(x, a.can);
+  paintAgentNote(x);
+}
+
+function paintAgentCores(x, cpu) {
+  if (!cpu?.cores?.length) return;
+  setHtml(x.cores, cpu.cores.map((c) => {
+    const pct = c.percent;
+    return `<div class="ccore">
+        <span>c${c.core}</span>
+        <div class="ctrack"><i style="width:${pct === null ? 0 : Math.min(100, pct)}%" data-level="${coreLevel(pct)}"></i></div>
+        <b>${pct === null ? "—" : pct.toFixed(0) + "%"}${c.mhz ? `<span class="mhz">${c.mhz} MHz</span>` : ""}</b>
+      </div>`;
+  }).join(""));
+
+  const bits = [];
+  if (cpu.loadAverage) {
+    /* Load is the queue, not the usage. 40% CPU with a load of 6 is a machine waiting on something,
+       and that reads completely differently from 40% with a load of 0.5. */
+    bits.push(`load <b>${cpu.loadAverage.join(" &middot; ")}</b>`);
+  }
+  const t = cpu.throttling;
+  if (t) {
+    /* Now and since-boot are different facts. A robot that throttled during its last match and has
+       since cooled down still carries the since-boot bit, and that is the evidence. */
+    if (t.throttledNow) bits.push('<b class="bad">throttling now</b>');
+    else if (t.throttledSinceBoot) bits.push("throttled earlier this boot");
+    if (t.underVoltageNow) bits.push('<b class="bad">under-voltage now</b>');
+    else if (t.underVoltageSinceBoot) bits.push("under-voltage earlier this boot");
+  }
+  setHtml(x.throttle, bits.join(" &middot; "));
+}
+
+function paintAgentProgram(x, prog) {
+  if (!prog?.state) return;
+  const rows = [];
+  const running = prog.state === "active";
+  rows.push(["State", `${prog.state}${prog.subState ? ` (${prog.subState})` : ""}`, running ? "" : "crit"]);
+  if (prog.runningForSeconds !== null && prog.runningForSeconds !== undefined) {
+    rows.push(["Running for", duration(prog.runningForSeconds * 1000), ""]);
+  }
+  /* The signal people miss entirely. A program that crashes and restarts inside a second looks
+     completely normal from the driver's station. */
+  if (prog.restarts !== null && prog.restarts !== undefined) {
+    rows.push(["Restarts", String(prog.restarts), prog.restarts > 0 ? "warn" : ""]);
+  }
+  if (prog.memoryBytes) rows.push(["Memory", coreBytes(prog.memoryBytes) ?? "—", ""]);
+  if (prog.pid) rows.push(["PID", String(prog.pid), "dim"]);
+  setHtml(x.program, coreRows(rows));
+
+  const log = prog.log || [];
+  x.logWrap.hidden = !log.length;
+  /* Newest last, the way a terminal reads. */
+  setHtml(x.log, log.map((line) => escapeHtml(line)).join("\n"));
+}
+
+function paintAgentLoad(x, a) {
+  const procs = a.processes?.topByCpu || [];
+  setHtml(x.procs, procs.map((row) =>
+    `<div class="crow"><span>${escapeHtml(row.name)}<span class="sub">${row.pid}</span></span>`
+    + `<b>${row.cpuPercent.toFixed(0)}%<span class="sub">${coreBytes(row.rssBytes) ?? ""}</span></b></div>`
+  ).join(""));
+
+  /* Directories, largest first, so the answer to "what do I delete" is the first row. */
+  const dirs = (a.storage?.directories || [])
+    .filter((d) => d.bytes)
+    .sort((p, q) => q.bytes - p.bytes);
+  setHtml(x.dirs, dirs.map((d) =>
+    `<div class="crow"><span>${escapeHtml(d.path)}</span><b>${coreBytes(d.bytes)}</b></div>`
+  ).join(""));
+}
+
+function paintAgentCanCounters(x, buses) {
+  if (!buses?.length) { setHtml(x.canCounters, ""); return; }
+  setHtml(x.canCounters, buses.map((b) => {
+    const errors = (b.rxErrors || 0) + (b.txErrors || 0);
+    const dropped = (b.rxDropped || 0) + (b.txDropped || 0);
+    const frames = (b.rxPackets || 0) + (b.txPackets || 0);
+    const bits = [`<b>${frames.toLocaleString()}</b> frames`];
+    /* Zero errors is the expected case and saying so every time is noise. A non-zero count is the
+       whole reason to look. */
+    if (errors) bits.push(`<b class="bad">${errors}</b> errors`);
+    if (dropped) bits.push(`<b class="bad">${dropped}</b> dropped`);
+    if (b.restarts) bits.push(`<b class="bad">${b.restarts}</b> restarts`);
+    if (b.state && b.state !== "ERROR-ACTIVE") bits.push(`<b>${escapeHtml(b.state)}</b>`);
+    return `<div class="ccounter"><span class="name">${escapeHtml(b.name)}</span> ${bits.join(" &middot; ")}</div>`;
+  }).join(""));
+}
+
+function paintAgentNote(x) {
+  if (coreAgent.reachable) {
+    const id = coreAgent.data?.identity || {};
+    const parts = [];
+    if (id.os) parts.push(escapeHtml(id.os));
+    if (id.kernel) parts.push(`kernel ${escapeHtml(id.kernel)}`);
+    if (id.uptimeSeconds) parts.push(`up ${duration(id.uptimeSeconds * 1000)}`);
+    setHtml(x.agentNote, parts.length ? parts.join(" &middot; ") : "");
+    return;
+  }
+  /* Not an error state. Most robots will not have the package installed, and this is the only place
+     that says the extra detail exists at all. */
+  setHtml(x.agentNote,
+    "Install <code>catalyst-agent</code> on the Systemcore for per-core load, the robot "
+    + "program&rsquo;s own log, what is using the disk, and CAN frame counters.");
 }
 
 /* Per-bus utilisation, grouped by controller. */
@@ -3675,6 +3963,17 @@ function paintCoreMachine(x) {
   /* Passed through as the OS words it. Reformatting would mean guessing at a shape that has no
      documentation, and the question this answers - radio or only USB - survives the raw form. */
   if (nics && nics.length) rows.push(["Network", nics.join(", "), ""]);
+
+  /* Agent only. The first question when one robot behaves differently from the one beside it is
+     whether they are on the same OS build, and nothing on NetworkTables can answer it. */
+  const id = coreAgent.data?.identity;
+  if (id) {
+    if (id.model) rows.push(["Model", id.model, "dim"]);
+    if (id.os) rows.push(["OS", id.os, ""]);
+    if (id.kernel) rows.push(["Kernel", id.kernel, "dim"]);
+    if (id.hostname) rows.push(["Hostname", id.hostname, "dim"]);
+    if (id.uptimeSeconds) rows.push(["Uptime", duration(id.uptimeSeconds * 1000), ""]);
+  }
 
   x.idCard.hidden = !rows.length;
   setHtml(x.ident, coreRows(rows));
