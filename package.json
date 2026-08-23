@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Driver station companion dashboard for FrcCatalyst",
+  "type": "module",
   "scripts": {
+    "test": "node --test \"src/**/*.test.js\"",
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",

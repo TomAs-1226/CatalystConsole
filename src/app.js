@@ -15,6 +15,8 @@
  * persisted locally. Nothing is hard-coded to one robot or one season.
  */
 
+import * as coreFmt from "./core-format.js";
+
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
 
@@ -174,6 +176,39 @@ function demoTick() {
     4.1 + radius * Math.sin(t * 0.42) * 0.7,
     (t * 0.42 + Math.PI / 2) % (Math.PI * 2),
   ]);
+
+  /* Systemcore, as a machine in good order under load.
+   *
+   * Deliberately not a perfect machine. The processor and temperature move with the drivetrain
+   * because that is what they do on a robot, the eMMC is a season and a half in rather than fresh,
+   * and can_s0 carries the drivetrain while can_s2 carries the mechanisms - a plan the CAN page
+   * approves of, so the demo shows the layout worth copying rather than the one worth warning
+   * about. Nobody should have to connect a robot to find out whether this page works. */
+  const load = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7));
+  set("/Catalyst/Systemcore/CpuPercent", "num", 22 + 34 * load);
+  set("/Catalyst/Systemcore/TempCelsius", "num", 46 + 12 * load);
+  set("/Catalyst/Systemcore/RamFraction", "num", 0.31 + 0.05 * Math.sin(t * 0.3));
+  set("/Catalyst/Systemcore/RamUsedBytes", "num", 2.6e9);
+  set("/Catalyst/Systemcore/RamTotalBytes", "num", 8.0e9);
+  set("/Catalyst/Systemcore/StorageFraction", "num", 0.47);
+  set("/Catalyst/Systemcore/StorageUsedBytes", "num", 15.0e9);
+  set("/Catalyst/Systemcore/StorageTotalBytes", "num", 32.0e9);
+  set("/Catalyst/Systemcore/BatteryVolts", "num", 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - t * 0.002);
+  set("/Catalyst/Systemcore/BrownedOut", "bool", false);
+  set("/Catalyst/Systemcore/BrownoutVolts", "num", 6.75);
+  set("/Catalyst/Systemcore/RecoveryVolts", "num", 7.5);
+  set("/Catalyst/Systemcore/Rail3v3Amps", "num", 0.38 + 0.06 * Math.sin(t * 1.1));
+  set("/Catalyst/Systemcore/CanUtilization", "nums", [
+    0.38 + 0.10 * Math.sin(t * 0.9), 0, 0.14 + 0.04 * Math.sin(t * 1.4), 0, 0,
+  ]);
+  set("/Catalyst/Systemcore/CanDown", "bool", false);
+  set("/Catalyst/Systemcore/CanDownCount", "num", 0);
+  set("/Catalyst/Systemcore/CanUnavailCount", "num", 0);
+  set("/Catalyst/Systemcore/EmmcLifeUsed", "num", 0.15);
+  set("/Catalyst/Systemcore/EmmcPreEol", "num", 1);
+  set("/Catalyst/Systemcore/TeamNumber", "num", 5805);
+  set("/Catalyst/Systemcore/HardwareSubRev", "num", 2);
+  set("/Catalyst/Systemcore/NetworkInterfaces", "strs", ["eth0", "wlan0"]);
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
@@ -3437,6 +3472,200 @@ function paintGarage() {
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
 }
 
+/* ------------------------------------------------------------------ systemcore
+
+   What the machine reports about itself, read straight off /Catalyst/Systemcore/.
+
+   The rule this page is built on: a reading the machine did not send is absent, never zero. It is
+   worth being blunt about why, because getting it wrong is not a cosmetic bug. Storage at 0% and no
+   answer from the storage sensor render identically as a number, mean opposite things, and the
+   wrong one of them is reassuring. So every helper below returns null for absent and every painter
+   draws an em dash and an empty bar for null. Nothing here substitutes a default. */
+
+const CORE = "/Catalyst/Systemcore/";
+
+/* The wording and the thresholds live in core-format.js so they can be tested: the states they
+   describe - a full disk, a worn-out eMMC, a pinned core - are exactly the ones nobody can
+   reproduce on a robot without breaking it. */
+const coreLevel = coreFmt.level;
+const coreBytes = coreFmt.bytes;
+
+/* Absent stays absent. num() already returns its fallback for a missing key, so the fallback is
+   null and stays null all the way to the screen. */
+function coreNum(key) {
+  return num(CORE + key, null);
+}
+
+/* One vital: the number, its bar, and the colour they share. */
+function paintVital(x, name, pct, opts = {}) {
+  const level = coreLevel(pct, opts.warn, opts.crit);
+  const digits = opts.digits ?? 0;
+
+  x[name].textContent = pct === null ? "\u2014" : pct.toFixed(digits);
+  x[`${name}Bar`].style.width = pct === null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
+  if (level === null) delete x[`${name}Bar`].dataset.level;
+  else x[`${name}Bar`].dataset.level = level;
+
+  const cell = x[`${name}Cell`];
+  if (level === null || level === "ok") delete cell.dataset.level;
+  else cell.dataset.level = level;
+}
+
+/* The five Systemcore buses and the SPI controller each hangs off, which is the fact that makes
+   this table worth drawing rather than listing five numbers. Same pairing the library encodes in
+   CatalystCANBus and the CAN ID planner warns about. */
+const CORE_CAN_GROUPS = [
+  ["Controller 1", ["can_s0", "can_s1"]],
+  ["Controller 2", ["can_s2"]],
+  ["Controller 3", ["can_s3", "can_s4"]],
+];
+
+function paintCore() {
+  /* buildSettings already collected every [data-x] in the settings tree, and this section is
+     inside it, so there is nothing of its own to wire. */
+  const x = settingsRefs;
+  const root = $("#core");
+
+  /* "Is there a machine" is answered by whether anything at all arrived, not by a flag. A robot on
+     Catalyst 2.x that never calls SystemCoreStatus.publish() is indistinguishable from no robot,
+     and the empty state says so rather than pretending the machine is idle. */
+  const cpu = coreNum("CpuPercent");
+  const temp = coreNum("TempCelsius");
+  const ramFrac = coreNum("RamFraction");
+  const diskFrac = coreNum("StorageFraction");
+  const live = [cpu, temp, ramFrac, diskFrac].some((v) => v !== null);
+  root.dataset.live = live ? "true" : "false";
+  if (!live) return;
+
+  /* --- the four that move ------------------------------------------------- */
+  paintVital(x, "cpu", cpu);
+  /* The CM5 throttles rather than reporting anything, so the symptom of a hot Systemcore in a
+     sealed electronics box is a loop overrun. 80 and 90 are below where throttling starts, so this
+     says something while there is still time to open the box. */
+  paintVital(x, "temp", temp, { warn: 80, crit: 90 });
+  paintVital(x, "ram", ramFrac === null ? null : ramFrac * 100);
+  /* Storage earlier than the rest: a disk that fills stops logging, then stops the robot program,
+     and nothing about that symptom points at the disk. */
+  paintVital(x, "disk", diskFrac === null ? null : diskFrac * 100, { warn: 85, crit: 93 });
+
+  /* Absolute sizes under the ratios. "88% used" is the same number on 8 GiB and on 512 MiB and a
+     different problem, and the ratio alone cannot tell them apart. */
+  const pair = (used, total) => {
+    const u = coreBytes(coreNum(used));
+    const t = coreBytes(coreNum(total));
+    return u && t ? `${u} of ${t}` : "";
+  };
+  x.ramSub.textContent = pair("RamUsedBytes", "RamTotalBytes");
+  x.diskSub.textContent = pair("StorageUsedBytes", "StorageTotalBytes");
+
+  paintCoreCan(x);
+  paintCoreWear(x);
+  paintCorePower(x);
+  paintCoreMachine(x);
+}
+
+/* Per-bus utilisation, grouped by controller. */
+function paintCoreCan(x) {
+  const util = arr(CORE + "CanUtilization");
+  const card = x.canCard;
+  card.hidden = !util || !util.length;
+  if (card.hidden) return;
+
+  card.hidden = false;
+  x.buses.innerHTML = CORE_CAN_GROUPS.map(([title, buses]) => {
+    const rows = buses.map((bus) => {
+      const i = Number(bus.slice(-1));
+      const v = i < util.length ? util[i] : null;
+      if (v === null) return "";
+      const pct = v * 100;
+      const level = coreLevel(pct, 70, 85);
+      /* A bus with nothing on it is not a problem, and dimming it keeps the eye on the ones
+         carrying load rather than spreading attention over five equal-looking rows. */
+      return `<div class="cbus" data-idle="${pct < 1}">
+          <span>${escapeHtml(bus)}</span>
+          <div class="ctrack"><i style="width:${Math.min(100, pct).toFixed(1)}%" data-level="${level}"></i></div>
+          <b>${pct.toFixed(0)}%</b>
+        </div>`;
+    }).join("");
+    return rows.trim()
+      ? `<div class="cgroup"><h4>${escapeHtml(title)}</h4>${rows}</div>`
+      : "";
+  }).join("");
+
+  /* Counts since boot, not a live state. A bus that dropped three times and is up now is a
+     different problem from one that is down, and the wording has to keep them apart. */
+  const down = coreNum("CanDownCount");
+  const unavail = coreNum("CanUnavailCount");
+  const nowDown = bool(CORE + "CanDown", false);
+  const bits = [];
+  if (nowDown) bits.push('<b class="bad">a bus is down right now</b>');
+  if (down !== null && down > 0) bits.push(`dropped <b>${down.toFixed(0)}</b> time${down === 1 ? "" : "s"} since boot`);
+  if (unavail !== null && unavail > 0) bits.push(`unavailable <b>${unavail.toFixed(0)}</b> time${unavail === 1 ? "" : "s"}`);
+  x.canFaults.innerHTML = bits.join(" &middot; ");
+}
+
+/* eMMC wear. */
+function paintCoreWear(x) {
+  const used = coreNum("EmmcLifeUsed");
+  const preEol = coreNum("EmmcPreEol");
+  x.wearCard.hidden = used === null && preEol === null;
+  if (x.wearCard.hidden) return;
+
+  const pct = used === null ? null : used * 100;
+  x.wearBar.style.width = pct === null ? "0%" : `${Math.min(100, pct).toFixed(0)}%`;
+  const level = coreLevel(pct, 70, 90);
+  if (level) x.wearBar.dataset.level = level; else delete x.wearBar.dataset.level;
+
+  x.wearText.textContent = coreFmt.wearText(used);
+
+  const state = coreFmt.preEolState(preEol);
+  x.wearState.textContent = state ? state.text : "";
+  x.wearState.className = state ? state.level : "";
+}
+
+function paintCorePower(x) {
+  const rows = [];
+  const volts = coreNum("BatteryVolts");
+  const brownedOut = bool(CORE + "BrownedOut", false);
+  const floor = coreNum("BrownoutVolts");
+  const recover = coreNum("RecoveryVolts");
+  const rail = coreNum("Rail3v3Amps");
+
+  if (volts !== null) rows.push(["Battery", `${volts.toFixed(2)} V`, brownedOut ? "crit" : ""]);
+  if (brownedOut) rows.push(["State", "browned out", "crit"]);
+  /* These used to be constants in robot code, copied from the roboRIO. They are the device's own
+     numbers now, and they are not the same numbers. */
+  if (floor !== null) rows.push(["Brownout at", `${floor.toFixed(2)} V`, "dim"]);
+  if (recover !== null) rows.push(["Recovers at", `${recover.toFixed(2)} V`, "dim"]);
+  /* The rail that powers the IO pins, and the reason a servo cannot be driven from one. */
+  if (rail !== null) rows.push(["3.3 V rail", `${rail.toFixed(2)} A`, ""]);
+
+  x.powerCard.hidden = !rows.length;
+  x.power.innerHTML = coreRows(rows);
+}
+
+function paintCoreMachine(x) {
+  const rows = [];
+  const team = coreNum("TeamNumber");
+  const hsub = coreNum("HardwareSubRev");
+  const nics = arr(CORE + "NetworkInterfaces");
+
+  if (team !== null) rows.push(["Team", team.toFixed(0), ""]);
+  if (hsub !== null) rows.push(["Hardware rev", hsub.toFixed(0), "dim"]);
+  /* Passed through as the OS words it. Reformatting would mean guessing at a shape that has no
+     documentation, and the question this answers - radio or only USB - survives the raw form. */
+  if (nics && nics.length) rows.push(["Network", nics.join(", "), ""]);
+
+  x.idCard.hidden = !rows.length;
+  x.ident.innerHTML = coreRows(rows);
+}
+
+function coreRows(rows) {
+  return rows.map(([k, v, cls]) =>
+    `<div class="crow"><span>${escapeHtml(k)}</span><b class="${cls}">${escapeHtml(v)}</b></div>`
+  ).join("");
+}
+
 /* The wiring, which is its own section. Both halves hide themselves when the robot published nothing
  * for them, so the empty state is "neither drew" rather than a flag kept in step by hand. */
 function paintDevices() {
@@ -3526,6 +3755,7 @@ function paintSettings() {
   const x = settingsRefs;
 
   if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection === "core") paintCore();
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
 

@@ -132,6 +132,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="8.5" cy="10.5" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M9 14.5h6"/></svg>
           Robot
         </button>
+        <button class="snav" role="tab" id="snav-core" aria-controls="ssec-core" data-sec="core" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/></svg>
+          Systemcore
+        </button>
         <button class="snav" role="tab" id="snav-devices" aria-controls="ssec-devices" data-sec="devices" aria-selected="false" tabindex="-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="8" width="10" height="8" rx="1.6"/><path d="M12 3v5M4 12h3M17 12h3M9 21v-5M15 21v-5"/></svg>
           Devices
@@ -164,6 +168,102 @@
 
         <!-- Only ever seen while searching, and only when nothing matched. -->
         <p class="snohits" id="setNoHits" hidden>Nothing here matches <b id="setNoHitsQ"></b>.</p>
+
+        <!-- ---------------------------------------------------------------- systemcore -->
+        <!--
+          What the control system reports about itself.
+
+          None of this existed on a roboRIO, which is why the failures it covers used to be
+          undiagnosable from the driver's station: a robot that browned out because four seasons of
+          match logs filled the eMMC failed pointing at nothing at all.
+
+          Every figure here is measured by the OS and published on its own NetworkTables server;
+          Catalyst mirrors them under /Catalyst/Systemcore/ so they arrive on the same connection as
+          everything else. Nothing on this page is computed by the console, and nothing is filled in
+          with a default - a reading the machine did not send is shown as absent, because "0%" and
+          "no answer" are different facts and only one of them is good news.
+        -->
+        <section class="ssec" role="tabpanel" id="ssec-core" aria-labelledby="snav-core" data-sec="core">
+          <h2 class="stitle">Systemcore</h2>
+          <p class="slead">What the computer running your robot says about itself.</p>
+
+          <div class="core" id="core" data-live="false">
+
+            <!-- The four that change second to second. Big, because these are read at a glance from
+                 a driver's station and not studied. -->
+            <div class="cvitals">
+              <div class="cvital" data-x="cpuCell">
+                <div class="cvk">Processor</div>
+                <div class="cvn"><b data-x="cpu">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="cpuBar"></i></div>
+              </div>
+              <div class="cvital" data-x="tempCell">
+                <div class="cvk">Temperature</div>
+                <div class="cvn"><b data-x="temp">—</b><span>&deg;C</span></div>
+                <div class="ctrack"><i data-x="tempBar"></i></div>
+              </div>
+              <div class="cvital" data-x="ramCell">
+                <div class="cvk">Memory</div>
+                <div class="cvn"><b data-x="ram">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="ramBar"></i></div>
+                <div class="cvsub" data-x="ramSub"></div>
+              </div>
+              <div class="cvital" data-x="diskCell">
+                <div class="cvk">Storage</div>
+                <div class="cvn"><b data-x="disk">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="diskBar"></i></div>
+                <div class="cvsub" data-x="diskSub"></div>
+              </div>
+            </div>
+
+            <!-- CAN, per bus, grouped by the SPI controller each hangs off. The grouping is the
+                 point: two buses at 55% each look fine alone and can still saturate the controller
+                 they share, and nothing else on the robot will tell you that. -->
+            <div class="ccard" data-x="canCard">
+              <h3>CAN buses</h3>
+              <p class="cnote">Measured by the machine, not estimated from a device list. Buses on
+                 one controller share its bandwidth &mdash; a split across a pair buys less than a
+                 split across two controllers.</p>
+              <div class="cbuses" data-x="buses"></div>
+              <div class="cfaults" data-x="canFaults"></div>
+            </div>
+
+            <!-- Flash wear. Slow, and the only thing here that does not recover: deleting logs frees
+                 space and gives back none of the write life already spent. -->
+            <div class="ccard" data-x="wearCard">
+              <h3>Storage health</h3>
+              <p class="cnote">The eMMC wears out as it is written to, and unlike a full disk it does
+                 not come back when you delete something. Four seasons of match logs is exactly the
+                 workload that spends it.</p>
+              <div class="cwear">
+                <div class="ctrack big"><i data-x="wearBar"></i></div>
+                <div class="cwearrow"><span data-x="wearText">&mdash;</span><b data-x="wearState"></b></div>
+              </div>
+            </div>
+
+            <!-- Power, including the two thresholds that used to be roboRIO constants in code and
+                 are now numbers the device itself holds. -->
+            <div class="ccard" data-x="powerCard">
+              <h3>Power</h3>
+              <div class="crows" data-x="power"></div>
+            </div>
+
+            <!-- Identity, and the one question a pit crew asks constantly: is it on the radio, or
+                 only on USB? -->
+            <div class="ccard" data-x="idCard">
+              <h3>Machine</h3>
+              <div class="crows" data-x="ident"></div>
+            </div>
+
+            <div class="cempty" data-x="empty">
+              <b>No Systemcore is reporting</b>
+              <span>This fills in on its own from a robot running Catalyst 2.x on Systemcore, the
+                    moment it connects. Blank here means the console is talking to a simulation, or
+                    to a robot whose code has not called <code>SystemCoreStatus.publish()</code> in
+                    its periodic loop.</span>
+            </div>
+          </div>
+        </section>
 
         <!-- ---------------------------------------------------------------- robot -->
         <section class="ssec" role="tabpanel" id="ssec-robot" aria-labelledby="snav-robot" data-sec="robot" data-active="true">

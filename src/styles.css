@@ -932,3 +932,132 @@ kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 
   .sweep i { animation: none; opacity: 0; }
   .ssec[data-active="true"] { animation: none; }
 }
+
+/* ------------------------------------------------------------------ systemcore
+
+   The machine's own account of itself. Laid out as four live figures over a set of cards rather
+   than as a settings list, because none of it is a setting: there is nothing to change here, only
+   things to read, and a row of labels with values on the right would have read as a form.
+
+   Every value can be absent, and absent is shown as an em dash and a flat bar rather than as zero.
+   That distinction carries the whole page: 0% storage used and no answer from the storage sensor
+   look identical as a number and mean opposite things. */
+
+.core { margin-top: 26px; }
+.core[data-live="false"] > *:not(.cempty) { display: none; }
+.core[data-live="true"] .cempty { display: none; }
+
+/* The four that move. Sized to be read from a driver's station, which is further away than a desk
+   and the reason these are not just rows in a table. */
+.cvitals {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 14px; margin-bottom: 26px;
+}
+.cvital {
+  background: var(--tile); border: 1px solid var(--hair); border-radius: 14px;
+  padding: 16px 18px 18px;
+}
+.cvk {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-3-on-tile);
+}
+.cvn { display: flex; align-items: baseline; gap: 4px; margin: 8px 0 12px; }
+.cvn b {
+  font-size: 34px; font-weight: 650; letter-spacing: -0.03em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.cvn span { font-size: 15px; color: var(--ink-2); font-weight: 500; }
+.cvsub {
+  margin-top: 9px; font-size: 11.5px; color: var(--ink-3-on-tile);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One bar treatment for every proportion on the page, so a reader learns to read it once. */
+.ctrack {
+  height: 4px; border-radius: 999px; background: var(--tile-3); overflow: hidden;
+}
+.ctrack.big { height: 7px; }
+.ctrack > i {
+  display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ok);
+  transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1), background-color 220ms linear;
+}
+/* Colour is the second channel, never the only one: the number beside the bar says the same thing,
+   which is what keeps this readable for a colour-blind driver under a red field light. */
+.ctrack > i[data-level="warn"] { background: var(--warn); }
+.ctrack > i[data-level="crit"] { background: var(--crit); }
+.cvital[data-level="crit"] .cvn b { color: var(--crit); }
+.cvital[data-level="warn"] .cvn b { color: var(--warn); }
+
+.ccard {
+  background: var(--tile); border: 1px solid var(--hair); border-radius: 14px;
+  padding: 20px 22px 22px; margin-bottom: 14px;
+}
+.ccard[hidden] { display: none; }
+.ccard h3 {
+  margin: 0; font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em;
+}
+.cnote {
+  margin: 7px 0 18px; font-size: 12.5px; line-height: 1.55; color: var(--ink-3-on-tile);
+  max-width: 62ch;
+}
+
+/* CAN, grouped by controller. The group is a labelled band rather than a heading per bus, because
+   what matters is which buses sit together, not the buses themselves. */
+.cbuses { display: flex; flex-direction: column; gap: 16px; }
+.cgroup {
+  border-left: 2px solid var(--tile-3); padding-left: 14px;
+}
+.cgroup > h4 {
+  margin: 0 0 9px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink-3-on-tile);
+}
+.cbus { display: grid; grid-template-columns: 62px 1fr 52px; align-items: center; gap: 12px; }
+.cbus + .cbus { margin-top: 8px; }
+.cbus > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; color: var(--ink-2);
+}
+.cbus > b {
+  font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.cbus[data-idle="true"] > span,
+.cbus[data-idle="true"] > b { color: var(--ink-3); }
+
+.cfaults { margin-top: 16px; font-size: 12.5px; color: var(--ink-2); }
+.cfaults:empty { display: none; }
+.cfaults b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.cfaults .bad { color: var(--crit); }
+
+.cwear { margin-top: 4px; }
+.cwearrow {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 11px;
+  font-size: 12.5px; color: var(--ink-2);
+}
+.cwearrow b { font-size: 12.5px; font-weight: 650; }
+.cwearrow b.ok { color: var(--ok); }
+.cwearrow b.warn { color: var(--warn); }
+.cwearrow b.crit { color: var(--crit); }
+
+.crows { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 2px 34px; }
+.crow {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
+  padding: 8px 0; border-bottom: 1px solid var(--hair); font-size: 13px;
+}
+.crow > span { color: var(--ink-2); }
+.crow > b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.crow > b.dim { color: var(--ink-3-on-tile); font-weight: 500; }
+
+.cempty {
+  display: flex; flex-direction: column; gap: 9px; padding: 34px 30px;
+  background: var(--tile); border: 1px solid var(--hair); border-radius: 14px;
+}
+.cempty b { font-size: 14.5px; font-weight: 650; }
+.cempty span { font-size: 13px; line-height: 1.6; color: var(--ink-2); max-width: 64ch; }
+.cempty code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: var(--tile-2); padding: 1px 5px; border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctrack > i { transition: none; }
+}
