@@ -16,6 +16,7 @@
  */
 
 import * as coreFmt from "./core-format.js";
+import * as canModel from "./can-model.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -513,7 +514,10 @@ const ALERT_HOLD_MAX = 8000;
 
 /* Order is load-bearing: the number keys index into this. Declared up here rather than beside
  * `showView` because `loadSettings` validates the opening view against it and runs first. */
-const VIEWS = ["board", "tune", "logs", "topics"];
+/* CAN goes on the end rather than beside the dashboard it belongs next to, because the position is
+ * the shortcut: 1–4 are keys drivers already have in their hands and renumbering them to make room
+ * would be a worse trade than a fifth key in the wrong place. */
+const VIEWS = ["board", "tune", "logs", "topics", "can"];
 const UNITS = ["metric", "imperial"];
 
 const SETTINGS_DEFAULTS = {
@@ -2162,6 +2166,7 @@ function showView(name) {
   if (name === "logs") paintLogs();
   if (name === "tune") paintTune();
   if (name === "topics") paintTopics();
+  if (name === "can") paintCan();
   if (name === "board") {
     paint();
     for (const entry of live.values()) entry.spec.onShow?.(entry.state);
@@ -2645,6 +2650,7 @@ const SHORTCUTS = [
   [["2"], "Tune"],
   [["3"], "Logs"],
   [["4"], "Topics"],
+  [["5"], "CAN"],
   [["S"], "Settings"],
   [["D"], "Demo data on or off"],
   [["E"], "Edit layout"],
@@ -4162,6 +4168,7 @@ function paint() {
   const active = activeView();
   if (active === "topics") paintTopics();
   if (active === "logs") tickLinkHistory();
+  if (active === "can") paintCan();
   paintSettings();
 }
 
@@ -4346,6 +4353,7 @@ const KEYS = Object.assign(Object.create(null), {
   2: () => showView("tune"),
   3: () => showView("logs"),
   4: () => showView("topics"),
+  5: () => showView("can"),
   d: () => setDemo(!demo.on),
   e: () => $("#editBtn").click(),
   a: () => openPicker(),

@@ -27,6 +27,7 @@
         <button class="tab" role="tab" id="tab-tune" aria-controls="view-tune" data-view="tune" aria-selected="false" tabindex="-1">Tune</button>
         <button class="tab" role="tab" id="tab-logs" aria-controls="view-logs" data-view="logs" aria-selected="false" tabindex="-1">Logs</button>
         <button class="tab" role="tab" id="tab-topics" aria-controls="view-topics" data-view="topics" aria-selected="false" tabindex="-1">Topics</button>
+        <button class="tab" role="tab" id="tab-can" aria-controls="view-can" data-view="can" aria-selected="false" tabindex="-1">CAN</button>
       </nav>
       <button class="gear" id="settingsBtn" title="Settings  ·  S" aria-haspopup="dialog" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -49,6 +50,14 @@
 
       <div class="view sheetwrap" role="tabpanel" id="view-topics" aria-labelledby="tab-topics" data-view="topics">
         <div class="sheet" id="topicSheet"></div>
+      </div>
+
+      <!-- Systemcore has five CAN buses on three SPI controllers, and the grouping is the whole
+           reason this is a view rather than a row on the Systemcore page: two buses on one
+           controller throttle each other, two on different controllers do not, and every other
+           tool in FRC draws all five as equals. -->
+      <div class="view sheetwrap" role="tabpanel" id="view-can" aria-labelledby="tab-can" data-view="can">
+        <div class="sheet" id="canSheet"></div>
       </div>
     </div>
 
@@ -482,12 +491,13 @@
                 <span>Which view the console launches into.</span>
               </div>
               <div class="sctl">
-                <div class="choice" id="setStartView" style="--n:4" role="radiogroup" aria-label="Opening view">
+                <div class="choice" id="setStartView" style="--n:5" role="radiogroup" aria-label="Opening view">
                   <i class="choicesel" aria-hidden="true"></i>
                   <button type="button" role="radio" data-v="board" aria-checked="true">Dashboard</button>
                   <button type="button" role="radio" data-v="tune" aria-checked="false">Tune</button>
                   <button type="button" role="radio" data-v="logs" aria-checked="false">Logs</button>
                   <button type="button" role="radio" data-v="topics" aria-checked="false">Topics</button>
+                  <button type="button" role="radio" data-v="can" aria-checked="false">CAN</button>
                 </div>
               </div>
             </div>
