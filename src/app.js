@@ -3898,7 +3898,21 @@ function paintCoreCan(x) {
   }).join("") + `<!--${shape}-->`);
 
   for (const row of x.buses.querySelectorAll(".cbus")) {
-    const pct = util[Number(row.dataset.bus.slice(-1))] * 100;
+    /* The published contract is a fraction per bus, 0-1, so this scales by 100. A board was seen
+       publishing about 5, which drew "500%" - a utilisation no bus can have.
+
+       Not silently rescaled: "over 1 so divide by 100" is right for a busy bus and wrong for an idle
+       one, because 0.5 is both a legal fraction and a plausible half-percent. So an out-of-range
+       reading is shown pinned at 100% and marked suspect, which says "this number is wrong" instead
+       of quietly inventing a different wrong number. */
+    const raw = util[Number(row.dataset.bus.slice(-1))];
+    const suspect = !(raw >= 0 && raw <= 1);
+    const pct = suspect ? 100 : raw * 100;
+    row.dataset.suspect = String(suspect);
+    row.title = suspect
+      ? `The robot published ${raw} for this bus. Utilisation is meant to be 0-1, so this reading `
+        + `cannot be scaled to a percentage and is shown pinned.`
+      : "";
     const bar = row.querySelector("i");
     bar.style.width = `${Math.min(100, pct).toFixed(1)}%`;
     bar.dataset.level = coreLevel(pct, 70, 85);
