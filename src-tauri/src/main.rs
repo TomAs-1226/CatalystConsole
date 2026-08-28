@@ -17,6 +17,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dslog;
+mod wpilog;
 mod mcp;
 mod nt4;
 
@@ -146,26 +147,44 @@ fn set_team_number(
     Ok(())
 }
 
+/// Sessions from the 2027 Driver Station.
+///
+/// The NI Driver Station's own logs are no longer read. Its `.dslog`/`.dsevents` pair was
+/// community-reverse-engineered and only ever described a roboRIO's session; the 2027 Driver Station
+/// writes one `.wpilog` per session in WPILib's documented DataLog format, and that is what teams
+/// on Systemcore have. [`dslog`] survives for its shared types, not its parsers.
 #[tauri::command]
 fn ds_sessions(dir: Option<String>) -> Vec<dslog::DsSession> {
-    let path = dir.map(PathBuf::from).unwrap_or_else(dslog::default_log_dir);
-    dslog::list_sessions(&path, 40)
+    let path = dir.map(PathBuf::from).unwrap_or_else(wpilog::default_log_dir);
+    wpilog::list_sessions(&path, 40)
 }
 
 /// What the log reader supports, so an empty session list can explain itself.
 #[tauri::command]
 fn ds_support_note() -> &'static str {
-    dslog::support_note()
+    "Reads the 2027 FIRST Driver Station's .wpilog sessions from \
+     C:\\Users\\Public\\Documents\\FIRSTDriverStation\\Logs. Battery, round-trip time and processor \
+     load are graphed. The console and error lines are protobuf and are not decoded yet, so a \
+     session shows no events."
 }
 
+/// Console and error lines.
+///
+/// Empty for now. The 2027 Driver Station records these as protobuf
+/// (`mrc.proto.ProtobufConsoleLineTimestamp`), and decoding them needs the `MrcComm.proto`
+/// descriptor - which the log does carry, in its own first entry, so this is a job rather than a
+/// dead end. Returning nothing is the honest answer until it is done; half-decoding a protobuf into
+/// text that looks like a robot message would be worse than silence.
 #[tauri::command]
-fn ds_events(path: String) -> Vec<dslog::DsEvent> {
-    dslog::read_events(&PathBuf::from(format!("{path}.dsevents")))
+fn ds_events(_path: String) -> Vec<dslog::DsEvent> {
+    Vec::new()
 }
 
 #[tauri::command]
 fn ds_samples(path: String) -> dslog::DsSamples {
-    dslog::read_samples(&PathBuf::from(format!("{path}.dslog")))
+    // A whole path now, not a stem with an extension bolted on: one file per session rather than
+    // NI's pair.
+    wpilog::read_samples(&PathBuf::from(path))
 }
 
 #[tauri::command]

@@ -1,4 +1,12 @@
-//! Driver Station log reading.
+//! Driver Station log reading, for the NI Driver Station.
+//!
+//! **No longer the source of sessions.** Teams on Systemcore run the 2027 FIRST Driver Station,
+//! which writes one `.wpilog` per session in WPILib's documented DataLog format - see
+//! [`crate::wpilog`], which is what the `ds_*` commands call now.
+//!
+//! What survives here is the shared shape of a session, an event and a sample, plus the NI parsers
+//! themselves. They are kept rather than deleted because they still read every log a team recorded
+//! before the switch, and those files do not stop existing.
 //!
 //! The NI Driver Station writes two files per session into
 //! `C:\Users\Public\Documents\FRC\Log Files\`:
@@ -70,13 +78,6 @@ pub struct DsSamples {
 }
 
 /// Where the Driver Station keeps its logs. Overridable because teams do move it.
-/// What this build can and cannot read, for the UI to show beside the session list.
-///
-/// Exists so an empty list is explained rather than mysterious.
-pub fn support_note() -> &'static str {
-    "Reads NI Driver Station logs. The 2027 FIRST Driver Station writes a different format that      this build does not decode yet, so its sessions will not appear here."
-}
-
 pub fn default_log_dir() -> PathBuf {
     PathBuf::from(r"C:\Users\Public\Documents\FRC\Log Files")
 }
