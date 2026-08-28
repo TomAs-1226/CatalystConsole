@@ -2713,9 +2713,11 @@ function candidateAddresses(team) {
   const known = Number.isInteger(team) && team > 0;
   return [
     ["127.0.0.1", "this machine, for simulation"],
-    [`roborio-${known ? team : "TEAM"}-frc.local`, "the field's mDNS name"],
+    ["robot.local", "Systemcore's mDNS name"],
+    ["172.26.0.1", "Systemcore over USB"],
     [known ? `10.${Math.floor(team / 100)}.${team % 100}.2` : "10.TE.AM.2", "the pit's static IP"],
-    ["172.22.11.2", "the USB tether"],
+    [`roborio-${known ? team : "TEAM"}-frc.local`, "a roboRIO's mDNS name"],
+    ["172.22.11.2", "a roboRIO over USB"],
   ];
 }
 

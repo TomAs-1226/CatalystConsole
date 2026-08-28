@@ -43,10 +43,24 @@ struct Frame {
 /// Covers every situation the same build has to work in: simulation on this machine, the field's
 /// mDNS name, the pit's static IP, and the USB tether.
 fn candidate_addresses(team: u16) -> Vec<String> {
+    // Systemcore addresses, measured on a board running OS beta 13 rather than adapted from the
+    // roboRIO list:
+    //
+    //   * `robot.local` is the mDNS name. Not `roborio-TEAM-frc.local` - that name is the roboRIO's
+    //     and resolves to nothing on a Systemcore, so a console that only tried it would sit at
+    //     "no robot" next to a robot that was answering.
+    //   * `172.26.0.1` is the USB tether. The roboRIO used 172.22.11.2; a laptop plugged into a
+    //     Systemcore gets 172.26.0.x and the board is .1.
+    //
+    // The team static IP is unchanged - that addressing is a field convention, not a roboRIO one -
+    // and the roboRIO names stay at the end. They cost one failed connection attempt each and mean a
+    // team with both robots on the bench does not have to know which console to open.
     vec![
         "127.0.0.1".to_string(),
-        format!("roborio-{team}-frc.local"),
+        "robot.local".to_string(),
+        "172.26.0.1".to_string(),
         format!("10.{}.{}.2", team / 100, team % 100),
+        format!("roborio-{team}-frc.local"),
         "172.22.11.2".to_string(),
     ]
 }
