@@ -1171,3 +1171,21 @@ kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 
 .gcam .n { font: 600 var(--fs-small) var(--sans); color: var(--ink); min-width: 0; }
 .gcam .n small { display: block; font: 500 11px var(--sans); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gcam .m { font: 500 11px var(--mono); color: var(--ink-2); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---- motor history ------------------------------------------------------------------------- */
+.mhist { overflow-x: auto; }
+.mh-fill { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.mh-fill .mhist { flex: 1; overflow: auto; min-height: 0; }
+.mh-summary { color: var(--ink-2); }
+table.mh { width: 100%; border-collapse: collapse; font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
+table.mh th { text-align: right; font: 600 10.5px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); padding: 0 8px 6px 0; white-space: nowrap; }
+table.mh th:first-child { text-align: left; }
+table.mh td { padding: 6px 8px 6px 0; text-align: right; color: var(--ink); border-top: 1px solid var(--hair); white-space: nowrap; vertical-align: middle; }
+table.mh td.mh-name { text-align: left; font-weight: 600; min-width: 140px; }
+table.mh td.mh-name small { display: block; font: 500 11px var(--sans); color: var(--ink-2); }
+table.mh td.warn { color: var(--warn); font-weight: 700; }
+table.mh td .dim { color: var(--ink-3); font-weight: 500; }
+table.mh td.mh-bar { min-width: 130px; }
+table.mh td.mh-bar .track { display: inline-block; width: 64px; height: 6px; margin-right: 8px; vertical-align: middle; }
+table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.mh-past { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--warn-bg, rgba(255, 170, 0, 0.14)); color: var(--warn); font: 600 10px var(--sans); }

@@ -997,6 +997,50 @@ define("systemcore", {
   },
 });
 
+/* --- motor history ------------------------------------------------------------ */
+
+define("motorhistory", {
+  name: "Motor history",
+  group: "Health",
+  desc: "Every motor's lifetime hours, revolutions, peaks and boots, by serial number",
+  w: 6, h: 3,
+  config: [
+    { key: "sort", label: "Sort by", type: "select", def: "powered",
+      options: ["powered", "running", "hot", "peakTemp", "peakAmps", "revolutions", "boots"] },
+    { key: "rows", label: "Motors shown", type: "number", def: 12 },
+    { key: "hot", label: "Hot from (\u00b0C)", type: "number", def: 70,
+      hint: "Peak temperatures at or above this are marked. Falcons protect themselves in the 90s." },
+  ],
+  render(body) {
+    ["Rows", "Summary", "Count", "ClockTrusted", "Discovery"].forEach((k) => track("/Catalyst/MotorHistory/" + k));
+    body.innerHTML = `
+      <div class="fill mh-fill">
+        <div class="cap mh-summary" data-x="summary">waiting for the robot's motor history</div>
+        <div class="mhist" data-x="table"></div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const rows = arr("/Catalyst/MotorHistory/Rows");
+    if (!rows.length) {
+      const why = str("/Catalyst/MotorHistory/Discovery", "");
+      x.summary.textContent = has("/Catalyst/MotorHistory/Count")
+        ? (why && why !== "ok" ? `no motors on record yet \u2014 diagnostic server: ${why}` : "no motors on record yet")
+        : "waiting for the robot's motor history \u2014 needs FrcCatalyst 2.0.0-alpha.2-a9 or later";
+      setHtml(x.table, "");
+      return;
+    }
+    const summary = str("/Catalyst/MotorHistory/Summary", "");
+    const clock = bool("/Catalyst/MotorHistory/ClockTrusted", true);
+    x.summary.textContent = summary + (clock ? "" : " \u00b7 robot clock not set, dates are relative");
+    /* Re-render only when the rows change: this table is text, and NT sends the array again every
+       two seconds whether or not anything moved. */
+    const sig = rows.join("\n") + cfg.sort + cfg.rows + cfg.hot;
+    if (x.table.dataset.sig === sig) return;
+    x.table.dataset.sig = sig;
+    setHtml(x.table, motorTableHtml(motorRowsFromNt(rows), cfg.sort, Math.max(1, cfg.rows | 0), cfg.hot));
+  },
+});
+
 /* --- power / loop ------------------------------------------------------------ */
 
 define("health", {
@@ -3721,6 +3765,22 @@ function agentUrl(path) {
  * package on it and connect to it before they can find out whether this page works. It is a machine
  * in good order under load rather than a perfect one - one core carrying the robot program, a
  * program that has restarted once, and a log with something in it. */
+function demoMotorHistory(t) {
+  const names = ["FL_Drive", "FL_Steer", "FR_Drive", "FR_Steer", "BL_Drive", "BL_Steer", "BR_Drive", "BR_Steer"];
+  return {
+    present: true, updatedMs: Date.now(), clockTrusted: true,
+    devices: names.map((name, i) => ({
+      serial: "000E0B500C776800000A00011A00" + (0xE0 + i).toString(16).toUpperCase().padStart(4, "0"),
+      model: "Talon FX", kind: "motor", bus: "can_s2", id: [30, 24, 4, 27, 45, 26, 46, 25][i], name,
+      firmware: "26.1.1.1", poweredSeconds: 3600 * (9 + i * 1.7) + t, runningSeconds: 3600 * (2 + i * 0.6),
+      loadedSeconds: 3600 * (1 + i * 0.3), revolutions: 120000 * (1 + i * 0.4), peakStatorAmps: 60 + i * 12,
+      peakTempC: i === 4 ? 78 : 44 + i * 3, hotSeconds: i === 4 ? 420 : 0, energyJoules: 4e5 * (1 + i),
+      boots: 40 + i * 3, firstSeenMs: Date.now() - 86400e3 * 30, lastSeenMs: Date.now(), identities: i === 4 ? 3 : 1,
+      stickyFaults: 0,
+    })),
+  };
+}
+
 function demoAgentSnapshot(t) {
   const load = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7));
   const core = (i, base) => ({
@@ -3789,6 +3849,7 @@ function demoAgentSnapshot(t) {
         "2027-03-14T10:21:04+0000 robot: Robot code ready",
       ],
     },
+    motorHistory: demoMotorHistory(t),
     sampledAt: Date.now() / 1000,
   };
 }
@@ -3901,6 +3962,7 @@ function paintCoreAgent(x) {
   x.programCard.hidden = !a?.robotProgram?.state;
   x.loadCard.hidden = !a?.processes?.topByCpu?.length;
   x.camCard.hidden = !a?.cameras?.cameras?.length;
+  x.motorCard.hidden = !a?.motorHistory?.devices?.length;
   if (!a) {
     setHtml(x.canCounters, "");
     paintAgentNote(x);
@@ -3911,8 +3973,96 @@ function paintCoreAgent(x) {
   paintAgentProgram(x, a.robotProgram);
   paintAgentLoad(x, a);
   paintAgentCameras(x, a.cameras);
+  paintAgentMotorHistory(x, a.motorHistory);
   paintAgentCanCounters(x, a.can);
   paintAgentNote(x);
+}
+
+/* ---- motor history ------------------------------------------------------------------------ */
+
+/* Hours to one decimal, or minutes when there are not many. */
+function hoursText(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0";
+  if (seconds < 3600) return `${(seconds / 60).toFixed(0)} min`;
+  return `${(seconds / 3600).toFixed(1)} h`;
+}
+
+function revsText(revs) {
+  if (!Number.isFinite(revs) || revs <= 0) return "0";
+  if (revs >= 1e6) return `${(revs / 1e6).toFixed(2)} M`;
+  if (revs >= 1e3) return `${(revs / 1e3).toFixed(1)} k`;
+  return revs.toFixed(0);
+}
+
+/* A serial is 32 hex characters; the last eight are what tells them apart on a robot. */
+function shortSerial(serial) {
+  const s = String(serial || "");
+  return s.length > 10 ? "\u2026" + s.slice(-8) : s;
+}
+
+/* One row per device from either source: the agent's flattened rows, or a NetworkTables row string. */
+function motorRowsFromNt(rows) {
+  return rows.map((line) => {
+    const f = String(line).split("|");
+    const n = (i) => { const v = Number(f[i]); return Number.isFinite(v) ? v : 0; };
+    return {
+      serial: f[0] || "", model: f[1] || "", kind: f[2] || "device", bus: f[3] || "", id: n(4),
+      name: f[5] || "", firmware: f[6] || "", poweredSeconds: n(7), runningSeconds: n(8),
+      loadedSeconds: n(9), revolutions: n(10), peakStatorAmps: n(11), peakTempC: n(12),
+      hotSeconds: n(13), energyJoules: n(14), boots: n(15), firstSeenMs: n(16), lastSeenMs: n(17),
+      identities: n(18), stickyFaults: n(19),
+    };
+  });
+}
+
+const MOTOR_SORTS = {
+  powered: (r) => r.poweredSeconds,
+  running: (r) => r.runningSeconds,
+  hot: (r) => r.hotSeconds,
+  peakTemp: (r) => r.peakTempC,
+  peakAmps: (r) => r.peakStatorAmps,
+  revolutions: (r) => r.revolutions,
+  boots: (r) => r.boots,
+};
+
+/* The table both the tile and the core-page card draw. Motors first, then everything else, each
+   sorted by the chosen column, descending. */
+function motorTableHtml(rows, sortKey, limit, hotCelsius) {
+  const key = MOTOR_SORTS[sortKey] || MOTOR_SORTS.powered;
+  const motors = rows.filter((r) => r.kind === "motor").sort((a, b) => key(b) - key(a));
+  const others = rows.filter((r) => r.kind !== "motor");
+  const shown = motors.slice(0, limit);
+  const maxPowered = Math.max(1, ...motors.map((r) => r.poweredSeconds));
+  const cell = (r) => {
+    const hot = r.peakTempC >= hotCelsius;
+    const label = r.name ? escapeHtml(r.name) : `<span class="dim">unnamed</span>`;
+    const where = [r.bus, Number.isFinite(r.id) && r.id ? `id ${r.id}` : ""].filter(Boolean).join(" \u00b7 ");
+    const past = r.identities > 1 ? `<span class="mh-past" title="${r.identities} identities on record: this motor has been renumbered, renamed or reflashed">${r.identities - 1} past</span>` : "";
+    return `<tr>
+      <td class="mh-name">${label}<small>${escapeHtml(where)} \u00b7 ${escapeHtml(shortSerial(r.serial))}${past}</small></td>
+      <td class="mh-bar"><div class="track"><i style="width:${(100 * r.poweredSeconds / maxPowered).toFixed(1)}%"></i></div><span>${hoursText(r.poweredSeconds)}</span></td>
+      <td>${hoursText(r.runningSeconds)}</td>
+      <td>${revsText(r.revolutions)}</td>
+      <td>${r.peakStatorAmps ? r.peakStatorAmps.toFixed(0) : "\u2014"}</td>
+      <td class="${hot ? "warn" : ""}">${r.peakTempC ? r.peakTempC.toFixed(0) + "\u00b0" : "\u2014"}</td>
+      <td class="${r.hotSeconds > 0 ? "warn" : ""}">${r.hotSeconds > 0 ? hoursText(r.hotSeconds) : "\u2014"}</td>
+      <td>${r.boots || 0}</td>
+    </tr>`;
+  };
+  const rest = motors.length > shown.length ? `<div class="cap">and ${motors.length - shown.length} more motors</div>` : "";
+  const otherNote = others.length ? `<div class="cap">${others.length} other device${others.length === 1 ? "" : "s"} on record (encoders, IMUs)</div>` : "";
+  return `<table class="mh">
+    <thead><tr><th>Motor</th><th>Powered</th><th>Turning</th><th>Revs</th><th>Peak A</th><th>Peak \u00b0C</th><th>Hot</th><th>Boots</th></tr></thead>
+    <tbody>${shown.map(cell).join("")}</tbody></table>${rest}${otherNote}`;
+}
+
+function paintAgentMotorHistory(x, hist) {
+  if (!hist?.devices?.length) { setHtml(x.motorHist, ""); return; }
+  setHtml(x.motorHist, motorTableHtml(hist.devices, "powered", 40, 70));
+  const when = hist.updatedMs && hist.clockTrusted !== false ? `updated ${duration(Math.max(0, Date.now() - hist.updatedMs))} ago` : "robot clock not set, dates are relative";
+  const url = agentUrl("/api/motor-history");
+  setHtml(x.motorCap, `${escapeHtml(when)}. The file is the record: <code>${url ? escapeHtml(url) : "/api/motor-history"}</code>, `
+    + `or <code>.csv</code> for a spreadsheet. The Catalyst App's Motor history tool saves either.`);
 }
 
 function paintAgentCores(x, cpu) {

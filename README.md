@@ -565,3 +565,11 @@ CAD; the game rules it encodes come from the season manual, and the manual is al
 
 If something here disagrees with what your robot is actually doing, trust the robot — and please open
 an issue, because a dashboard that is confidently wrong is worse than one that says it does not know.
+
+## Motor history (1.3.0)
+
+A **Motor history** tile (Health group) shows what the robot program's `MotorHistory` publishes:
+every motor by serial number with its lifetime powered and turning hours, revolutions, peak
+current and temperature, hot time and boots, sorted by whichever column matters today. With
+`catalyst-agent` 2.0.3 on the Systemcore, the Systemcore page also carries the full table read
+from the file the robot keeps, and says where the file is. Needs FrcCatalyst 2.0.0-alpha.2-a9.

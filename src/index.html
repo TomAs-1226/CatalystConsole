@@ -269,6 +269,15 @@
               <div class="gcams" data-x="cams"></div>
             </div>
 
+            <!-- The robot program's motor history, served by the agent from the file it keeps on the
+                 Systemcore: every motor by serial number, with its hours, revolutions, peaks, and
+                 every id and name it has ever had. A motor that is renumbered keeps its past. -->
+            <div class="ccard" data-x="motorCard" hidden>
+              <h3>Motor history</h3>
+              <div class="mhist" data-x="motorHist"></div>
+              <div class="cap" data-x="motorCap"></div>
+            </div>
+
             <div class="ccard" data-x="loadCard" hidden>
               <h3>What is using it</h3>
               <div class="csplit">
