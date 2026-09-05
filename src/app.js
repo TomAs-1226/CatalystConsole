@@ -1006,7 +1006,9 @@ define("motorhistory", {
   w: 6, h: 3,
   config: [
     { key: "sort", label: "Sort by", type: "select", def: "powered",
-      options: ["powered", "running", "hot", "peakTemp", "peakAmps", "revolutions", "boots"] },
+      options: [["powered", "Powered hours"], ["running", "Turning hours"], ["hot", "Hot time"],
+                ["peakTemp", "Peak temperature"], ["peakAmps", "Peak current"], ["revolutions", "Revolutions"],
+                ["boots", "Boots"]] },
     { key: "rows", label: "Motors shown", type: "number", def: 12 },
     { key: "hot", label: "Hot from (\u00b0C)", type: "number", def: 70,
       hint: "Peak temperatures at or above this are marked. Falcons protect themselves in the 90s." },
