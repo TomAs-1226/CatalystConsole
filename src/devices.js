@@ -177,7 +177,10 @@ export function notices(read, { enabled = false } = {}) {
     for (const [name, state, detail] of rows(read, `${HEALTH}Rows`, 3) || []) {
       const words = STATE_WORDS[state];
       if (!words) continue;
-      out.push({ level: "warn", key: `vision:${name}`, text: `${name}: ${words}`, detail });
+      // The robot's detail for a disconnected camera is the same sentence as the state, and a line
+      // that says one thing twice reads as a bug. Keep the detail when it adds a number or a reason.
+      const extra = detail && detail.trim().toLowerCase() !== words ? detail : "";
+      out.push({ level: "warn", key: `vision:${name}`, text: `${name}: ${words}`, detail: extra });
     }
   }
 

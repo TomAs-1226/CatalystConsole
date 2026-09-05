@@ -50,7 +50,7 @@ starting pose. It reads the robot's per-camera vision health rows, so each line 
 and not only that something is.
 
 The **header strip**, top right, is three counts — cameras, motors, controller — as connected over
-expected, coloured by how many answer. Click one to open the matching settings page.
+expected, coloured by how many answer. Click one to open the Devices page (the controller opens the Systemcore page).
 
 Alerts are held for a couple of seconds after they clear, dimmed. Anything edge-triggered on a
 measurement sitting near its threshold raises and clears repeatedly, and rendering that verbatim gives

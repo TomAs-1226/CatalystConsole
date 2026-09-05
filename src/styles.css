@@ -1138,17 +1138,17 @@ kbd { font: 700 var(--fs-micro) var(--mono); background: var(--tile-2); border: 
 
 /* ---------------- notices ---------------- */
 .notices {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
-  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; flex-direction: column; gap: 6px; padding: 4px 6px 0; pointer-events: none;
 }
 .notices[hidden] { display: none; }
 .notice {
   display: flex; align-items: baseline; gap: 12px; padding: 9px 14px; border-radius: 12px;
-  background: var(--tile-2); border-left: 3px solid var(--ink-3); font-size: 12.5px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.35); animation: noticeIn 220ms ease-out;
+  background: var(--tile-3); border-left: 3px solid var(--ink-3); font-size: 12.5px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06); animation: noticeIn 220ms ease-out;
 }
-.notice.error { border-left-color: var(--crit); background: color-mix(in srgb, var(--crit) 16%, var(--tile-2)); }
-.notice.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, var(--tile-2)); }
+.notice.error { border-left-color: var(--crit); background: color-mix(in srgb, var(--crit) 24%, var(--tile-3)); }
+.notice.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 20%, var(--tile-3)); }
 .notice.info { border-left-color: var(--ok); }
 .notice .nt { font-weight: 700; color: var(--ink); white-space: nowrap; }
 .notice .nd { color: var(--ink-2); font: 500 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

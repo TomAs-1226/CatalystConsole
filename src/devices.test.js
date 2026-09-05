@@ -121,7 +121,7 @@ test("a faulting camera becomes a warning with the robot's own detail", () => {
     ] },
   }));
   assert.deepEqual(n, [
-    { level: "warn", key: "vision:limelight-left", text: "limelight-left: no data from the camera", detail: "no data from the camera" },
+    { level: "warn", key: "vision:limelight-left", text: "limelight-left: no data from the camera", detail: "" },
   ]);
 });
 
@@ -139,6 +139,7 @@ test("blind vision is an error above the camera warnings, and robot errors come 
     ["warn", "vision:b"],
   ]);
   assert.equal(n[3].text, "b: running hot");
+  assert.equal(n[3].detail, "91 C, ceiling 80 C", "a detail that adds a number is kept");
 });
 
 test("the auto start check speaks only while disabled", () => {

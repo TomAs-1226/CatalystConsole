@@ -2729,7 +2729,7 @@ function paintDeviceStrip() {
       `${r.connected === false ? "\u2717" : r.connected ? "\u2713" : "\u00b7"} ${r.name}${r.detail ? ` \u2014 ${r.detail}` : ""}`);
     const how = !count.expected ? "" : count.connected === null ? " seen on the wire" : " answering";
     b.title = [`${label}: ${fraction(count)}${how}`, ...lines].join("\n");
-    b.onclick = () => setSettings(true, b.dataset.dev === "controller" ? "core" : "robot");
+    b.onclick = () => setSettings(true, b.dataset.dev === "controller" ? "core" : "devices");
   }
 }
 

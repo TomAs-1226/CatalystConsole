@@ -85,7 +85,7 @@ either, the section says so.
 
 Two cards, from two different sources, and both are worth having.
 
-The **Robot** page's camera card is the robot program's account: every camera `VisionSubsystem`
+The **Devices** page's camera card is the robot program's account: every camera `VisionSubsystem`
 owns, with the state its vision health assigned it and the frame rate and temperature the camera
 reports about itself.
 
