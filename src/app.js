@@ -17,6 +17,7 @@
 
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
+import { clampToField, countState, deviceSummary, notices as computeNotices } from "./devices.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -272,6 +273,44 @@ function demoTick() {
   set("/Catalyst/Alerts/Warnings", "strs",
     num("/Catalyst/Brownout/MeasuredVoltage") < 11.8 ? ["[Power] Battery sagging under load"] : []);
   set("/Catalyst/Alerts/Info", "strs", ["Demo data — not a real robot"]);
+
+  /* The device roster, vision health and the auto start check, so the corner strip, the notice bar
+     and the cameras card have something to show. The left camera drops out for eight seconds in
+     every thirty-two, which is what a loose cable looks like from the driver's seat. */
+  const leftDown = t % 32 >= 12 && t % 32 < 20;
+  set("/Catalyst/Devices/Cameras/Expected", "num", 4);
+  set("/Catalyst/Devices/Cameras/Connected", "num", leftDown ? 3 : 4);
+  set("/Catalyst/Devices/Cameras/Rows", "strs", [
+    "limelight-shooter|true|Limelight", `limelight-left|${!leftDown}|Limelight`,
+    "limelight-right|true|Limelight", "limelight-ground|true|Limelight"]);
+  set("/Catalyst/Devices/Motors/Expected", "num", 20);
+  set("/Catalyst/Devices/Motors/Connected", "num", 20);
+  set("/Catalyst/Devices/Motors/Rows", "strs", [
+    "frontLeftDrive|can_s0|1|true", "frontLeftSteer|can_s0|2|true", "frontRightDrive|can_s0|3|true",
+    "frontRightSteer|can_s0|4|true", "backLeftDrive|can_s0|5|true", "backLeftSteer|can_s0|6|true",
+    "backRightDrive|can_s0|7|true", "backRightSteer|can_s0|8|true", "shooterLead|can_s2|11|true",
+    "shooterFollower12|can_s2|12|true", "intake|can_s2|13|true", "feeder|can_s2|14|true",
+    "elevatorLead|can_s3|21|true", "elevatorFollower22|can_s3|22|true", "arm|can_s3|23|true",
+    "wrist|can_s3|24|true", "climberLead|can_s4|31|true", "climberFollower32|can_s4|32|true",
+    "hopper|can_s4|33|true", "indexer|can_s4|34|true"]);
+  set("/Catalyst/Devices/Controller/Kind", "str", "Systemcore");
+  set("/Catalyst/Devices/Controller/Connected", "bool", true);
+  set("/Catalyst/Vision/Health/Level", "num", leftDown ? 1 : 0);
+  set("/Catalyst/Vision/Health/Summary", "str",
+    leftDown ? "3 of 4 cameras healthy: limelight-left disconnected" : "all 4 cameras healthy");
+  set("/Catalyst/Vision/Health/Rows", "strs", [
+    `limelight-shooter|OK|100% accepted|56.0|${(70 + 3 * Math.sin(t * 0.2)).toFixed(1)}|true`,
+    leftDown ? "limelight-left|DISCONNECTED|no data from the camera|||false"
+             : "limelight-left|OK|97% accepted|55.0|68.0|true",
+    "limelight-right|NO_TARGETS|no usable target|57.0|66.0|true",
+    "limelight-ground|OK|91% accepted|54.0|71.0|true"]);
+  const demoX = 8.2 + radius * Math.cos(t * 0.42);
+  const demoY = 4.1 + radius * Math.sin(t * 0.42) * 0.7;
+  const fromStart = Math.hypot(demoX - 10.6, demoY - 4.1);
+  set("/Catalyst/Auto/StartCheck/Available", "bool", true);
+  set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart < 0.3);
+  set("/Catalyst/Auto/StartCheck/DistanceMeters", "num", fromStart);
+  set("/Catalyst/Auto/StartCheck/HeadingErrorDeg", "num", 6 * Math.sin(t * 0.3));
 
   if (!has(TUNABLE_MANIFEST)) {
     set(TUNABLE_MANIFEST, "str", JSON.stringify([
@@ -1461,6 +1500,7 @@ define("field", {
         <div class="fc">x <b data-x="fx">—</b> m</div>
         <div class="fc">y <b data-x="fy">—</b> m</div>
         <div class="fc">θ <b data-x="ft">—</b>°</div>
+        <div class="fc off" data-x="foff" hidden>drawn at the wall</div>
       </div>
       <div class="fieldbtns">
         <button class="fbtn" data-mode="chase">Chase</button>
@@ -1515,8 +1555,13 @@ define("field", {
     x.fx.textContent = valid ? pose[0].toFixed(2) : "—";
     x.fy.textContent = valid ? pose[1].toFixed(2) : "—";
     x.ft.textContent = valid ? ((pose[2] * 180) / Math.PI).toFixed(0) : "—";
+    /* The readouts are the estimator's numbers wherever they are. The drawing is held inside the
+       walls: a robot rendered through a wall, or off the slab entirely, tells the driver nothing
+       that the chip does not say better. */
+    const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
+    x.foff.hidden = !(drawn && drawn.clamped);
     state.scene?.update({
-      pose: valid ? pose : null,
+      pose: drawn ? [drawn.x, drawn.y, drawn.theta] : null,
       alliance: alliance(),
       enabled: ds.enabled,
     });
@@ -2625,7 +2670,104 @@ function paintHeader() {
   const chip = $("#dropChip");
   chip.hidden = drops === 0;
   if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
+
+  paintDeviceStrip();
 }
+
+/* ----------------------------------------------------------------- device strip */
+
+/** The read-only NetworkTables view devices.js works over. */
+const ntView = {
+  get linked() { return nt.status.connected || demo.on; },
+  has, num, str, arr, bool,
+  keys: () => Object.keys(nt.v),
+};
+
+const DEV_ICONS = {
+  cameras: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><circle cx="9" cy="12.5" r="2.6"/><circle cx="16" cy="12.5" r="2.6"/></svg>`,
+  motors: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="13" height="9" rx="2"/><path d="M16 11h3.5v3H16M8 8V5.5M11 8V5.5M9.5 17v2.5"/></svg>`,
+  controller: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7 9h10M7 12.5h6M7 16h3"/></svg>`,
+};
+
+function fraction(count) {
+  if (!count.expected) return "—";
+  return count.connected === null ? String(count.expected) : `${count.connected}/${count.expected}`;
+}
+
+/* Three counts in the corner: cameras, motors, controller. "4/4" means four heartbeats are
+ * advancing; a bare "4" means four exist and nothing on the robot can say whether they answer,
+ * and the tooltip says which of those it is. Hidden until a robot is there, because a row of
+ * dashes is not information. */
+function paintDeviceStrip() {
+  const strip = $("#devStrip");
+  const s = deviceSummary(ntView);
+  const linked = nt.status.connected || demo.on;
+  strip.hidden = !linked || !s.any;
+  if (strip.hidden) { strip.dataset.sig = ""; return; }
+
+  const controller = {
+    expected: s.controller.kind ? 1 : 0,
+    connected: s.controller.connected === null ? null : (s.controller.connected ? 1 : 0),
+    rows: [],
+  };
+  const items = [
+    ["cameras", "Limelights", s.cameras],
+    ["motors", "Motors", s.motors],
+    ["controller", s.controller.kind || "Controller", controller],
+  ];
+  const sig = items.map(([k, , c]) =>
+    `${k}:${fraction(c)}:${countState(c)}:${c.rows.map((r) => `${r.name}=${r.connected}`).join(",")}`).join("|");
+  if (strip.dataset.sig === sig) return;
+  strip.dataset.sig = sig;
+
+  strip.innerHTML = items.map(([key, , count]) =>
+    `<button class="dev" data-state="${countState(count)}" data-dev="${key}">${DEV_ICONS[key]}<b>${escapeHtml(fraction(count))}</b></button>`
+  ).join("");
+  for (const b of strip.querySelectorAll(".dev")) {
+    const [, label, count] = items.find(([k]) => k === b.dataset.dev);
+    const lines = count.rows.map((r) =>
+      `${r.connected === false ? "\u2717" : r.connected ? "\u2713" : "\u00b7"} ${r.name}${r.detail ? ` \u2014 ${r.detail}` : ""}`);
+    const how = !count.expected ? "" : count.connected === null ? " seen on the wire" : " answering";
+    b.title = [`${label}: ${fraction(count)}${how}`, ...lines].join("\n");
+    b.onclick = () => setSettings(true, b.dataset.dev === "controller" ? "core" : "robot");
+  }
+}
+
+/* --------------------------------------------------------------------- notices */
+
+const noticeSeen = new Map();
+
+/* The bar over the board. Fed by devices.js from the robot's own vision health rows, its error
+ * alerts and the auto start check; held on screen for the same alertHoldMs the alerts tile uses,
+ * so a notice that flaps reads as one steady, fading line rather than a strobe. It never takes a
+ * click and never blocks anything - rule two. */
+function paintNotices() {
+  const bar = $("#notices");
+  const linked = nt.status.connected || demo.on;
+  const now = performance.now();
+  if (linked) {
+    for (const n of computeNotices(ntView, { enabled: ds.enabled })) noticeSeen.set(n.key, { ...n, at: now });
+  }
+  for (const [key, entry] of noticeSeen) {
+    if (!linked || now - entry.at > settings.alertHoldMs) noticeSeen.delete(key);
+  }
+  const rank = { error: 0, warn: 1, info: 2 };
+  const list = [...noticeSeen.values()].map((n) => ({ ...n, stale: n.at !== now }));
+  list.sort((a, b) => rank[a.level] - rank[b.level]);
+
+  const sig = list.map((n) => `${n.level}:${n.key}:${n.text}:${n.detail}:${n.stale}`).join("|");
+  if (bar.dataset.sig === sig) return;
+  bar.dataset.sig = sig;
+  bar.hidden = list.length === 0;
+  bar.innerHTML = list.map((n) => {
+    const kind = n.key.startsWith("vision") ? "vision" : n.key.startsWith("auto") ? "auto" : "robot";
+    return `<div class="notice ${n.level}" data-stale="${n.stale}"><div class="nt">${escapeHtml(n.text)}</div>`
+      + (n.detail ? `<div class="nd">${escapeHtml(n.detail)}</div>` : "")
+      + `<span class="nk">${kind}</span></div>`;
+  }).join("");
+}
+
+
 
 /* --------------------------------------------------------------------- settings */
 
@@ -3758,6 +3900,7 @@ function paintCoreAgent(x) {
   x.coresCard.hidden = !a?.cpu?.cores?.length;
   x.programCard.hidden = !a?.robotProgram?.state;
   x.loadCard.hidden = !a?.processes?.topByCpu?.length;
+  x.camCard.hidden = !a?.cameras?.cameras?.length;
   if (!a) {
     setHtml(x.canCounters, "");
     paintAgentNote(x);
@@ -3767,6 +3910,7 @@ function paintCoreAgent(x) {
   paintAgentCores(x, a.cpu);
   paintAgentProgram(x, a.robotProgram);
   paintAgentLoad(x, a);
+  paintAgentCameras(x, a.cameras);
   paintAgentCanCounters(x, a.can);
   paintAgentNote(x);
 }
@@ -3853,6 +3997,28 @@ function paintAgentCanCounters(x, buses) {
     if (b.restarts) bits.push(`<b class="bad">${b.restarts}</b> restarts`);
     if (b.state && b.state !== "ERROR-ACTIVE") bits.push(`<b>${escapeHtml(b.state)}</b>`);
     return `<div class="ccounter"><span class="name">${escapeHtml(b.name)}</span> ${bits.join(" &middot; ")}</div>`;
+  }).join(""));
+}
+
+
+/* The OS's own view of the cameras, joined with each camera's status by the agent. This is the
+ * card that works with no robot code at all, which is when an overheating camera is easiest to
+ * do something about. */
+function paintAgentCameras(x, cams) {
+  if (!cams?.cameras?.length) { setHtml(x.cams, ""); return; }
+  setHtml(x.cams, cams.cameras.map((c) => {
+    const hot = Number.isFinite(c.temperatureC) && c.temperatureC >= 80;
+    const state = !c.statusReachable ? "DISCONNECTED" : hot ? "HOT" : c.ntConnected ? "OK" : "NO_NT";
+    const words = state === "DISCONNECTED" ? "not answering"
+      : state === "HOT" ? "running hot"
+      : c.ntConnected ? "talking to the robot" : "no NetworkTables session";
+    const bits = [];
+    if (Number.isFinite(c.fps)) bits.push(`${c.fps.toFixed(0)} fps`);
+    if (Number.isFinite(c.temperatureC)) bits.push(`${c.temperatureC.toFixed(0)}\u00b0C`);
+    if (Number.isFinite(c.cpuPercent)) bits.push(`cpu ${c.cpuPercent.toFixed(0)}%`);
+    const sub = [c.ip, c.pipelineType, words].filter(Boolean).map(escapeHtml).join(" \u00b7 ");
+    return `<div class="gcam" data-state="${state}"><i></i><div class="n">${escapeHtml(c.name || c.host || c.ip || "camera")}`
+      + `<small>${sub}</small></div><div class="m">${bits.join(" \u00b7 ")}</div></div>`;
   }).join(""));
 }
 
@@ -4012,7 +4178,8 @@ function coreRows(rows) {
 function paintDevices() {
   paintDeviceTree();
   paintPowerPanel();
-  const drew = !$("#gTreeCard").hidden || !$("#gPowerCard").hidden;
+  paintCameraCard();
+  const drew = !$("#gTreeCard").hidden || !$("#gPowerCard").hidden || !$("#gCamCard").hidden;
   $("#gViz").hidden = !drew;
   $("#devEmpty").hidden = drew;
 }
@@ -4042,6 +4209,40 @@ function paintDeviceTree() {
       ${devices.map(([id, type]) =>
         `<div class="gdev"><i>${escapeHtml(id)}</i><span>${escapeHtml(type)}</span></div>`).join("")}
     </div>`).join("");
+}
+
+
+/* Every camera the robot declared, with the state its vision health assigned it. The roster says
+ * which cameras exist and whether each answers; the health rows say what is wrong with one that
+ * does. Either alone is enough for the card. */
+function paintCameraCard() {
+  const card = $("#gCamCard");
+  const roster = (arr("/Catalyst/Devices/Cameras/Rows") || []).map((r) => String(r).split("|"));
+  const health = new Map((arr("/Catalyst/Vision/Health/Rows") || [])
+    .map((r) => String(r).split("|")).filter((p) => p.length >= 3).map((p) => [p[0], p]));
+  const names = roster.length ? roster.map((p) => p[0]) : [...health.keys()];
+  card.hidden = names.length === 0;
+  if (card.hidden) return;
+  $("#gCamCount").textContent = String(names.length);
+  setHtml($("#gCams"), names.map((name) => {
+    const r = roster.find((p) => p[0] === name);
+    const h = health.get(name);
+    const state = h ? h[1] : r ? (r[1] === "true" ? "OK" : "DISCONNECTED") : "UNKNOWN";
+    const detail = h ? h[2] : r ? r[2] : "";
+    const metrics = [];
+    if (h && h[3]) metrics.push(`${Number(h[3]).toFixed(0)} fps`);
+    if (h && h[4]) metrics.push(`${Number(h[4]).toFixed(0)}\u00b0C`);
+    return `<div class="gcam" data-state="${escapeHtml(state)}"><i></i><div class="n">${escapeHtml(name)}`
+      + `<small>${escapeHtml(cameraStateWords(state))}${detail ? ` \u00b7 ${escapeHtml(detail)}` : ""}</small></div>`
+      + `<div class="m">${metrics.join(" \u00b7 ")}</div></div>`;
+  }).join(""));
+}
+
+function cameraStateWords(state) {
+  return {
+    OK: "healthy", NO_TARGETS: "no targets in view", DISCONNECTED: "no data", STALE: "frames stopped",
+    HOT: "running hot", LOW_FPS: "frame rate low", REJECTING: "mostly rejected", UNKNOWN: "unknown",
+  }[state] || String(state).toLowerCase();
 }
 
 /* The distribution panel as a panel. A list of five channels does not show you that channels 9 to 19
@@ -4171,6 +4372,7 @@ function paint() {
   if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
   standDownOverlaysOnEnable();
   paintHeader();
+  paintNotices();
 
   for (const entry of live.values()) {
     try {

@@ -43,6 +43,15 @@ FrontRight / BackLeft / BackRight rather than "Velocity" four times.
 | **Physics Core** | slip, tipping and traction headroom |
 | **Impacts** | contacts Physics Core detected, how hard and how long ago |
 
+The **notice bar** is not a widget: it floats over the top of whichever view is showing, and
+carries what a driver has to know now — a camera that has stopped or is running hot, vision gone
+blind, any robot error, and while the robot is disabled whether it is at the selected auto's
+starting pose. It reads the robot's per-camera vision health rows, so each line says what is wrong
+and not only that something is.
+
+The **header strip**, top right, is three counts — cameras, motors, controller — as connected over
+expected, coloured by how many answer. Click one to open the matching settings page.
+
 Alerts are held for a couple of seconds after they clear, dimmed. Anything edge-triggered on a
 measurement sitting near its threshold raises and clears repeatedly, and rendering that verbatim gives
 a tile that strobes next to a driver.
@@ -53,6 +62,9 @@ a tile that strobes next to a driver.
 trail, and bumpers in your alliance colour. Three cameras: chase, overhead, free orbit. The chase
 camera swings around field elements that block the line of sight rather than leaving you looking at
 the back of a truss.
+
+The robot is always drawn inside the walls. When the pose estimate is off the carpet the readouts
+still show it, and a "drawn at the wall" chip says the picture has been held back.
 
 The camera, the trail length and whether the baked field CAD is drawn are in
 **Settings → Field view**. The camera buttons in the tile's own corner move the same setting — there

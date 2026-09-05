@@ -81,6 +81,19 @@ described.
 Neither half is a setting, so neither is reachable by search. If the robot published nothing for
 either, the section says so.
 
+### Cameras
+
+Two cards, from two different sources, and both are worth having.
+
+The **Robot** page's camera card is the robot program's account: every camera `VisionSubsystem`
+owns, with the state its vision health assigned it and the frame rate and temperature the camera
+reports about itself.
+
+The **Systemcore** page's camera card comes from the on-device agent (2.0.2 or later), which joins
+the OS's own list of every Limelight it discovered — including whether each holds a NetworkTables
+session with the robot program — with each camera's REST status. It works with no robot code
+running at all, which is when an overheating or unplugged camera is easiest to do something about.
+
 ## Field view
 
 How the field tile draws. Every change lands on the tile as you make it.

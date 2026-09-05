@@ -43,6 +43,8 @@ the console finds the robot on its own.
 | **A board you build** | Tiles bound to NetworkTables keys you choose — gauges, graphs, alerts, a match clock, a 3D field. Nothing is hard-coded to a season. Drag to arrange, then export the layout as JSON and every laptop in the pit comes up the same. |
 | **The robot's spec sheet** | A robot on FrcCatalyst 1.10+ introduces itself: name, team, drivetrain geometry, mass, power, the Catalyst features it runs. Drawn to scale from its own published figures. |
 | **A device tree** | Every CAN device with its bus and id, and the power distribution as the board it is — so you can see which breaker feeds what and which slots are free. |
+| **What is answering** | Three counts in the top-right corner — cameras, motors, controller — as *connected / expected*, from the robot's device roster. `3/4` on the camera count is the whole diagnosis of a loose Ethernet cable. |
+| **Notices** | A bar over the board for the things a driver has to know now: a camera that has stopped, vision gone blind, any robot error, and — while disabled — whether the robot is at the selected auto's starting pose. |
 | **Live tuning** | Change a tunable and watch the robot respond, without a redeploy. |
 | **Physics Core** | Slip, tipping margin, traction usage and localisation confidence, when the robot publishes them. |
 | **Driver Station logs** | The `.dslog` and `.dsevents` files the DS already writes, parsed and readable — brownouts, radio drops, watchdog trips, with the timeline. |
@@ -352,6 +354,27 @@ CatalystLog.log("Status/BatteryVolts", RobotController.getBatteryVoltage());
 Note the keys are relative — `CatalystLog`'s sink supplies the `Catalyst` root table, so they land at
 `/Catalyst/Status/...`. Then point the tiles at those keys instead.
 
+### Vision health and the device roster
+
+| Topic | Published by |
+| --- | --- |
+| `/Catalyst/Vision/Health/Level`, `/Summary`, `/Rows` | `VisionSubsystem`, every loop |
+| `/Catalyst/Devices/Cameras|Motors/Expected`, `/Connected`, `/Rows` | `DeviceRoster`, four times a second |
+| `/Catalyst/Devices/Controller/Kind`, `/Connected` | `DeviceRoster` |
+| `/Catalyst/Auto/StartCheck/Available`, `/Ready`, `/DistanceMeters`, `/HeadingErrorDeg` | `AutoStartCheck`, while disabled |
+
+The header strip reads the roster. Without one it falls back to what it can *see* — camera tables on
+the wire, motor types in the spec sheet's device tree, the identity's controller name — and shows a
+bare count rather than a fraction, because "four tables exist" and "four heartbeats are advancing"
+are different claims; the tooltip says which it is.
+
+The notice bar reads the health rows rather than the alert list, so it can say *what* is wrong with a
+camera (the detail the robot computed — `frames stopped 2.5 s ago`, `91 C, ceiling 80 C`) and not
+only that something is. Robot errors of any kind come through it too. It floats over the top of the
+board instead of pushing it down: a camera dropping out mid-match changes what the driver sees, not
+where their tiles are. Like the alerts tile, a notice that clears is held, dimmed, for the alert
+hold time before it goes.
+
 ### Auto chooser
 
 Standard `SendableChooser`. The console reads `options` and `selected` under the chooser path and
@@ -464,6 +487,12 @@ lightness come right down and the field recedes behind the thing you are actuall
 carpet, perimeter, driver station glass, centre and alliance lines. That is not a placeholder to
 apologise for: it is what renders on a machine that has never seen the CAD, and it is the version that
 always works.
+
+The robot is drawn *inside* the walls whatever the estimator says. A camera-only pose on a bench,
+a wrong transform, or an estimator that has not converged can all put the estimate off the carpet,
+and the view used to draw the robot there — half through a wall, or off the slab. The x / y readouts
+still show the real numbers; the drawing is held to the field with a "drawn at the wall" chip saying
+so.
 
 Either way dimensions default to the REBUILT carpet — 651.2 in × 317.7 in, or 16.54 m × 8.07 m, from
 the

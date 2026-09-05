@@ -29,6 +29,10 @@
         <button class="tab" role="tab" id="tab-topics" aria-controls="view-topics" data-view="topics" aria-selected="false" tabindex="-1">Topics</button>
         <button class="tab" role="tab" id="tab-can" aria-controls="view-can" data-view="can" aria-selected="false" tabindex="-1">CAN</button>
       </nav>
+      <!-- What the robot is made of and how much of it is answering: cameras, motors, controller.
+           Counts come from the robot's device roster when it publishes one, and from what can be
+           seen on the wire when it does not; the tooltip says which. -->
+      <div class="devstrip" id="devStrip" role="status" aria-label="Connected hardware" hidden></div>
       <button class="gear" id="settingsBtn" title="Settings  ·  S" aria-haspopup="dialog" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3.1"/>
@@ -38,6 +42,9 @@
     </header>
 
     <div class="views">
+      <!-- Floats over the top of whatever view is showing rather than pushing it down, so a camera
+           dropping out mid-match changes what the driver sees and not where their tiles are. -->
+      <div class="notices" id="notices" role="status" aria-live="polite" hidden></div>
       <div class="view board" role="tabpanel" aria-labelledby="tab-board" data-view="board" data-active="true" id="board"></div>
 
       <div class="view sheetwrap" role="tabpanel" id="view-tune" aria-labelledby="tab-tune" data-view="tune">
@@ -254,6 +261,14 @@
 
             <!-- What is using the machine, and what is using the disk. "Storage is at 94%" is not
                  actionable; "your logs are 22 GB of it" is. -->
+            <!-- From the Systemcore's own vision aggregator joined with each camera's REST status
+                 by the agent: exists without robot code, which is when a hot or unplugged camera is
+                 easiest to fix. -->
+            <div class="ccard" data-x="camCard" hidden>
+              <h3>Cameras</h3>
+              <div class="gcams" data-x="cams"></div>
+            </div>
+
             <div class="ccard" data-x="loadCard" hidden>
               <h3>What is using it</h3>
               <div class="csplit">
@@ -414,6 +429,11 @@
               <h4>Power distribution <b id="gPowerCount"></b></h4>
               <div class="gpower" id="gPower"></div>
               <div class="gpowerkey" id="gPowerKey"></div>
+            </section>
+
+            <section class="gcard" id="gCamCard" hidden>
+              <h4>Cameras <b id="gCamCount"></b></h4>
+              <div class="gcams" id="gCams"></div>
             </section>
           </div>
 
