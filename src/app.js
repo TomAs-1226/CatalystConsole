@@ -215,16 +215,17 @@ function demoTick() {
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
 
-  /* The demo robot's spec sheet, in the shape FrcCatalyst 1.10 publishes. Named so nobody mistakes
+  /* The demo robot's spec sheet, in the shape FrcCatalyst 2.x publishes on Systemcore. Named so nobody mistakes
    * it for their own: a team looking at the garage before they have adopted the library should be
    * able to see what it will show them, and should be in no doubt that this is not their robot.
    * Deliberately an incomplete sheet — no camera list, no drive ratio — because that is the ordinary
    * case, and the panel leaving those lines out is the behaviour worth demonstrating. */
   set("/Catalyst/Robot/Identity/Name", "str", "Demo robot");
   set("/Catalyst/Robot/Identity/TeamNumber", "num", 0);
-  set("/Catalyst/Robot/Identity/Season", "num", 2026);
-  set("/Catalyst/Robot/Software/CatalystVersion", "str", "1.10.0");
-  set("/Catalyst/Robot/Software/WPILibVersion", "str", "2026.1.1");
+  set("/Catalyst/Robot/Identity/Season", "num", 2027);
+  set("/Catalyst/Robot/Identity/Controller", "str", "Systemcore");
+  set("/Catalyst/Robot/Software/CatalystVersion", "str", "2.0.0-alpha.2");
+  set("/Catalyst/Robot/Software/WPILibVersion", "str", "2027.0.0-alpha-6");
   set("/Catalyst/Robot/Drivetrain/Type", "str", "Swerve");
   set("/Catalyst/Robot/Drivetrain/Modules", "num", 4);
   set("/Catalyst/Robot/Drivetrain/MaxSpeedMps", "num", 4.73);
@@ -247,7 +248,9 @@ function demoTick() {
   set("/Catalyst/Robot/Power/Channels", "num", 24);
   set("/Catalyst/Robot/Power/ChannelsInUse", "strs",
     ["0|Front left drive", "1|Front left steer", "2|Front right drive", "3|Front right steer", "8|Shooter"]);
-  set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.8);
+  /* Systemcore's own default, not the roboRIO's 6.8 V. The device publishes this and Catalyst
+   * reads it rather than carrying a constant. */
+  set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.75);
   set("/Catalyst/Robot/Hardware/CanDevices", "num", 11);
   set("/Catalyst/Robot/Hardware/Inventory", "strs", ["Kraken X60|8", "CANcoder|4", "Pigeon 2|1"]);
   set("/Catalyst/Robot/Hardware/Devices", "strs", [
@@ -255,7 +258,7 @@ function demoTick() {
     "canivore|4|Kraken X60", "canivore|5|Kraken X60", "canivore|6|CANcoder",
     "canivore|7|Kraken X60", "canivore|8|Kraken X60", "canivore|9|CANcoder",
     "canivore|10|Kraken X60", "canivore|11|Kraken X60", "canivore|12|CANcoder",
-    "rio|20|Kraken X60", "rio|30|Pigeon 2",
+    "can_s0|20|Kraken X60", "can_s0|30|Pigeon 2",
   ]);
   set("/Catalyst/Robot/Hardware/Gyro", "str", "Pigeon 2");
   /* What the demo robot is made to do. A real robot's list is written by the library as each piece
@@ -3493,12 +3496,16 @@ const SPEC_GROUPS = [
     ["WPILib", () => S.s("Software/WPILibVersion")],
     ["Java", () => S.s("Software/JavaVersion")],
   ]],
+  /* Canonical key first, Rio-named alias second. Catalyst 2.x renamed these to say "controller"
+   * and publishes both for one season so existing layouts keep resolving; reading only the old name
+   * would work today and go blank the moment the alias is dropped. Software/FpgaVersion is not here
+   * at all - Systemcore has no FPGA and 2027 removed the whole surface, so that row could only ever
+   * have been empty. */
   ["Controller", [
     ["Model", () => S.s("Identity/Controller")],
-    ["Serial", () => S.s("Identity/RioSerial")],
-    ["Image", () => S.s("Software/RioImage")],
-    ["FPGA", () => S.s("Software/FpgaVersion")],
-    ["Comment", () => S.s("Identity/RioComment")],
+    ["Serial", () => S.s("Identity/ControllerSerial") || S.s("Identity/RioSerial")],
+    ["Image", () => S.s("Software/ControllerImage") || S.s("Software/RioImage")],
+    ["Comment", () => S.s("Identity/ControllerComment") || S.s("Identity/RioComment")],
   ]],
   ["Drivetrain", [
     ["Type", () => S.s("Drivetrain/Type")],

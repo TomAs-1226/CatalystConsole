@@ -584,4 +584,22 @@ the authority scale and which limiter is holding it, which tasks are running and
 and why, what the chaser is going after, what was shed to stay inside the power budget, and the
 intention system's guess with its running hit rate. It reads `/Catalyst/Autonomy/*`, which an
 `AutonomyBoard` publishes; rows for power and intent stay hidden until something is actually
-publishing them, so an unmeasured robot never shows a reassuring zero. Needs FrcCatalyst 2.1.
+publishing them, so an unmeasured robot never shows a reassuring zero.
+Needs FrcCatalyst 2.0.0-alpha.2.
+
+## Controller keys, and a 2027 demo robot (1.4.2)
+
+The spec sheet read `Identity/RioSerial`, `Identity/RioComment` and `Software/RioImage`.
+Catalyst 2.x renamed those to say *controller* and publishes the Rio-named keys alongside for
+one season, so reading only the old names worked today and would have gone blank the moment
+the aliases were dropped. It now reads the canonical key and falls back to the alias.
+
+The **FPGA** row is gone. Systemcore has no FPGA and 2027 removed
+`RobotController.getFPGAVersion()` with the rest of that surface, so `Software/FpgaVersion` is
+no longer published by anything and the row could only ever have been empty.
+
+The demo robot in the garage was a 2026 robot - season 2026, Catalyst 1.10.0, WPILib 2026.1.1,
+a 6.8 V brownout floor and devices on a `rio` bus. It is now what a 2027 robot looks like:
+Systemcore, Catalyst 2.0.0-alpha.2, WPILib 2027 alpha-6, the 6.75 V floor Systemcore actually
+publishes, and devices on `can_s0`.
+
