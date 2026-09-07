@@ -1189,3 +1189,18 @@ table.mh td.mh-bar { min-width: 130px; }
 table.mh td.mh-bar .track { display: inline-block; width: 64px; height: 6px; margin-right: 8px; vertical-align: middle; }
 table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
 .mh-past { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--warn-bg, rgba(255, 170, 0, 0.14)); color: var(--warn); font: 600 10px var(--sans); }
+
+/* ---- autonomy 2.0 ---------------------------------------------------------------------------- */
+.au-fill { display: flex; flex-direction: column; gap: 7px; min-height: 0; }
+.au-authority { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 10px; align-items: center; }
+.au-scale { grid-row: 1 / span 2; display: flex; align-items: baseline; gap: 2px; }
+.au-scale .n { font-size: 30px; }
+.au-scale .u { font-size: 12px; color: var(--ink-3); }
+.au-track { height: 6px; background: var(--hair); border-radius: 3px; overflow: hidden; align-self: end; }
+.au-track i { display: block; height: 100%; border-radius: 3px; }
+.au-authority .cap { align-self: start; }
+.au-row { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: baseline; font-size: var(--fs-small); }
+.au-row .k { color: var(--ink-3); font: 600 10.5px var(--sans); letter-spacing: .05em; text-transform: uppercase; }
+.au-row .dim { color: var(--ink-2); }
+.au-row .warn { color: var(--warn); }
+.au-row > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

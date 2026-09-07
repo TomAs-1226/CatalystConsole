@@ -997,6 +997,91 @@ define("systemcore", {
   },
 });
 
+/* --- autonomy 2.0 ------------------------------------------------------------- */
+
+/* The robot's reasoning, as the autonomy layer publishes it. Every one of these keys is a decision
+   that used to happen invisibly inside a lambda: which tasks won and which were held and why, what
+   the chaser is going after, which limiter is holding the robot back, what was shed to stay inside
+   the power budget, and what the intention system guessed. */
+define("autonomy", {
+  name: "Autonomy 2.0",
+  group: "Health",
+  desc: "What the robot decided this loop, and why it did not do the other things",
+  w: 4, h: 3,
+  config: [
+    { key: "showIntent", label: "Show intention guess", type: "select", def: "yes",
+      options: [["yes", "Yes"], ["no", "No"]] },
+  ],
+  render(body) {
+    ["Situation/Valid", "Situation/Confidence", "Situation/Slip", "Situation/BusVolts",
+     "Situation/Headroom", "Situation/Binding",
+     "Tasks/Running", "Tasks/Held", "Tasks/Explain",
+     "Chase/Target", "Chase/Why",
+     "Authority/Scale", "Authority/Binding", "Authority/Explain",
+     "Power/Deficit", "Power/Shed", "Power/Short", "Power/Explain",
+     "Intent/Guess", "Intent/HitRate", "Intent/Samples", "Intent/Explain",
+    ].forEach((k) => track("/Catalyst/Autonomy/" + k));
+    body.innerHTML = `
+      <div class="fill au-fill">
+        <div class="au-authority">
+          <div class="au-scale"><span class="n" data-x="scale">—</span><span class="u">%</span></div>
+          <div class="au-track"><i data-x="bar"></i></div>
+          <div class="cap" data-x="authWhy">waiting for the robot</div>
+        </div>
+        <div class="au-row"><span class="k">Running</span><span data-x="running">—</span></div>
+        <div class="au-row"><span class="k">Held</span><span class="dim" data-x="held">—</span></div>
+        <div class="au-row"><span class="k">Chasing</span><span data-x="chase">—</span></div>
+        <div class="au-row" data-x="powerRow"><span class="k">Power</span><span data-x="power">—</span></div>
+        <div class="au-row" data-x="intentRow"><span class="k">Intent</span><span data-x="intent">—</span></div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const K = "/Catalyst/Autonomy/";
+
+    /* Authority is the number a driver asks about when the robot "feels slow", so it gets the
+       headline and the reason underneath it rather than a bare percentage. */
+    const scale = num(K + "Authority/Scale", null);
+    if (scale === null) {
+      x.scale.textContent = "—";
+      x.bar.style.width = "0%";
+      x.authWhy.textContent = has(K + "Tasks/Running")
+        ? "no authority published"
+        : "waiting for the robot \u2014 needs an AutonomyBoard publishing";
+    } else {
+      const pct = clamp01(scale) * 100;
+      x.scale.textContent = pct.toFixed(0);
+      x.scale.className = `n ${pct < 50 ? "crit" : pct < 90 ? "warn" : "ok"}`;
+      x.bar.style.width = `${pct.toFixed(0)}%`;
+      x.bar.style.background = pct < 50 ? "var(--crit)" : pct < 90 ? "var(--warn)" : "var(--ok)";
+      x.authWhy.textContent = str(K + "Authority/Explain", "no limits");
+    }
+
+    x.running.textContent = str(K + "Tasks/Running", "\u2014");
+    x.held.textContent = str(K + "Tasks/Held", "\u2014");
+
+    const target = str(K + "Chase/Target", null);
+    x.chase.textContent = target === null ? "\u2014"
+      : target === "(none)" ? "nothing worth chasing" : `${target} \u00b7 ${str(K + "Chase/Why", "")}`;
+
+    /* Power only appears once something is actually measuring it. An unmeasured robot showing
+       "0 A shed" reads as healthy, and that is the exact confusion this schema avoids. */
+    const shedExplain = str(K + "Power/Explain", null);
+    x.powerRow.hidden = shedExplain === null;
+    if (shedExplain !== null) {
+      const short = num(K + "Power/Short", 0);
+      x.power.textContent = shedExplain;
+      x.power.className = short > 0 ? "warn" : "";
+    }
+
+    const showIntent = cfg.showIntent !== "no";
+    const intentExplain = str(K + "Intent/Explain", null);
+    x.intentRow.hidden = !showIntent || intentExplain === null;
+    if (showIntent && intentExplain !== null) {
+      x.intent.textContent = intentExplain;
+    }
+  },
+});
+
 /* --- motor history ------------------------------------------------------------ */
 
 define("motorhistory", {

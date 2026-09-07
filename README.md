@@ -573,3 +573,12 @@ every motor by serial number with its lifetime powered and turning hours, revolu
 current and temperature, hot time and boots, sorted by whichever column matters today. With
 `catalyst-agent` 2.0.3 on the Systemcore, the Systemcore page also carries the full table read
 from the file the robot keeps, and says where the file is. Needs FrcCatalyst 2.0.0-alpha.2-a9.
+
+## Autonomy 2.0 tile (1.4.0)
+
+An **Autonomy 2.0** tile (Health group) shows what the robot's autonomy layer decided this loop:
+the authority scale and which limiter is holding it, which tasks are running and which were held
+and why, what the chaser is going after, what was shed to stay inside the power budget, and the
+intention system's guess with its running hit rate. It reads `/Catalyst/Autonomy/*`, which an
+`AutonomyBoard` publishes; rows for power and intent stay hidden until something is actually
+publishing them, so an unmeasured robot never shows a reassuring zero. Needs FrcCatalyst 2.1.
