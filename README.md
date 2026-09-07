@@ -407,6 +407,9 @@ board somebody arranged.
 | **Battery** | voltage with rolling history and measured sag |
 | **Loop & bus** | loop time against budget, CAN utilisation, round-trip time |
 | **Physics Core** | slip, tip margin, traction headroom |
+| **Systemcore** | what the control system reports about itself: CPU, RAM, storage, brownout |
+| **Motor history** | every motor by serial: lifetime hours, revolutions, peaks, boots |
+| **Autonomy 2.0** | what the robot decided this loop, and why it did not do the other things |
 | **Alerts** | whatever the alert manager is raising |
 | **Auto chooser** | pick the routine |
 | **Graph** | rolling plot of one topic |
