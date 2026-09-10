@@ -12,13 +12,21 @@
       <!-- The wordmark opens Settings on About. A discreet target rather than a dock button: the board
            and the dock are working surfaces and neither has room for vanity. -->
       <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog">
-        <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+        <!-- The mark takes its coral from the token like everything else. `currentColor` rather than
+             a literal, so there is exactly one place the accent is written down. -->
+        <svg class="bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
         <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
       </button>
-      <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
-      <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
-      <span class="chip"><i class="d" id="dFms"></i>FMS</span>
-      <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
+      <!-- One object, not four floating words. "Is anything on the other end of this" is a single
+           question and it is the first one asked at a driver's station, so the four chips that
+           answer it are grouped and given a ground of their own rather than left to read as loose
+           text beside the wordmark. -->
+      <div class="statgroup" role="group" aria-label="Link">
+        <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
+        <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
+        <span class="chip"><i class="d" id="dFms"></i>FMS</span>
+        <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
+      </div>
       <div class="grow"></div>
       <!-- A tablist is one tab stop with arrow keys inside it, not four tab stops in a row. The roving
            tabindex is maintained by showView; the arrows are wired by wireTablist. -->
@@ -110,7 +118,7 @@
 
   <!-- per-component configuration -->
   <div class="modal" id="cfgModal">
-    <div class="picker" style="max-width:560px">
+    <div class="picker narrow">
       <h3 id="cfgTitle">Configure</h3>
       <p id="cfgDesc"></p>
       <div id="cfgBody"></div>
@@ -667,7 +675,10 @@
             <pre id="relNotesBody"></pre>
           </section>
 
-          <button class="sbtn below" id="installUpdate" hidden>Install</button>
+          <!-- The one primary action in the panel, and the only place outside the two nav rails
+               that the accent is spent: it appears only when there is a release to take, under a
+               note that says what it is, and it is the decision the section exists to put. -->
+          <button class="sbtn primary below" id="installUpdate" hidden>Install</button>
 
           <p class="sprose">
             A driver station is usually on a field network with no route to the internet, so a check that

@@ -328,11 +328,11 @@ function demoTick() {
     set("/Catalyst/Tunables/physics.enabled", "bool", true);
   }
 
-  set("/SmartDashboard/Auto Chooser/options", "strs",
+  set("/Auto Selector/options", "strs",
     ["Do nothing", "Leave line", "Two piece centre", "Three piece amp side"]);
-  if (!has("/SmartDashboard/Auto Chooser/selected")) {
-    set("/SmartDashboard/Auto Chooser/selected", "str", "Two piece centre");
-    set("/SmartDashboard/Auto Chooser/active", "str", "Two piece centre");
+  if (!has("/Auto Selector/selected")) {
+    set("/Auto Selector/selected", "str", "Two piece centre");
+    set("/Auto Selector/active", "str", "Two piece centre");
   }
 
   /* The address and the topic count are true of the demo — that is where these values came from and
@@ -518,6 +518,27 @@ function wireTablist(list) {
     tabs[to].focus();
   });
 }
+
+/**
+ * The design tokens, mirrored for the marks this file draws in JavaScript.
+ *
+ * Everything styled in CSS reads --cat-* directly. These few are SVG attributes built into
+ * template strings - sparkline strokes, gauge arcs - and an inline `fill="..."` cannot be a
+ * custom property in every renderer, so they are mirrored here rather than guessed at.
+ *
+ * They were an older palette entirely (#30d158, #ff9f0a, #ff453a, #4d90fe), which put two
+ * different greens on the same dashboard: one meaning "healthy" in a tile heading and another
+ * meaning "healthy" in the sparkline right beneath it. On a board read at a glance between
+ * matches, two greens is worse than one wrong one.
+ *
+ * Keep in step with :root in styles.css. Semantic only - never decorative.
+ */
+const TOK = {
+  ok:   "#4ade80",
+  warn: "#fbbf24",
+  bad:  "#f87171",
+  info: "#60a5fa",
+};
 
 function sparkline(values, w, h, color) {
   if (values.length < 2) return "";
@@ -932,7 +953,7 @@ define("battery", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    const color = v !== null && v < cfg.low ? "#ff9f0a" : "#30d158";
+    const color = v !== null && v < cfg.low ? TOK.warn : TOK.ok;
     x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
 
     if (h.length > 3) {
@@ -1315,7 +1336,7 @@ define("swerve", {
       // Screen y grows downward and the field's +y is to the left, so the angle is negated.
       const dx = Math.cos(-angle) * 16 * (speed < 0 ? -1 : 1);
       const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
-      const colour = frac > 0.92 ? "#ff453a" : frac > 0.7 ? "#ff9f0a" : "#4d90fe";
+      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.info;
       out +=
         `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="#2c2e34" stroke-width="3"/>` +
         `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
@@ -1399,7 +1420,7 @@ define("auto", {
   desc: "Pick the autonomous routine — writes the same key SendableChooser reads",
   w: 3, h: 1,
   config: [
-    { key: "base", label: "Chooser path", type: "topic", def: "/SmartDashboard/Auto Chooser" },
+    { key: "base", label: "Chooser path", type: "topic", def: "/Auto Selector" },
     { key: "style", label: "Style", type: "select", def: "compact",
       options: [["compact", "Dropdown (1 row)"], ["list", "Full list"]],
       hint: "The dropdown fits in a single row, which is usually worth more board space than seeing every option at once." },
@@ -1538,7 +1559,7 @@ define("graph", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    x.spark.innerHTML = sparkline(h, w, ht, "#4d90fe");
+    x.spark.innerHTML = sparkline(h, w, ht, TOK.info);
     if (h.length > 2) {
       x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
     }
@@ -2634,11 +2655,11 @@ async function openSession(session) {
       `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
          <div><div class="ml">Battery ${stat(samples.battery)} V</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, "#30d158")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, TOK.ok)}</svg></div>
          <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, "#4d90fe")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, TOK.info)}</svg></div>
          <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, "#ff9f0a")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, TOK.warn)}</svg></div>
        </div>`
     );
   } else if (!samples.parsed) {

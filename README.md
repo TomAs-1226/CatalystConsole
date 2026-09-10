@@ -23,6 +23,25 @@ under four megabytes.
 
 ---
 
+## The auto chooser moved, and one look across all three (1.4.3)
+
+Catalyst 2.0.0-beta.1 publishes its auto chooser at `/Auto Selector`, not
+`/SmartDashboard/Auto Chooser`. WPILib 2027 alpha-7 deleted `SendableChooser`, so
+`AutoSelector` moved to `org.wpilib.tunable.Selectable`, whose paths are absolute.
+A console looking only at the old path finds nothing on any 2.x robot and says so
+confidently, which is worse than saying nothing. The default path and the garage
+demo data both moved.
+
+The Console, the app and the docs site now share one set of colours, spacing and
+type. Two rules do most of the work on a board read at a glance beside a field:
+status colours mean status and nothing else, and every number that changes is
+tabular so it does not shift width as it updates. Status also reads as shape, not
+only colour, so a tile survives a washed-out laptop screen in daylight.
+
+The sparklines and gauges drawn in JavaScript were still on an older palette
+entirely, which put two different greens on the same board - one meaning healthy
+in a tile heading, another meaning healthy in the chart beneath it.
+
 ## Install
 
 Download the installer from [Releases](https://github.com/TomAs-1226/CatalystConsole/releases/latest)
