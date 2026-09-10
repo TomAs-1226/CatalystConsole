@@ -534,10 +534,10 @@ function wireTablist(list) {
  * Keep in step with :root in styles.css. Semantic only - never decorative.
  */
 const TOK = {
-  ok:   "#4ade80",
-  warn: "#fbbf24",
-  bad:  "#f87171",
-  info: "#60a5fa",
+  ok:   "#6FBF73",
+  warn: "#D9A441",
+  bad:  "#E0574B",
+  info: "#7FA8C9",
 };
 
 function sparkline(values, w, h, color) {

@@ -14,26 +14,26 @@
 
 :root {
   /* ---- the system. These values are the contract; nothing here invents a colour. ---- */
-  --cat-ink-900: #0b0f1a;                   /* deepest ground, page background */
-  --cat-ink-800: #111726;                   /* panel background */
-  --cat-ink-700: #182034;                   /* raised panel / hover */
-  --cat-hair: rgba(255, 255, 255, 0.07);
-  --cat-hair-str: rgba(255, 255, 255, 0.13);
+  --cat-ink-900: #0D100E;                   /* deepest ground, page background */
+  --cat-ink-800: #141815;                   /* panel background */
+  --cat-ink-700: #1C211D;                   /* raised panel / hover */
+  --cat-hair: rgba(228, 231, 225, 0.10);
+  --cat-hair-str: rgba(228, 231, 225, 0.20);
 
-  --cat-coral: #e94560;                     /* THE accent. One accent, used sparingly. */
-  --cat-coral-lt: #ff6b81;
-  --cat-coral-dk: #c0314e;
+  --cat-coral: #E9583D;                     /* THE accent. One accent, used sparingly. */
+  --cat-coral-lt: #FF7358;
+  --cat-coral-dk: #C4432C;
 
-  --cat-text: #d5dbe8;
-  --cat-white: #f4f7fc;
-  --cat-muted: #7f8aa3;
+  --cat-text: #C9CFC7;
+  --cat-white: #E4E7E1;
+  --cat-muted: #98A09A;
 
   /* Semantic, and semantic only. If one of these four appears anywhere it is because the robot is
      in that state — never because a heading looked nice in green. */
-  --cat-ok: #4ade80;
-  --cat-warn: #fbbf24;
-  --cat-bad: #f87171;
-  --cat-info: #60a5fa;
+  --cat-ok: #6FBF73;
+  --cat-warn: #D9A441;
+  --cat-bad: #E0574B;
+  --cat-info: #7FA8C9;
 
   /* ---- derived, and deliberately few ----
      Two grounds the palette does not name but a dashboard cannot do without: the empty half of a
@@ -41,12 +41,12 @@
      to be neutral: motor hours are data, and painting data in --cat-ok would spend the one colour
      that is supposed to mean "healthy". 3.41:1 on --cat-ink-800, which is the floor for a
      non-text indicator. */
-  --cat-track: rgba(255, 255, 255, 0.09);
-  --cat-data: #5a6b95;
+  --cat-track: rgba(228, 231, 225, 0.10);
+  --cat-data: #5A635C;
 
-  --r-sm: 6px;
-  --r: 12px;
-  --r-lg: 16px;
+  --r-sm: 2px;
+  --r: 2px;
+  --r-lg: 2px;
 
   --sans: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --mono: "Cascadia Mono", ui-monospace, Consolas, "Courier New", monospace;
@@ -1561,4 +1561,67 @@ kbd {
   .ssec[data-active="true"] { animation: none; }
   .tower[data-active="true"] .status { animation: none; }
   .notice { animation: none; }
+}
+
+/* ---------------------------------------------------------------- rev 2: the drawing set
+
+   Catalyst 2.0's identity is a drawing set, and these are the two conventions from it that a
+   product surface actually needs.
+
+   THE FILL RULE.  A filled mark means it was proven; an unfilled phantom mark means it was
+   only attempted. It is StateMachineCore's own invariant - current() is only ever a state
+   whose arrival every gating mechanism confirmed - promoted to a drawing grammar. Use it
+   anywhere the honest answer is "we have not measured that yet". The two are deliberately the
+   same size and weight: a checklist with one box left, not a badge next to a disclaimer.
+
+   REV 1 IS NEVER DELETED.  Where a value was superseded, the old one stays visible and demoted
+   rather than being dropped, so a reader can see what changed instead of being told. */
+
+:root {
+  --cat-ghost: #2A2F2B;                   /* Underlay: Rev 1, disabled, the drafting grid */
+}
+
+.proven,
+.attempted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.proven { color: var(--cat-white); }
+.attempted { color: var(--cat-muted); }
+
+.proven::before,
+.attempted::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+
+.proven::before { background: var(--cat-white); }
+
+.attempted::before {
+  background: transparent;
+  border: 1.5px dashed var(--cat-coral);
+}
+
+.rev-1 {
+  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
+  color: var(--cat-ghost);
+  text-decoration: line-through;
+  text-decoration-color: var(--cat-hair-str);
+}
+
+.rev-2 {
+  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
+  color: var(--cat-white);
+}
+
+.rev-2::before {
+  content: "92 a0";
+  color: var(--cat-coral);
 }

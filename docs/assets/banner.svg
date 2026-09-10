@@ -1,71 +1,99 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="Catalyst Console — a driver station companion for FRC teams">
-  <title>Catalyst Console</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 420" width="2400" height="420" role="img"
+     aria-label="Catalyst Console - a driver station companion. It reads, and it never writes.">
+<!-- REV 2 - THE DRAWING SET.  Catalyst Console banner, 2400x420.
 
+     The three rules were already numbered 01/02/03 in Rev 1, which is exactly what a drawing's
+     GENERAL NOTES block is - so here they simply move into the box they always belonged in.
+     Nothing about them changed; the sheet just stopped pretending they were a design flourish.
+
+     The drawing is a section through the data path. Console subscribes to NetworkTables and draws
+     what it finds; there is no publish call in the binary. The return leg is therefore a phantom
+     line annotated NO PATH - the same line type the rest of the set uses for "present in the
+     design, not engaged". A drawing can state an absence. A paragraph of reassurance cannot. -->
   <defs>
-    <!-- The console's own ground, not the library's. Siblings rather than copies. -->
-    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#16171b"/>
-      <stop offset="100%" stop-color="#0a0b0d"/>
-    </linearGradient>
-    <radialGradient id="pool" cx="76%" cy="42%" r="52%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.055"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#e94560" stop-opacity="0"/>
-      <stop offset="45%" stop-color="#e94560" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#e94560" stop-opacity="0"/>
-    </linearGradient>
+    <pattern id="g3" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M30 0H0V30" fill="none" stroke="#C4CAC3" stroke-width="1" opacity="0.9"/>
+    </pattern>
+    <style>
+      .mono { font-family: Consolas,"DejaVu Sans Mono","Liberation Mono",ui-monospace,monospace; }
+      .sans { font-family: "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+      .lbl  { font-size:12px; letter-spacing:1.2px; fill:#5C635E; }
+    </style>
   </defs>
 
-  <rect width="1200" height="320" rx="18" fill="url(#ground)"/>
-  <rect width="1200" height="320" rx="18" fill="url(#pool)"/>
+  <rect width="2400" height="420" fill="#E4E7E1"/>
+  <rect x="24" y="24" width="2352" height="372" fill="url(#g3)"/>
+  <rect x="24" y="24" width="2352" height="372" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+  <rect x="36" y="36" width="2328" height="348" fill="none" stroke="#5C635E" stroke-width="0.5" opacity="0.5"/>
+  <g stroke="#1A1E1B" stroke-width="1">
+    <path d="M1200 24v12M1200 396v-12M24 210h12M2376 210h-12"/>
+  </g>
 
-  <!-- The board, suggested rather than drawn: this is a dashboard of tiles and that is the one
-       thing a banner should say before any words do. -->
-  <g opacity="0.5">
-    <g fill="#212227">
-      <rect x="726" y="74"  width="126" height="78"  rx="11"/>
-      <rect x="864" y="74"  width="196" height="78"  rx="11"/>
-      <rect x="1072" y="74" width="62"  height="78"  rx="11"/>
-      <rect x="726" y="164" width="196" height="82"  rx="11"/>
-      <rect x="934" y="164" width="90"  height="82"  rx="11"/>
-      <rect x="1036" y="164" width="98" height="82"  rx="11"/>
+  <g transform="translate(76,92)">
+    <text class="mono lbl" x="0" y="5">REV</text>
+    <path d="M48 -13 L62 10 L34 10 Z" fill="none" stroke="#D6412A" stroke-width="1.8"/>
+    <text class="mono" x="48" y="8" font-size="13" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
+    <text class="mono lbl" x="80" y="5">DRIVER STATION COMPANION &#183; TEAM 5805</text>
+  </g>
+
+  <text class="sans" x="76" y="200" font-size="66" font-weight="800" fill="#1A1E1B" letter-spacing="-1">CATALYST CONSOLE</text>
+  <path d="M76 232H900" stroke="#C4CAC3" stroke-width="1"/>
+  <text class="sans" x="76" y="268" font-size="21" font-weight="500" fill="#5C635E">Telemetry, alerts, live tuning, a 3D field view and readable Driver Station logs.</text>
+  <text class="sans" x="76" y="302" font-size="21" font-weight="700" fill="#1A1E1B">It reads. It never writes.</text>
+
+  <!-- general notes: the three rules, in the box they always belonged in -->
+  <g transform="translate(1000,96)">
+    <text class="mono lbl" x="0" y="0" font-size="11">GENERAL NOTES</text>
+    <rect x="0" y="14" width="560" height="118" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6"><path d="M0 52h560M0 92h560M44 14v118"/></g>
+    <g class="mono" font-size="12.5" fill="#1A1E1B">
+      <text x="14" y="41">1.</text><text x="58" y="41">It never controls the robot.</text>
+      <text x="14" y="81">2.</text><text x="58" y="81">Nothing it does may impede driving.</text>
+      <text x="14" y="120">3.</text><text x="58" y="120">It never invents a number.</text>
     </g>
-    <!-- A trace in one tile, and a full gauge ring in another. Enough to read as instruments. -->
-    <polyline points="742,132 762,118 782,124 802,102 822,112 842,94"
-              fill="none" stroke="#4d90fe" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="1103" cy="113" r="20" fill="none" stroke="#2c2e34" stroke-width="5"/>
-    <path d="M1103 93a20 20 0 0 1 14.1 34.1" fill="none" stroke="#30d158" stroke-width="5" stroke-linecap="round"/>
-    <rect x="748" y="196" width="152" height="7" rx="3.5" fill="#2c2e34"/>
-    <rect x="748" y="196" width="96"  height="7" rx="3.5" fill="#e94560"/>
-    <rect x="748" y="216" width="120" height="7" rx="3.5" fill="#2c2e34"/>
-    <rect x="748" y="216" width="44"  height="7" rx="3.5" fill="#ff9f0a"/>
+    <text class="mono lbl" x="0" y="158" font-size="10">ENABLE, DISABLE AND E-STOP STAY THE DRIVER STATION&#8217;S, EXCLUSIVELY</text>
   </g>
 
-  <!-- The mark -->
-  <g transform="translate(88 108) scale(2.55)">
-    <path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z" fill="#e94560"/>
+  <!-- section through the data path -->
+  <g transform="translate(1000,272)">
+    <rect x="0" y="0" width="130" height="52" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="65" y="24" font-size="12" fill="#1A1E1B" text-anchor="middle">ROBOT</text>
+    <text class="mono" x="65" y="41" font-size="10" fill="#5C635E" text-anchor="middle">Systemcore</text>
+    <rect x="430" y="0" width="130" height="52" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="495" y="24" font-size="12" fill="#1A1E1B" text-anchor="middle">CONSOLE</text>
+    <text class="mono" x="495" y="41" font-size="10" fill="#5C635E" text-anchor="middle">under 4 MB</text>
+    <g stroke="#1A1E1B" stroke-width="1.5">
+      <path d="M130 18h278"/><path d="M408 18l-9 -5v10z" fill="#1A1E1B" stroke="none"/>
+    </g>
+    <text class="mono" x="269" y="10" font-size="10.5" fill="#1A1E1B" text-anchor="middle">NetworkTables, subscribe</text>
+    <g stroke="#D6412A" stroke-width="1.25" stroke-dasharray="5 4"><path d="M430 42H140"/></g>
+    <text class="mono" x="285" y="60" font-size="10.5" fill="#D6412A" text-anchor="middle">NO PATH &#8212; NO PUBLISH CALL IN THE BINARY</text>
   </g>
 
-  <!-- One text element with two tspans rather than two absolutely-placed texts. The second flows off
-       the end of the first whatever the viewer's fonts turn out to be, which matters here: this is
-       rendered by GitHub on someone else's machine, and a hard-coded offset that looks right in
-       Segoe UI opens a gap or an overlap in anything else. -->
-  <text x="152" y="150" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="60">
-    <tspan font-weight="700" letter-spacing="-2.4" fill="#ffffff">Catalyst</tspan><tspan
-           font-weight="200" letter-spacing="-1.6" fill="#9a9ba1" dx="16">Console</tspan>
-  </text>
-
-  <rect x="153" y="176" width="300" height="1" fill="url(#sweep)"/>
-
-  <text x="152" y="212" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif"
-        font-size="19" font-weight="500" fill="#9a9ba1">A driver station companion for FRC teams running FrcCatalyst.</text>
-
-  <!-- The three rules, because they are the product. -->
-  <g font-family="Consolas, ui-monospace, monospace" font-size="13" font-weight="600" fill="#63656b">
-    <text x="152" y="252">01  It never controls the robot.</text>
-    <text x="152" y="274">02  Nothing it does may impede driving.</text>
-    <text x="152" y="296">03  It never invents a number.</text>
+  <!-- title block -->
+  <g transform="translate(1712,96)">
+    <rect x="0" y="0" width="628" height="230" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6">
+      <path d="M0 54h628M0 98h628M0 142h628M0 186h628M232 54v132"/>
+    </g>
+    <text class="mono lbl" x="16" y="22" font-size="10">TITLE</text>
+    <text class="sans" x="16" y="44" font-size="25" font-weight="800" fill="#1A1E1B" letter-spacing="0.5">CATALYST CONSOLE</text>
+    <text class="mono" x="612" y="44" font-size="18" font-weight="700" fill="#D6412A" text-anchor="end">1.4.3</text>
+    <g class="mono lbl" font-size="10.5">
+      <text x="16" y="80">PLATFORM</text><text x="16" y="124">READS</text><text x="16" y="168">TESTED</text>
+    </g>
+    <g class="mono" font-size="13" fill="#1A1E1B">
+      <text x="248" y="80">Windows x64 &#183; under 4 MB</text>
+      <text x="248" y="124">Catalyst 1.10+ and 2.x</text>
+    </g>
+    <rect x="248" y="157" width="12" height="12" fill="#1A1E1B"/>
+    <text class="mono" x="269" y="168" font-size="13" fill="#1A1E1B">67 tests, 0 failures</text>
+    <g class="mono lbl" font-size="10">
+      <text x="16" y="212">DRAWN BY TEAM 5805</text>
+      <text x="612" y="212" text-anchor="end">SHEET 3 OF 3</text>
+    </g>
   </g>
+
+  <g transform="translate(76,372)" stroke="#5C635E" stroke-width="0.75" opacity="0.8"><path d="M-6 0h12M0 -6v12"/></g>
+  <text class="mono" x="90" y="375" font-size="9" fill="#5C635E" opacity="0.75">0,0</text>
 </svg>

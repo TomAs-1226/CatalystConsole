@@ -1,178 +1,129 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Catalyst Console social / OG card. 1280x640, the size GitHub asks for and the size Open
-     Graph and every link unfurler crop to. Standalone: no external references, no raster, no
-     webfont.
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img"
+     aria-label="Catalyst Console - it reads, and it never writes.">
+<!-- REV 2 - THE DRAWING SET.  Catalyst Console sheet, 1280x640.
 
-     SHIP THE PNG, NOT THIS FILE. This SVG is the source; social-card.png beside it is what
-     actually gets used. GitHub's Settings -> Social preview uploader takes PNG/JPG/GIF only, and
-     no major unfurler - X, Slack, Discord, Facebook, LinkedIn - renders an SVG og:image. An SVG
-     pointed at any of them shows nothing at all, which is worse than an ugly card. The SVG is
-     still the right thing to <img> into a README, where GitHub does render it.
+     Sheet 3 of the assembly: the library is the part, CatalystApp is the tool that installs it,
+     and this is the instrument that reads it.
 
-     Regenerate the PNG after any edit here. Run msedge (or any Chromium) with these flags, each
-     written with the usual leading double hyphen - a pair of them cannot appear literally inside
-     an XML comment, which is why they are listed rather than pasted:
-
-       headless=new, disable-gpu, hide-scrollbars, force-device-scale-factor=1,
-       window-size=1280,640, screenshot=social-card.png
-
-     and point it at file:///<abs path>/wrapper.html, where wrapper.html is a page carrying
-     body{margin:0;background:#0b0f1a} and one <img src="social-card.svg"
-     style="width:1280px;height:640px">. The opaque body matters: a transparent PNG is
-     composited on white by the unfurlers and the rounded corners flash.
-
-     Same family as the library's banner.svg and social-card.svg - navy ground, hairline grid,
-     coral bolt in a rounded panel, wordmark, sub-line, version chip. The motif in the corner is
-     this product's own noun: a board of tiles with a trace and a gauge, drawn in hairline white
-     rather than in the status palette, because a picture of a dashboard is texture and status
-     colours here mean status and nothing else.
-
-     Font families are written onto each text element rather than into an internal <style>,
-     because GitHub strips <style> when it sanitises inline SVG and this card would fall back to
-     a serif face in the one place it is seen most. Figures are set in the mono stack, which is
-     tabular by construction and needs no font-feature attribute to survive sanitising.
-
-     Tokens: #0b0f1a ground, #111726 panel, #182034 raised, rgba(255,255,255,0.07/0.13)
-     hairlines, #e94560 the single accent, #f4f7fc / #d5dbe8 / #7f8aa3 text. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640"
-     role="img"
-     aria-label="Catalyst Console 1.4.3 &#8212; a driver station companion for FRC teams running FrcCatalyst, on Windows x64. Telemetry, alerts, live tuning, a 3D field view and readable Driver Station logs. It reads FrcCatalyst 1.10 and later and 2.x. It never controls the robot, nothing it does may impede driving, and it never invents a number: enable, disable and E-stop stay the Driver Station's, exclusively.">
-  <title>Catalyst Console 1.4.3</title>
-
+     The drawing is a section through the data path, and it is the honest one. Console subscribes
+     to NetworkTables and draws what it finds; there is no publish path in the binary at all. So
+     the return leg is drawn as a phantom line with NO PATH noted against it - the same line type
+     the rest of the set uses for "present in the design, not engaged". A drawing can state an
+     absence. A paragraph of reassurance cannot. -->
   <defs>
-    <clipPath id="conCardClip">
-      <rect x="0" y="0" width="1280" height="640" rx="20"/>
-    </clipPath>
-    <!-- Ground, not signal. At 9% it cannot be mistaken for something marked. -->
-    <radialGradient id="conCardWash" cx="90%" cy="-4%" r="62%">
-      <stop offset="0%" stop-color="#e94560" stop-opacity="0.09"/>
-      <stop offset="100%" stop-color="#e94560" stop-opacity="0"/>
-    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#C4CAC3" stroke-width="1" opacity="0.9"/>
+    </pattern>
+    <style>
+      .mono { font-family: Consolas,"DejaVu Sans Mono","Liberation Mono",ui-monospace,monospace; }
+      .sans { font-family: "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+      .lbl  { font-size:11px; letter-spacing:1.1px; fill:#5C635E; }
+      .val  { font-size:12px; fill:#1A1E1B; }
+      .zone { font-size:9px;  letter-spacing:.6px; fill:#5C635E; opacity:.75; }
+    </style>
   </defs>
 
-  <g clip-path="url(#conCardClip)">
-    <rect x="0" y="0" width="1280" height="640" fill="#0b0f1a"/>
-    <rect x="0" y="0" width="1280" height="640" fill="url(#conCardWash)"/>
+  <rect width="1280" height="640" fill="#E4E7E1"/>
+  <rect x="24" y="24" width="1232" height="592" fill="url(#grid)"/>
+  <rect x="24" y="24" width="1232" height="592" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+  <rect x="36" y="36" width="1208" height="568" fill="none" stroke="#5C635E" stroke-width="0.5" opacity="0.5"/>
+  <g class="mono zone">
+    <text x="29" y="128">A</text><text x="29" y="272">B</text><text x="29" y="416">C</text><text x="29" y="560">D</text>
+    <text x="176" y="34">1</text><text x="484" y="34">3</text><text x="792" y="34">5</text><text x="1100" y="34">7</text>
+  </g>
+  <g stroke="#1A1E1B" stroke-width="1"><path d="M640 24v12M640 616v-12M24 320h12M1256 320h-12"/></g>
 
-    <g stroke="#ffffff" stroke-opacity="0.035" stroke-width="1">
-      <path d="M64.5 0V640M128.5 0V640M192.5 0V640M256.5 0V640M320.5 0V640M384.5 0V640M448.5 0V640M512.5 0V640M576.5 0V640M640.5 0V640M704.5 0V640M768.5 0V640M832.5 0V640M896.5 0V640M960.5 0V640M1024.5 0V640M1088.5 0V640M1152.5 0V640M1216.5 0V640"/>
-      <path d="M0 64.5H1280M0 128.5H1280M0 192.5H1280M0 256.5H1280M0 320.5H1280M0 384.5H1280M0 448.5H1280M0 512.5H1280M0 576.5H1280"/>
+  <g transform="translate(64,74)">
+    <text class="mono lbl" x="0" y="5">REV</text>
+    <path d="M46 -12 L59 9 L33 9 Z" fill="none" stroke="#D6412A" stroke-width="1.6"/>
+    <text class="mono" x="46" y="7" font-size="12" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
+    <text class="mono lbl" x="74" y="5">DRIVER STATION COMPANION &#183; TEAM 5805</text>
+  </g>
+
+  <text class="sans" x="64" y="152" font-size="21" font-weight="500" fill="#5C635E">Enable, disable and E-stop stay the Driver Station&#8217;s, exclusively.</text>
+  <text class="sans" x="64" y="216" font-size="52" font-weight="800" fill="#1A1E1B"
+        letter-spacing="-1">It reads. It never writes.</text>
+  <path d="M64 244H1004" stroke="#C4CAC3" stroke-width="1"/>
+  <text class="sans" x="64" y="272" font-size="15.5" fill="#5C635E">Telemetry, alerts, live tuning, a 3D field view and readable Driver Station logs &#8212; drawn from what the robot publishes.</text>
+
+  <!-- ============ section through the data path ============ -->
+  <g transform="translate(64,330)">
+    <text class="mono lbl" x="0" y="0">SECTION B-B &#183; DATA PATH</text>
+
+    <rect x="0" y="26" width="150" height="62" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="75" y="52" font-size="12" fill="#1A1E1B" text-anchor="middle">ROBOT</text>
+    <text class="mono" x="75" y="70" font-size="10" fill="#5C635E" text-anchor="middle">Systemcore</text>
+
+    <rect x="440" y="26" width="150" height="62" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="515" y="52" font-size="12" fill="#1A1E1B" text-anchor="middle">CONSOLE</text>
+    <text class="mono" x="515" y="70" font-size="10" fill="#5C635E" text-anchor="middle">under 4 MB</text>
+
+    <!-- read leg: continuous geometry, it exists -->
+    <g stroke="#1A1E1B" stroke-width="1.5">
+      <path d="M150 46h268"/>
+      <path d="M418 46l-9 -5v10z" fill="#1A1E1B" stroke="none"/>
     </g>
+    <text class="mono" x="284" y="38" font-size="10.5" fill="#1A1E1B" text-anchor="middle">NetworkTables, subscribe</text>
 
-    <!-- The board, suggested rather than drawn: this is a dashboard of tiles and that is the
-         one thing the corner should say before any words do. -->
-    <g>
-      <g fill="#111726" stroke="#ffffff" stroke-opacity="0.07">
-        <rect x="1000" y="76"  width="56" height="60" rx="8"/>
-        <rect x="1064" y="76"  width="56" height="60" rx="8"/>
-        <rect x="1128" y="76"  width="56" height="60" rx="8"/>
-        <rect x="1000" y="144" width="56" height="60" rx="8"/>
-        <rect x="1064" y="144" width="56" height="60" rx="8"/>
-        <rect x="1128" y="144" width="56" height="60" rx="8"/>
-      </g>
-      <polyline points="1008,122 1018,110 1028,116 1038,100 1048,106"
-                fill="none" stroke="#ffffff" stroke-opacity="0.13" stroke-width="2.2"
-                stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="1156" cy="106" r="17" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="4"/>
-      <path d="M1156 89A17 17 0 1 1 1141.3 114.5" fill="none" stroke="#ffffff" stroke-opacity="0.13"
-            stroke-width="4" stroke-linecap="round"/>
-      <g fill="#ffffff">
-        <rect x="1010" y="166" width="36" height="5" rx="2.5" fill-opacity="0.07"/>
-        <rect x="1010" y="166" width="21" height="5" rx="2.5" fill-opacity="0.13"/>
-        <rect x="1010" y="180" width="36" height="5" rx="2.5" fill-opacity="0.07"/>
-        <rect x="1010" y="180" width="30" height="5" rx="2.5" fill-opacity="0.13"/>
-      </g>
-      <g fill="#ffffff" fill-opacity="0.07">
-        <rect x="1074" y="98" width="36" height="7" rx="3.5"/>
-        <rect x="1074" y="113" width="24" height="7" rx="3.5"/>
-        <rect x="1074" y="166" width="36" height="7" rx="3.5"/>
-        <rect x="1138" y="166" width="36" height="7" rx="3.5"/>
-        <rect x="1138" y="181" width="24" height="7" rx="3.5"/>
-      </g>
+    <!-- write leg: phantom line, it does not -->
+    <g stroke="#D6412A" stroke-width="1.25" stroke-dasharray="5 4">
+      <path d="M440 74H160"/>
     </g>
+    <text class="mono" x="300" y="92" font-size="10.5" fill="#D6412A" text-anchor="middle">NO PATH &#8212; NO PUBLISH CALL IN THE BINARY</text>
 
-    <rect x="0" y="634" width="1280" height="6" fill="#e94560"/>
+    <text class="mono lbl" x="0" y="126" font-size="10">READ-ONLY BY CONSTRUCTION, NOT BY POLICY</text>
   </g>
 
-  <rect x="0.5" y="0.5" width="1279" height="639" rx="19.5"
-        fill="none" stroke="#ffffff" stroke-opacity="0.07"/>
-
-  <!-- The mark: the library's panel-and-bolt, unchanged. The Console is Catalyst, so it wears
-       the same face and separates itself with the second half of the wordmark. -->
-  <rect x="80" y="76" width="128" height="128" rx="32"
-        fill="#111726" stroke="#ffffff" stroke-opacity="0.13"/>
-  <g transform="translate(99.15 93.2) scale(3.9)">
-    <path d="M13 2L3 14h7v8l10-12h-7V2z" fill="#e94560"/>
+  <g transform="translate(64,516)">
+    <text class="mono lbl" x="0" y="0">GENERAL NOTES</text>
+    <text class="mono" x="0" y="21" font-size="11.5" fill="#1A1E1B">1.  READS CATALYST 1.10+ AND 2.x. IT DOES NOT REQUIRE THE ROBOT TO RUN CATALYST 2.0.</text>
+    <text class="mono" x="0" y="40" font-size="11.5" fill="#1A1E1B">2.  NETWORK ACCESS IS AN UPDATE CHECK. NOTHING ELSE LEAVES THE MACHINE.</text>
+    <text class="mono" x="0" y="59" font-size="11.5" fill="#1A1E1B">3.  STATE IS NEVER COLOUR ALONE &#8212; EVERY FAULT CARRIES A SHAPE OR A WORD AS WELL.</text>
   </g>
 
-  <!-- One text element with two tspans rather than two absolutely-placed texts. The second
-       flows off the end of the first whatever the viewer's fonts turn out to be, which matters
-       here: this is rendered by GitHub on someone else's machine, and a hard-coded offset that
-       looks right in Segoe UI opens a gap or an overlap in anything else. -->
-  <text x="248" y="166"
-        font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-        font-size="72"><tspan font-weight="800" letter-spacing="-1.4" fill="#f4f7fc">Catalyst</tspan><tspan
-        font-weight="300" letter-spacing="-0.8" fill="#7f8aa3" dx="18">Console</tspan></text>
-
-  <text x="80" y="262"
-        font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-        font-size="27" font-weight="400" fill="#d5dbe8">A driver station companion for teams running FrcCatalyst.</text>
-
-  <text x="80" y="298"
-        font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-        font-size="19" font-weight="400" fill="#7f8aa3">Telemetry, alerts, live tuning, a 3D field view, and readable Driver Station logs.</text>
-
-  <!-- Version reads as data, so it gets a neutral chip. Making it coral would put the accent on
-       a string nobody clicks. The second chip is the product, not a badge: it is read-only by
-       construction, and that is what a team wants to know before they trust it beside a field. -->
-  <rect x="80" y="330" width="128" height="36" rx="9"
-        fill="#182034" stroke="#ffffff" stroke-opacity="0.13"/>
-  <text x="144" y="354" text-anchor="middle"
-        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace"
-        font-size="17" letter-spacing="0.3" fill="#f4f7fc">v1.4.3</text>
-
-  <rect x="224" y="330" width="142" height="36" rx="9"
-        fill="none" stroke="#ffffff" stroke-opacity="0.13"/>
-  <text x="295" y="354" text-anchor="middle"
-        font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-        font-size="13.5" font-weight="700" letter-spacing="0.85" fill="#d5dbe8">READ-ONLY</text>
-
-  <rect x="80" y="406" width="1120" height="1" fill="#ffffff" fill-opacity="0.07"/>
-
-  <!-- The three rules, because they are the product. -->
-  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace"
-     font-size="18">
-    <text x="80" y="466"><tspan fill="#7f8aa3">01</tspan><tspan fill="#d5dbe8" dx="18">It never controls the robot.</tspan></text>
-    <text x="80" y="500"><tspan fill="#7f8aa3">02</tspan><tspan fill="#d5dbe8" dx="18">Nothing it does may impede driving.</tspan></text>
-    <text x="80" y="534"><tspan fill="#7f8aa3">03</tspan><tspan fill="#d5dbe8" dx="18">It never invents a number.</tspan></text>
+  <g transform="translate(700,284)">
+    <rect x="0" y="0" width="516" height="72" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6"><path d="M0 24h516M0 48h516M36 0v72M250 0v72M382 0v72"/></g>
+    <g class="mono lbl" font-size="9">
+      <text x="9" y="16">REV</text><text x="46" y="16">READS</text><text x="260" y="16">FIELD VIEW</text><text x="392" y="16">DATE</text>
+    </g>
+    <g class="mono" font-size="10.5" fill="#B3BBB4">
+      <text x="14" y="40">1</text><text x="46" y="40">Catalyst 1.10+</text><text x="260" y="40">pose only</text><text x="392" y="40">2026-08</text>
+    </g>
+    <g class="mono" font-size="10.5" fill="#1A1E1B">
+      <text x="46" y="64">Catalyst 1.10+ and 2.x</text><text x="260" y="64">pose + IMU</text><text x="392" y="64">2026-09</text>
+    </g>
+    <path d="M18 51 L26 66 L10 66 Z" fill="none" stroke="#D6412A" stroke-width="1.3"/>
+    <text class="mono" x="18" y="65" font-size="9" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
   </g>
 
-  <!-- The first line is rule 01's proof, not a restatement of it: "it never controls the robot"
-       is the claim, and the DS socket is the specific a mentor actually checks. The second
-       answers the question that follows - what is this, then - by naming the category rather
-       than arguing for it. -->
-  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-     font-size="19" font-weight="400" fill="#7f8aa3">
-    <text x="80" y="566">Enable, disable and E-stop stay the Driver Station's, exclusively.</text>
-    <text x="80" y="594">It reads NetworkTables and draws what it finds, like Glass or AdvantageScope.</text>
+  <g transform="translate(700,372)">
+    <rect x="0" y="0" width="516" height="232" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6">
+      <path d="M0 46h516M0 80h516M0 114h516M0 148h516M0 182h516M0 214h516M196 46v168"/>
+    </g>
+    <text class="mono lbl" x="12" y="19" font-size="9">TITLE</text>
+    <text class="sans" x="12" y="38" font-size="24" font-weight="800" fill="#1A1E1B" letter-spacing="0.5">CATALYST CONSOLE</text>
+    <text class="mono" x="504" y="38" font-size="19" font-weight="700" fill="#D6412A" text-anchor="end">1.4</text>
+    <g class="mono lbl" font-size="9.5">
+      <text x="12" y="67">DWG NO</text><text x="12" y="101">PLATFORM</text><text x="12" y="135">NETWORK</text>
+      <text x="12" y="169">TESTED</text><text x="12" y="203">WRITES TO THE ROBOT</text>
+    </g>
+    <g class="mono val">
+      <text x="208" y="67" font-weight="700">1.4.3</text>
+      <text x="208" y="101">Windows x64 &#183; under 4 MB</text>
+      <text x="208" y="135">update check only</text>
+    </g>
+    <rect x="208" y="159" width="11" height="11" fill="#1A1E1B"/>
+    <text class="mono val" x="227" y="169">67 tests, 0 failures</text>
+    <rect x="208" y="193" width="11" height="11" fill="none" stroke="#D6412A" stroke-width="1.3" stroke-dasharray="2.5 2"/>
+    <text class="mono" x="227" y="203" font-size="12" fill="#5C635E">none &#8212; by construction</text>
+    <g class="mono lbl" font-size="9">
+      <text x="12" y="225">DRAWN BY TEAM 5805</text>
+      <text x="504" y="225" text-anchor="end">SHEET 3 OF 3</text>
+    </g>
   </g>
 
-  <!-- Figures panel. Depth by ground, never by shadow; values in the mono stack so the digits
-       are tabular and the column edge stays straight. -->
-  <rect x="836" y="428" width="364" height="176" rx="14"
-        fill="#111726" stroke="#ffffff" stroke-opacity="0.07"/>
-  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-     font-size="12.5" font-weight="700" letter-spacing="1.1" fill="#7f8aa3">
-    <text x="864" y="467">PLATFORM</text>
-    <text x="864" y="501">INSTALLER</text>
-    <text x="864" y="535">READS CATALYST</text>
-    <text x="864" y="569">NETWORK</text>
-  </g>
-  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace"
-     font-size="17.5" fill="#f4f7fc" text-anchor="end" font-variant-numeric="tabular-nums">
-    <text x="1172" y="467">Windows x64</text>
-    <text x="1172" y="501">under 4 MB</text>
-    <text x="1172" y="535">1.10+ and 2.x</text>
-    <text x="1172" y="569">update check only</text>
-  </g>
+  <g transform="translate(64,604)" stroke="#5C635E" stroke-width="0.75" opacity="0.8"><path d="M-6 0h12M0 -6v12"/></g>
+  <text class="mono zone" x="78" y="607">0,0</text>
 </svg>
