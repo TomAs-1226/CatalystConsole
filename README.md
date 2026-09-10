@@ -4,15 +4,29 @@
 
 <p align="center">
   <a href="https://github.com/TomAs-1226/CatalystConsole/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TomAs-1226/CatalystConsole?style=flat-square&color=e94560&label=release"></a>
-  <a href="https://github.com/TomAs-1226/FrcCatalyst"><img alt="FrcCatalyst" src="https://img.shields.io/badge/FrcCatalyst-1.12%2B-e94560?style=flat-square"></a>
+  <a href="https://github.com/TomAs-1226/FrcCatalyst"><img alt="FrcCatalyst" src="https://img.shields.io/badge/FrcCatalyst-1.10%2B%20and%202.x-e94560?style=flat-square"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-2c2e34?style=flat-square">
   <img alt="Runtime" src="https://img.shields.io/badge/Tauri%202-no%20framework-2c2e34?style=flat-square">
 </p>
 
-A driver station companion for teams running [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst).
-It sits next to the NI Driver Station and shows what the robot is doing — telemetry, alerts, live
-tuning, Physics Core state, a 3D field view, the robot's own spec sheet, and readable Driver Station
-logs.
+The driver-station dashboard for a robot running **FrcCatalyst**: it sits next to the NI Driver
+Station and shows what the robot is doing — telemetry, alerts, live tuning, Physics Core state, a 3D
+field view, the robot's own spec sheet, and readable Driver Station logs.
+
+**Console 1.4.3** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
+auto chooser tile pointed at that robot's chooser path. The spec sheet reads from 1.10 on, and every
+tile's topics are editable.
+
+**The Catalyst family.** [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst) is the library that
+runs on the robot. [Catalyst App](https://github.com/TomAs-1226/CatalystApp) installs it and holds the
+design-time tools. **Catalyst Console** is the driver-station dashboard that watches it run.
+[Catalyst X1](https://github.com/TomAs-1226/CatalystX1) is team 5805's swerve test drivebase, where
+2.x is being brought up on hardware.
+
+A note on what it is watching: Catalyst **2.0.0-beta.1 is a pre-season beta**, pinned to a WPILib
+alpha, and it has never been driven on a robot — it has run on a bench. The console itself is not a
+beta and does not care which line the robot is on. If you are competing this season, run 1.x on the
+robot (tag `v1.12.0`, WPILib 2026, roboRIO) and point this at it.
 
 It is a Tauri app: a small Rust backend and a plain HTML/CSS/JS frontend running in the WebView2 that
 ships with Windows. There is no framework and no bundler, and nothing it draws comes off the network —
@@ -112,8 +126,7 @@ npm install && npm run vendor && npm run dev
 ```
 
 `npm run vendor` copies three.js into `src/vendor/`. It has to exist before the first build: the
-webview runs under a strict CSP with `script-src 'self'`, so nothing loads from a CDN. A dashboard that
-needs the internet to draw a field is a dashboard that fails in exactly the venue it is meant for.
+webview runs under a strict CSP with `script-src 'self'`, so nothing loads from a CDN.
 
 To iterate on the UI without relinking the Rust binary:
 
@@ -226,8 +239,11 @@ All of `/FMSInfo` is read-only from the console's side, enforced in `nt_set`, no
 the game-specific message, and no time at all — so robot code has to publish one:
 
 ```java
-CatalystLog.log("Match/TimeLeft", DriverStation.getMatchTime());
+CatalystLog.log("Match/TimeLeft", MatchState.getMatchTime());
 ```
+
+`MatchState` is `org.wpilib.driverstation.MatchState`. WPILib 2027 moved match time off
+`DriverStation`, so the 1.x line `DriverStation.getMatchTime()` does not compile against 2.x.
 
 The console tries `/Catalyst/Match/TimeLeft`, then `/SmartDashboard/MatchTime`, then
 `/FMSInfo/MatchTime`, and takes the first that exists. With none of them the match timer and the hub
@@ -366,9 +382,12 @@ Neither WPILib nor Catalyst puts CAN utilisation or raw battery voltage on Netwo
 line each in `robotPeriodic()` if you want them without the monitors:
 
 ```java
-CatalystLog.log("Status/CanUtilization", RobotController.getCANStatus().percentBusUtilization);
+CatalystLog.log("Status/CanUtilization", RobotController.getCANStatus(0).percentBusUtilization);
 CatalystLog.log("Status/BatteryVolts", RobotController.getBatteryVoltage());
 ```
+
+`getCANStatus` takes a bus id in 2027 — Systemcore has five CAN buses and there is no single number
+for all of them, so pass the one the drivetrain is on and log a value per bus if you want the rest.
 
 Note the keys are relative — `CatalystLog`'s sink supplies the `Catalyst` root table, so they land at
 `/Catalyst/Status/...`. Then point the tiles at those keys instead.
@@ -396,8 +415,11 @@ hold time before it goes.
 
 ### Auto chooser
 
-Standard `SendableChooser`. The console reads `options` and `selected` under the chooser path and
-writes `selected` when you pick one — the same key Shuffleboard writes.
+The console reads `options` and `selected` under a chooser path and writes `selected` when you pick
+one — the same keys Shuffleboard writes. The default path is `/Auto Selector`, where Catalyst 2.x's
+`AutoSelector` publishes. A 1.x robot puts its `SendableChooser` under `/SmartDashboard/Auto Chooser`;
+point the tile there instead. WPILib 2027 alpha-7 deleted `SendableChooser`, which is why 2.x has its
+own — see the 1.4.3 note at the top.
 
 ---
 
@@ -594,7 +616,7 @@ A **Motor history** tile (Health group) shows what the robot program's `MotorHis
 every motor by serial number with its lifetime powered and turning hours, revolutions, peak
 current and temperature, hot time and boots, sorted by whichever column matters today. With
 `catalyst-agent` 2.0.3 on the Systemcore, the Systemcore page also carries the full table read
-from the file the robot keeps, and says where the file is. Needs FrcCatalyst 2.0.0-alpha.2-a9.
+from the file the robot keeps, and says where the file is. Added for FrcCatalyst 2.0.0-alpha.2-a9; current on 2.0.0-beta.1.
 
 ## Autonomy 2.0 tile (1.4.0)
 
@@ -604,7 +626,7 @@ and why, what the chaser is going after, what was shed to stay inside the power 
 intention system's guess with its running hit rate. It reads `/Catalyst/Autonomy/*`, which an
 `AutonomyBoard` publishes; rows for power and intent stay hidden until something is actually
 publishing them, so an unmeasured robot never shows a reassuring zero.
-Needs FrcCatalyst 2.0.0-alpha.2.
+Added for FrcCatalyst 2.0.0-alpha.2; current on 2.0.0-beta.1.
 
 ## Controller keys, and a 2027 demo robot (1.4.2)
 
