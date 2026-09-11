@@ -21,6 +21,13 @@ draw a field fails in exactly the venue it is meant for. The one request it ever
 check described below, which fails harmlessly when there is no route out. The whole installer is
 under four megabytes.
 
+## Versions and compatibility
+
+**Console 1.0.0** (this branch, `main`; the latest GitHub release) is for a robot running Catalyst
+1.12 or later on a roboRIO. The Console for Catalyst 2.x on Systemcore is 1.4.3, on the
+`systemcore` branch, and is not a GitHub release yet. Which library, app, console and Systemcore
+image go together is on [Versions and compatibility](https://tomas-1226.github.io/FrcCatalyst/versions.html).
+
 ---
 
 ## Install
