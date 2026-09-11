@@ -35,6 +35,17 @@ draw a field fails in exactly the venue it is meant for. The one request it ever
 check described below, which fails harmlessly when there is no route out. The whole installer is
 under four megabytes.
 
+## Versions and compatibility
+
+| The robot runs | Console |
+|---|---|
+| Catalyst 1.12.0 on a roboRIO | **1.0.0** (branch `main`, the latest GitHub release), or this one with the auto chooser tile at `/SmartDashboard/Auto Selector` |
+| Catalyst 2.0.0-alpha.3 on Systemcore OS image 13 (WPILib alpha-6) | **1.4.3**, with the auto chooser tile at `/SmartDashboard/Auto Selector` |
+| Catalyst 2.0.0-beta.1 on Systemcore OS image 14 (WPILib alpha-7) | **1.4.3**; its defaults, `/Auto Selector` included, are beta.1's |
+
+Console 1.1.0 to 1.4.3 are on this branch, `systemcore`, and have not been published as GitHub
+releases. The whole map is on [Versions and compatibility](https://tomas-1226.github.io/FrcCatalyst/versions.html).
+
 ---
 
 ## The auto chooser moved, and one look across all three (1.4.3)
