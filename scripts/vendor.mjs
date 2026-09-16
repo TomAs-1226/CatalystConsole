@@ -20,6 +20,13 @@ const files = [
   ["node_modules/three/build/three.module.min.js", "three.module.min.js"],
   ["node_modules/three/examples/jsm/loaders/GLTFLoader.js", "loaders/GLTFLoader.js"],
   ["node_modules/three/examples/jsm/utils/BufferGeometryUtils.js", "utils/BufferGeometryUtils.js"],
+  // The interface face. Console is drawn after Tesla's in-car screens, whose own typeface is
+  // proprietary; Figtree is the openly licensed face nearest it in proportion and weight. Two subsets,
+  // Latin and Latin Extended, so an event or team name with an accent does not fall back mid-word.
+  // The licence travels with the files, as the SIL Open Font License requires.
+  ["node_modules/@fontsource-variable/figtree/files/figtree-latin-wght-normal.woff2", "fonts/figtree-latin-wght-normal.woff2"],
+  ["node_modules/@fontsource-variable/figtree/files/figtree-latin-ext-wght-normal.woff2", "fonts/figtree-latin-ext-wght-normal.woff2"],
+  ["node_modules/@fontsource-variable/figtree/LICENSE", "fonts/FIGTREE-LICENSE.txt"],
 ];
 
 for (const [from, to] of files) {

@@ -13,11 +13,12 @@
  * Everything else — grounds, hairlines, one accent — exists to keep those two legible. */
 
 /* ---- the system ----
-   Every colour in this program now comes from `styles/identity.css`, which is linked ahead of this
-   file and is a verbatim copy of the house stylesheet — graphite ground, one crimson signal. This
-   block is names, not values: Console's own token names are kept exactly as they were, so none of
-   the ~900 rules below and none of the `var(--…)` strings in app.js has to change, but each one
-   points at the house token it always meant.
+   `styles/identity.css` is linked ahead of this file and is a verbatim copy of the house stylesheet.
+   Console does not look like the house, though: it is drawn after Tesla's in-car screens, and the
+   Tesla layer below re-points the house tokens at that palette and face. The block after it is names,
+   not values: Console's own token names are kept exactly as they were, so none of the ~900 rules
+   below and none of the `var(--…)` strings in app.js has to change, but each one points at the token
+   it always meant.
 
    The handful of literals left here are the two things the identity deliberately leaves to the app:
    Console's squared geometry, and the sizes its board readouts are set at. Both are called out
@@ -28,6 +29,110 @@
    digits' centre. `unicode-range` limits this face to that one character, so every digit, colon and
    letter in a reading still comes from the display face, and the thirty places app.js writes a dash
    need no change. Local fonts only: nothing is fetched. */
+/* ================================================================ the Tesla layer ====
+   Console is drawn after Tesla's in-car screens, the way the app is drawn after the Catalyst launch
+   material. What was taken from them, from the owner's manual illustrations and photographs of the
+   v11 and v12 software, and what it became here:
+
+     a black ground with grey sheets on it and no outlines, shadows or glass;
+     one blue, which marks the primary action, what is selected, and a quantity - Tesla draws the
+       car's planned path in it - while red and amber are the telltales and green is energy;
+     one geometric sans at two weights, regular for reading and medium for what is operated, set in
+       sentence case at its natural spacing, with large readings in the regular weight, not thin;
+     the drive-mode letters and the battery at the top, the car on its road down the left, and a
+       black bar along the bottom that holds the apps.
+
+   Tesla's face, Universal Sans, is proprietary. Figtree is the openly licensed face nearest it:
+   compared side by side, its figures have almost the same proportions and its medium, set a little
+   heavier, matches Tesla's 500. It is vendored with its licence (scripts/vendor.mjs), so nothing is
+   fetched. The identity tokens are re-pointed here rather than edited in identity.css, which stays
+   a verbatim copy of the house sheet. */
+@font-face {
+  font-family: "Figtree Console";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 900;
+  src: url(vendor/fonts/figtree-latin-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Figtree Console";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 900;
+  src: url(vendor/fonts/figtree-latin-ext-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  /* The ground and the sheets on it. */
+  --cat-ground: #000000;
+  --cat-ground-top: #000000;
+  --cat-surface-1: #1c1c1e;                 /* a card */
+  --cat-surface-2: #2c2c2e;                 /* a control on a card */
+  --cat-surface-3: #3a3a3c;                 /* a track, a pressed control */
+  --cat-line: rgba(255, 255, 255, 0.08);
+  --cat-line-strong: rgba(255, 255, 255, 0.14);
+  --cat-lift: 0 0 0 0 transparent;          /* flat: nothing is lit from above */
+
+  /* Ink. */
+  --cat-ink: #ffffff;
+  --cat-ink-strong: #ffffff;
+  --cat-body: #e5e5ea;
+  --cat-dim: #98989d;
+  --cat-quiet: #8e8e93;
+  --cat-faint: #636366;
+
+  /* The one blue. */
+  --cat-signal: #3e6ae1;
+  --cat-signal-lt: #5b83ee;
+  --cat-signal-dk: #2c4fad;
+  --cat-signal-ink: #9cb6ff;
+  --cat-signal-tint: rgba(62, 106, 225, 0.18);
+  --cat-signal-line: rgba(62, 106, 225, 0.6);
+  --cat-on-signal: #ffffff;
+
+  /* The telltales. Pinned rather than derived: the identity makes a fault a shade of its signal,
+     and with the signal blue that would turn every fault on the board blue. */
+  --cat-bad: #ff453a;
+  --cat-warn: #ffb340;
+  --cat-ok: #30d158;
+  --cat-info: #3e6ae1;
+  --cat-warn-tint: rgba(255, 179, 64, 0.16);
+  --cat-bad-tint: rgba(255, 69, 58, 0.16);
+  --cat-ok-tint: rgba(48, 209, 88, 0.16);
+  --cat-info-tint: rgba(62, 106, 225, 0.18);
+  --cat-hair: rgba(255, 255, 255, 0.08);
+  --cat-lift-strong: 0 0 0 0 transparent;
+  --cat-ground-grad: #000000;
+  --cat-ground-mid: #000000;
+  --cat-ground-bottom: #000000;
+
+  /* The face, and Tesla's two weights. Figtree's medium is set a step heavier than its nominal 500,
+     which is where it lands beside Universal Sans. */
+  --cat-sans: "Figtree Console", "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --cat-sans-text: var(--cat-sans);
+  --cat-w-normal: 400;
+  --cat-w-medium: 540;
+  --cat-w-semi: 580;
+  --cat-w-bold: 640;
+
+  /* Softer than the identity's panels and sharper than a pill: a Tesla card. */
+  --cat-r-card: 14px;
+  --cat-r-chip: 8px;
+  --cat-r-field: 8px;
+  --cat-r-inner: 6px;
+
+  /* Each app's own tile colour, the way Tesla's apps each have one. */
+  --app-board: #3e6ae1;
+  --app-tune: #ff9f0a;
+  --app-logs: #30b454;
+  --app-topics: #a05ce6;
+  --app-can: #1ea5c8;
+}
+
 @font-face {
   font-family: "Catalyst Readout Dash";
   src: local("Cascadia Code"), local("CascadiaCode-Regular"), local("Cascadia Code Regular"),
@@ -133,22 +238,24 @@
      rest of the program caught up. The greys that are left are the drawing's own, at the values they
      have always had: the surface scale is for panels behind text, and a lit material picked off it
      would sink the robot into the carpet. */
-  --draw-floor: var(--cat-ground-top);      /* the venue floor the field sits on */
-  --draw-carpet: var(--cat-surface-3);
-  --draw-wall: var(--cat-surface-1);        /* the perimeter rail */
-  --draw-line: var(--cat-faint);            /* the one-metre grid and the field's painted marks */
-  --draw-shell: #4d5560;                    /* a bumper with no alliance to declare */
-  --draw-shell-lit: #5b5d67;                /* ...and the edge the light reaches */
-  --draw-body: #2b2e35;                     /* the belly, and the plan's deck */
-  --draw-body-lit: #3d424b;                 /* the top plate */
-  --draw-body-dark: #1c1e23;                /* the shaded end of the plan's deck */
-  --draw-tower: #30343c;
-  --draw-tyre: #101114;
-  --draw-tyre-lit: #34363d;
-  --draw-wheel: #0b0c0e;
-  --draw-sky: #c8d4e4;                      /* hemisphere light, from above */
-  --draw-bounce: #0a0b0d;                   /* hemisphere light, from below */
-  --draw-fill: #8fa8c8;                     /* the second directional light, so the far half is not a silhouette */
+  /* Tesla's visualisation, which this scene now follows: a charcoal world, pale markings, other things
+     in flat mid grey, and your own vehicle lit near-white so it is the first thing found. */
+  --draw-floor: #0e0e0f;                    /* the venue floor the field sits on */
+  --draw-carpet: #2c2c2e;                   /* the road surface */
+  --draw-wall: #3a3a3c;                     /* the perimeter rail */
+  --draw-line: #8e8e93;                     /* the grid and the painted marks, as lane lines */
+  --draw-shell: #c7c7cc;                    /* a bumper with no alliance to declare */
+  --draw-shell-lit: #e5e5ea;                /* ...and the edge the light reaches */
+  --draw-body: #d1d1d6;                     /* the belly, and the plan's deck */
+  --draw-body-lit: #f5f5f7;                 /* the top plate: the white car */
+  --draw-body-dark: #a1a1a6;                /* the shaded end of the plan's deck */
+  --draw-tower: #48484a;
+  --draw-tyre: #1c1c1e;
+  --draw-tyre-lit: #3a3a3c;
+  --draw-wheel: #111112;
+  --draw-sky: #ffffff;                      /* hemisphere light, from above */
+  --draw-bounce: #1c1c1e;                   /* hemisphere light, from below */
+  --draw-fill: #d1d1d6;                     /* the second directional light, so the far half is not a silhouette */
   --draw-unknown: #888888;                  /* a CAD material that arrived with no colour of its own */
   /* Light and shade in a drawing, as channels rather than a colour, so a ramp can set its own alpha
      without a second token per stop. `rgb(var(--draw-light) / 0.3)`. */
@@ -205,150 +312,150 @@ textarea:focus-visible, summary:focus-visible,
 .app {
   height: 100%;
   display: grid;
-  grid-template-rows: 48px 1fr 56px;
-  gap: 12px;
-  padding: 12px;
+  /* The status bar, the view, and a dock that meets the window's edges the way Tesla's meets the
+     bezel. Only the view is inset; the two bars run edge to edge. */
+  grid-template-rows: 46px 1fr 72px;
+  gap: 0;
+  padding: 0;
+  /* One gutter for the board and both bars, so the status bar's halves sit over the board's
+     columns. */
+  --gutter: 14px;
 }
 
-/* ================================================================= top bar ====
-   Identity, then link state, then views. The chips are grouped so the eye reads "is it talking to
-   anything" as one object rather than as four separate words. */
-
-/* Everything on this bar except the views and the gear can give width back, and the order in which
-   they give is the order of how little they are worth: the event name in the wordmark first, then
-   the device counts, then the link chips. The views and the way into Settings never shrink, because
-   an unreachable gear at the app's minimum window is not a cosmetic problem.
-
-   It is worth stating what the failure looked like without this: an event name of ordinary length
-   plus a populated device strip measured 1462px of content in a 1076px bar at the 1100px minimum
-   window, which put the Settings button 398px past the right edge with no way to scroll to it. */
-.top { display: flex; align-items: center; gap: 12px; padding: 0 4px; min-width: 0; }
+/* ================================================================= status bar ====
+   The line along the top of Tesla's screen. Over the car panel: the drive-mode letters and the
+   charge. Over the rest: link state, time and hardware as glyphs and words, the way Tesla floats
+   its lock, clock and temperature over the map. No grounds, no pills, no outlines. It is laid out on
+   the board's twelve columns, so the left half is exactly as wide as a four-column car panel. */
+.top {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter);
+  align-items: center; padding: 0 var(--gutter); min-width: 0;
+}
+.sb-car { grid-column: 1 / span 4; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0 6px; }
+.sb-map { grid-column: 5 / -1; display: flex; align-items: center; gap: 18px; min-width: 0; }
 .grow { flex: 1 1 0; min-width: 0; }
 
 .mark {
-  display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0;
-  border: 0; background: transparent; color: inherit;
-  font-family: var(--sans); font-size: var(--fs-13);
-  padding: 8px 12px; margin-left: -8px; border-radius: var(--r-sm); cursor: pointer;
+  display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px;
+  border: 0; background: transparent; color: inherit; padding: 0; margin-left: -6px;
+  border-radius: 50%; cursor: pointer;
 }
-.mark:hover { background: var(--cat-ink-800); }
-.bolt { width: 18px; height: 18px; flex: none; color: var(--cat-coral); }
-/* Truncates from the tail, which is where the least is lost: the wordmark stays, the alliance stays,
-   and the event and match number are what go.
+.mark:hover { background: var(--cat-surface-2); }
+.bolt { width: 16px; height: 16px; flex: none; color: var(--cat-dim); }
+.mark:hover .bolt { color: var(--cat-white); }
 
-   The wordmark itself is the identity's, not this sheet's: `.cat-wordmark` sets the thin grey
-   prefix and the bold white name, so the two words are drawn here exactly as they are drawn on the
-   launch material. Only the state that trails them belongs to Console, and it is the class rather
-   than the element that is selected on — `.idt span` would have outranked `.cat-wordmark__name` and
-   quietly greyed half the mark. */
+/* P R N D. The letters are always all there, spaced, and the one in force is white while the rest
+   stay the quiet grey Tesla leaves them - the lit letter is the reading, and its neighbours are the
+   scale it is read against. An emergency stop replaces the letters with a word in the telltale red,
+   because a stopped robot is in no mode at all. */
+.gears {
+  display: inline-flex; align-items: baseline; gap: 10px; flex: none;
+  font-family: var(--sans); font-size: 15px; font-weight: var(--cat-w-semi); letter-spacing: 0;
+  color: var(--cat-faint);
+}
+.gears span[data-g] { transition: color var(--cat-dur-effect) var(--cat-ease-effect); }
+.gears[data-mode="disabled"] span[data-g="disabled"],
+.gears[data-mode="auto"] span[data-g="auto"],
+.gears[data-mode="teleop"] span[data-g="teleop"],
+.gears[data-mode="test"] span[data-g="test"] { color: var(--cat-white); }
+.gears .estop { display: none; color: var(--cat-bad); font-weight: var(--cat-w-bold); }
+.gears[data-mode="estop"] span[data-g] { display: none; }
+.gears[data-mode="estop"] .estop { display: inline; }
+
+/* The charge, as Tesla shows it: a figure, then a cell filled to the level. White while the pack is
+   healthy; the telltale amber when it is low and red when it is critical, in the figure and the
+   cell both, so the level still reads for someone who cannot tell the two colours apart. */
+.batt {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  font-family: var(--sans); font-size: 14px; font-weight: var(--cat-w-medium); color: var(--cat-white);
+}
+.batt-cell { width: 28px; height: 13px; display: block; }
+#battFill { transition: width var(--cat-dur-settle) var(--cat-ease-settle); }
+.batt[data-level="none"] { color: var(--cat-faint); }
+.batt[data-level="low"] { color: var(--cat-warn); }
+.batt[data-level="critical"] { color: var(--cat-bad); }
+
+/* Tesla's status line: small, medium weight, white, with a glyph where a word would be longer. The
+   event and match go first because they give way first. */
 .idt {
-  flex: 0 1 auto; min-width: 56px;
-  font-size: var(--fs-13); font-weight: 700; letter-spacing: var(--track-head);
+  flex: 0 1 auto; min-width: 40px;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); letter-spacing: 0;
   color: var(--cat-white);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.idt .idstate { color: var(--cat-muted); font-weight: 600; }
+.idt .idstate { color: var(--cat-body); font-weight: var(--cat-w-medium); }
 
-.statgroup {
-  display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0;
-  padding: 4px; border-radius: 999px; background: var(--cat-ink-800);
-  border: 1px solid var(--cat-hair);
-}
+.statgroup { display: flex; align-items: center; gap: 16px; flex: 0 1 auto; min-width: 0; }
 
 .chip {
-  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
-  font-size: var(--fs-12); font-weight: 600; color: var(--cat-muted);
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-body);
   white-space: nowrap;
 }
 .chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 button.chip {
   border: 0; background: transparent; font-family: var(--sans);
-  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  padding: 4px 8px; margin: 0 -8px; border-radius: 999px; cursor: pointer;
 }
-.statgroup .chip { padding: 4px 12px; }
-button.chip:hover { background: var(--cat-ink-700); color: var(--cat-white); }
+button.chip:hover { background: var(--cat-surface-2); color: var(--cat-white); }
 /* `.chip` sets a display, which outranks the user agent's rule for [hidden]. */
 .chip[hidden] { display: none; }
 
 /* Amber, and only ever present once the link has actually dropped. Silence is the normal state. */
 button.chip.drops {
-  background: color-mix(in srgb, var(--cat-warn) 16%, transparent);
+  margin: 0; padding: 6px 12px;
+  background: var(--cat-warn-tint);
   color: var(--cat-warn);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-warn) 34%, transparent);
 }
 button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, transparent); color: var(--cat-warn); }
+
+.clock {
+  flex: none; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- status dots ----
    Colour says which state; shape says it again for anyone the colour does not reach. Circle is
    healthy, diamond is degraded, square is a fault, and the three are told apart in greyscale on a
    sunlit screen. `transform` rather than a second element, so switching state costs a composite
-   and never a reflow — these change while the board is repainting at 10 Hz. */
+   and never a reflow - these change while the board is repainting at 10 Hz. */
 .d {
-  width: 8px; height: 8px; flex: none; border-radius: 50%;
-  background: var(--cat-muted);
+  width: 7px; height: 7px; flex: none; border-radius: 50%;
+  background: var(--cat-faint);
   transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .d.ok { background: var(--cat-ok); }
 .d.warn { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
 .d.bad { background: var(--cat-bad); border-radius: 1px; }
 
-/* ---- views ----
-   The one thing on this bar that never shrinks. A tab whose label has been squeezed to an ellipsis
-   is a tab nobody can aim at, and this is the console's whole navigation. */
-.tabs { display: flex; gap: 4px; flex: none; }
-.tab {
-  border: 0; background: transparent; color: var(--cat-muted);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
-  padding: 8px 16px; border-radius: var(--r-sm); cursor: pointer;
-  transition:
-    background-color var(--cat-dur-effect) var(--cat-ease-effect),
-    color var(--cat-dur-effect) var(--cat-ease-effect);
-}
-.tab:hover { color: var(--cat-text); background: var(--cat-ink-800); }
-/* The one accent on this bar. An active view is the only thing up here that is "selected", so it
-   is the only thing that gets the signal — and because it is the only one, it reads instantly.
-   Ink rather than white on the fill: white on --cat-coral measures 3.83:1, which the identity allows
-   for a short large label and not for a 13px one, and the deepest ground on it measures 5.05:1.
-   Every signal fill in this sheet takes dark text for that reason. */
-.tab[aria-selected="true"] { color: var(--cat-ink-900); background: var(--cat-coral); }
-.tab[aria-selected="true"]:hover { background: var(--cat-coral-lt); color: var(--cat-ink-900); }
-
-.gear {
-  flex: none; width: 32px; height: 32px; margin-left: 4px;
-  border: 0; background: transparent; color: var(--cat-muted);
-  font-family: var(--sans); font-size: var(--fs-13);
-  border-radius: var(--r-sm); display: grid; place-items: center; cursor: pointer;
-}
-.gear svg { width: 18px; height: 18px; }
-.gear:hover { background: var(--cat-ink-800); color: var(--cat-white); }
-
 /* ---- device strip ----
    Clips rather than pushes. Counts are a glance, not a reading, and the first one is the one that
    matters most — so losing the tail of the strip costs less than losing the gear behind it. */
-.devstrip { display: flex; align-items: center; gap: 4px; margin-left: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.devstrip { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .devstrip[hidden] { display: none; }
 .dev {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 4px 12px; border: 1px solid var(--cat-hair); border-radius: 999px;
-  background: var(--cat-ink-800); color: var(--cat-muted);
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 6px; margin: 0 -6px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--cat-body);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   cursor: pointer;
 }
-.dev svg { width: 15px; height: 15px; flex: none; stroke: currentColor; }
-.dev b { color: var(--cat-white); font-family: var(--mono); font-weight: 600; }
-.dev[data-state="ok"] svg { color: var(--cat-ok); }
-.dev[data-state="warn"] svg { color: var(--cat-warn); }
-.dev[data-state="bad"] svg { color: var(--cat-bad); }
-.dev[data-state="seen"] svg { color: var(--cat-muted); }
-/* A short count against its expectation is the fault, and it has to survive the icon being three
-   colours away from the reader. The border carries it as an area rather than a stroke. */
-.dev[data-state="warn"] { border-color: color-mix(in srgb, var(--cat-warn) 45%, transparent); }
-.dev[data-state="bad"] { border-color: color-mix(in srgb, var(--cat-bad) 55%, transparent); }
-.dev:hover { background: var(--cat-ink-700); color: var(--cat-white); }
+.dev svg { width: 16px; height: 16px; flex: none; stroke: currentColor; }
+.dev b { color: var(--cat-white); font-family: var(--sans); font-weight: var(--cat-w-medium); }
+.dev[data-state="ok"] svg { color: var(--cat-body); }
+.dev[data-state="warn"] svg, .dev[data-state="warn"] b { color: var(--cat-warn); }
+.dev[data-state="bad"] svg, .dev[data-state="bad"] b { color: var(--cat-bad); }
+.dev[data-state="seen"] svg { color: var(--cat-faint); }
+.dev:hover { background: var(--cat-surface-2); color: var(--cat-white); }
 
 /* ================================================================== views ==== */
+/* The view is the one inset part of the shell: the two bars meet the window's edges, and everything
+   between them keeps the gutter the board's own gaps use, so the car panel and the cards float on the
+   black the same distance from every edge. */
 .views { min-height: 0; position: relative; }
-.view { position: absolute; inset: 0; display: none; }
+/* Inset by the gutter here rather than padded on .views: a view is absolutely positioned, and padding
+   on its container does not move it. */
+.view { position: absolute; inset: 0 var(--gutter) var(--gutter); display: none; }
 .view[data-active="true"] { display: grid; }
 
 .board {
@@ -435,34 +542,34 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t > .h {
   display: flex; align-items: center; gap: 8px; flex: none;
   min-height: clamp(14px, 2.2vh, 20px); margin-bottom: clamp(2px, 0.7vh, 6px);
-  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
-  letter-spacing: 0.1em; text-transform: uppercase;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none;
   color: var(--cat-dim);
 }
 .t > .h > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t > .h .s {
   flex: 0 1 auto; min-width: 0;
-  font-family: var(--mono); font-size: var(--fs-12); letter-spacing: 0; text-transform: none;
+  font-family: var(--sans); font-size: var(--fs-12); letter-spacing: 0; text-transform: none;
   color: var(--cat-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .t > .h::after {
   display: none; content: "";
-  flex: none; padding: 3px 9px; border-radius: 999px;
-  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 700; letter-spacing: 0.1em;
-  line-height: 1.2;
+  flex: none; padding: 3px 10px; border-radius: 999px;
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi); letter-spacing: 0;
+  line-height: 1.25;
 }
 .t:has(.warn) > .h::after,
 .t.tower[data-soon="true"] > .h::after {
-  display: block; content: "CHECK";
+  display: block; content: "Check";
   background: color-mix(in srgb, var(--cat-warn) 20%, transparent);
   color: var(--cat-warn);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-warn) 45%, transparent);
 }
 .t:has(.crit) > .h::after,
 .t:has(.al.error) > .h::after {
-  display: block; content: "FAULT";
+  display: block; content: "Fault";
   background: var(--cat-bad);
-  color: var(--cat-ink-900);
+  color: #ffffff;
   box-shadow: none;
 }
 
@@ -487,16 +594,17 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
    digit into a block. Tabular figures, so a value that changes ten times a second does not jitter
    sideways. The unit is quiet mono beside it, so the number is the only large thing. */
 .n {
-  font-family: var(--readout); font-weight: 300;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1;
+  font-family: var(--readout); font-weight: 400;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1;
   color: var(--cat-white);
 }
+/* A unit the way Tesla writes MPH under its speed: small, upper case, medium, quiet. */
 .u {
-  font-family: var(--mono); font-size: var(--fs-12); font-weight: 500;
-  color: var(--cat-dim); margin-left: 6px; letter-spacing: 0;
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  color: var(--cat-dim); margin-left: 6px; letter-spacing: 0.02em; text-transform: uppercase;
 }
-.cap { font-size: var(--fs-12); color: var(--cat-muted); line-height: 1.45; }
-.cap b { color: var(--cat-text); font-weight: 600; }
+.cap { font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.45; }
+.cap b { color: var(--cat-text); font-weight: var(--cat-w-medium); }
 
 .ok { color: var(--cat-ok); }
 .warn { color: var(--cat-warn); }
@@ -559,7 +667,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .app[data-edit="true"] .t > .h { padding-right: 46px; }
 .tbtn {
   width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--cat-hair-str);
-  cursor: pointer; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
+  cursor: pointer; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
   line-height: 1; display: grid; place-items: center;
   background: var(--cat-ink-700); color: var(--cat-text);
 }
@@ -571,8 +679,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
 /* ---- match timer ---- */
 .phase {
-  font-family: var(--mono); font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase;
-  font-weight: 600; color: var(--cat-text); margin-bottom: 8px;
+  font-family: var(--sans); font-size: var(--fs-15); letter-spacing: 0; text-transform: none;
+  font-weight: var(--cat-w-medium); color: var(--cat-white); margin-bottom: 8px;
 }
 .segs { display: flex; gap: 4px; margin-top: 12px; flex: none; }
 .seg { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); overflow: hidden; }
@@ -583,8 +691,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .seg.end i { background: var(--cat-warn); }
 .seglab {
   display: flex; gap: 4px; margin-top: 6px;
-  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim);
-  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
+  font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-dim);
+  letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium);
 }
 .seglab span { flex: 1; }
 
@@ -595,8 +703,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower { position: relative; overflow: hidden; }
 .tower .fill { justify-content: space-between; }
 .tower .status {
-  display: inline-block; padding: 5px 14px; border-radius: 999px;
-  font-size: var(--fs-15); font-weight: 600; letter-spacing: 0.02em;
+  display: inline-block; padding: 5px 14px; border-radius: 999px; white-space: nowrap;
+  font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: 0;
 }
 .tower .n { font-size: min(var(--fs-32), 30cqh); }
 .tower[data-active="true"] { background: linear-gradient(160deg, color-mix(in srgb, var(--cat-ok) 14%, transparent), var(--cat-ink-800) 62%); }
@@ -618,8 +726,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower[data-active="true"] .bars i { background: var(--cat-ok); }
 .tower[data-soon="true"] .bars i { background: var(--cat-warn); }
 .tower .who {
-  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--cat-dim);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
 .tower .who.red { color: var(--cat-bad); }
 .tower .who.blue { color: var(--cat-info); }
@@ -637,13 +745,13 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .gauge { text-align: center; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge svg { display: block; overflow: visible; }
 .gauge .gv {
-  font-family: var(--readout); font-weight: 300;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
+  font-family: var(--readout); font-weight: 400;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
   color: var(--cat-white);
 }
 .gauge .gl {
-  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim);
-  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-top: 6px;
+  font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-dim);
+  letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium); margin-top: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 
@@ -658,8 +766,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   align-items: baseline; gap: 8px; padding: 2px 0;
 }
 .t .row .k {
-  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--cat-dim);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
 .t .row .n { font-size: var(--fs-24); text-align: right; }
 .t .row .u { margin-left: 0; }
@@ -667,8 +775,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 /* ---- multi-value tiles ---- */
 .m3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .mv {
-  font-family: var(--readout); font-size: min(var(--fs-32), 34cqh); font-weight: 300;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1.05;
+  font-family: var(--readout); font-size: min(var(--fs-32), 34cqh); font-weight: 400;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.05;
   color: var(--cat-white);
   /* The severity rule under a flagged cell. Inset shadow, so switching it on is a repaint and the
      three cells beside it never move. */
@@ -677,8 +785,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mv.warn { box-shadow: inset 0 -3px 0 var(--cat-warn); }
 .mv.crit { box-shadow: inset 0 -3px 0 var(--cat-bad); }
 .ml {
-  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim); margin-top: 6px;
-  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
+  font-family: var(--sans); font-size: var(--fs-13); color: var(--cat-dim); margin-top: 6px;
+  letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* The label under a flagged cell says so in words as well, because in a three-up tile the colour
@@ -692,8 +800,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
    What gives when a tile has less room than the anatomy was drawn for. Gaps close before anything is
    hidden, and nothing that says what state a thing is in is hidden at all. */
 @container tile (max-height: 120px) {
-  .phase { margin-bottom: 2px; line-height: 1.15; }
-  .segs { margin-top: 6px; }
+  .phase { margin-bottom: 2px; line-height: 1.15; font-size: var(--fs-13); }
+  .segs { margin-top: 4px; }
   .seglab { margin-top: 3px; }
   .ml { margin-top: 3px; }
   .t .track { margin: 5px 0; }
@@ -706,6 +814,15 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   .tower .fill > div:nth-child(2) { grid-column: 2; grid-row: 1; align-self: end; }
   .tower .fill > div:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
   .tower .bars { margin-top: 4px; }
+}
+
+/* A narrow Hub activation tile, two columns on a laptop screen: the pill steps down a size rather than
+   breaking its two words onto two lines. */
+@container tile (max-width: 230px) {
+  .tower .status { font-size: var(--fs-13); padding: 3px 10px; }
+  .tower .n { font-size: min(var(--fs-24), 26cqh); }
+  /* The rule in force, on one line; the whole sentence is in the tooltip-free wide tile. */
+  .tower .cap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* The shortest tiles, on a window that has given most of its height to something else. Explanations
@@ -740,14 +857,14 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 /* ---- auto chooser ---- */
 .opt {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--r-sm);
-  font-size: var(--fs-13); font-weight: 600; color: var(--cat-muted); cursor: pointer;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-muted); cursor: pointer;
 }
 .opt i { width: 13px; height: 13px; border-radius: 50%; border: 1.6px solid var(--cat-muted); flex: none; }
 .opt[aria-checked="true"] { background: var(--cat-ink-700); color: var(--cat-white); }
 .opt[aria-checked="true"] i { border-color: var(--cat-coral); background: radial-gradient(circle, var(--cat-coral) 0 42%, transparent 44%); }
 
 .spark { width: 100%; flex: 1; min-height: 0; display: block; }
-.stname { font-family: var(--mono); font-size: var(--fs-18); font-weight: 700; letter-spacing: var(--track-head); color: var(--cat-white); }
+.stname { font-family: var(--sans); font-size: var(--fs-18); font-weight: var(--cat-w-semi); letter-spacing: var(--track-head); color: var(--cat-white); }
 
 /* ---- autonomy ---- */
 .au-fill { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
@@ -760,8 +877,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .au-authority .cap { align-self: start; }
 .au-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: baseline; font-size: var(--fs-13); }
 .au-row .k {
-  color: var(--cat-dim); font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--cat-dim); font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none;
 }
 .au-row .dim { color: var(--cat-muted); }
 .au-row .warn { color: var(--cat-warn); }
@@ -774,8 +891,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mh-summary { color: var(--cat-muted); }
 table.mh { width: 100%; border-collapse: collapse; font-size: var(--fs-13); font-variant-numeric: tabular-nums; }
 table.mh th {
-  text-align: right; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  text-align: right; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
   padding: 0 8px 8px 0; white-space: nowrap;
 }
 table.mh th:first-child { text-align: left; }
@@ -783,9 +900,9 @@ table.mh td {
   padding: 8px 8px 8px 0; text-align: right; color: var(--cat-text);
   border-top: 1px solid var(--hair-dense); white-space: nowrap; vertical-align: middle;
 }
-table.mh td.mh-name { text-align: left; font-weight: 600; min-width: 140px; color: var(--cat-white); }
+table.mh td.mh-name { text-align: left; font-weight: var(--cat-w-medium); min-width: 140px; color: var(--cat-white); }
 table.mh td.mh-name small { display: block; font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
-table.mh td.warn { color: var(--cat-warn); font-weight: 700; }
+table.mh td.warn { color: var(--cat-warn); font-weight: var(--cat-w-semi); }
 table.mh td .dim { color: var(--cat-muted); font-weight: 500; }
 table.mh td.mh-bar { min-width: 130px; }
 table.mh td.mh-bar .track { display: inline-block; width: 64px; height: 6px; margin: 0 8px 0 0; vertical-align: middle; }
@@ -793,131 +910,218 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .mh-past {
   display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px;
   background: color-mix(in srgb, var(--cat-warn) 16%, transparent); color: var(--cat-warn);
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: 600;
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium);
 }
 
 /* ---- field view ---- */
 .fieldcanvas { display: block; width: 100%; height: 100%; border-radius: var(--r); }
 /* The same label every other tile wears, placed where the tile padding would have put it: this tile
    draws edge to edge, so its label sits over the scene rather than above it. */
-.fieldlab {
-  position: absolute; left: 20px; top: 18px;
-  font-family: var(--mono); font-size: var(--cat-fs-11); letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--cat-dim); font-weight: 600; pointer-events: none;
+/* ---- the car panel ----
+   Tesla's panel down the left of its screen, for a robot on a field: no card around it, the scene
+   running to the panel's edges, the speed large at the top left over a small line of figures, and
+   round controls floating at the right edge. Everything drawn over the scene is set on a soft fade
+   from the panel's black, the way Tesla lets its road dissolve under the numbers, so text stays
+   legible over any part of the field without a box behind it. */
+.t.pad0:has(.fieldcanvas) { background: #000000; }
+.car-head {
+  position: absolute; left: 0; right: 0; top: 0; padding: 22px 24px 40px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.45) 60%, transparent);
+  pointer-events: none;
 }
-.fieldchips { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; pointer-events: none; }
-.fc {
-  background: color-mix(in srgb, var(--cat-ink-900) 82%, transparent);
-  border: 1px solid var(--cat-hair);
-  border-radius: 999px; padding: 4px 12px;
-  font-size: var(--fs-12); font-weight: 600; color: var(--cat-muted);
+.car-speed { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+.car-speed .n { font-size: clamp(44px, 7.2vh, 72px); letter-spacing: -0.03em; }
+/* No speed to show: a quiet dash at a smaller size, rather than a 72px bar where a number would be. */
+.car-speed .n[data-empty="true"] { font-size: clamp(28px, 4vh, 40px); color: var(--cat-faint); }
+.car-unit {
+  margin-top: 4px; font-size: var(--fs-12); font-weight: var(--cat-w-semi); letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--cat-dim);
 }
-.fc b { color: var(--cat-white); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.car-stats {
+  display: flex; gap: 14px; margin-top: 12px;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim);
+}
+.car-stats b { color: var(--cat-white); font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; }
 /* The estimator put the robot through a wall and the drawing is holding it inside one. A state, so
-   it is allowed amber — and it is a filled pill rather than amber text, because it has to be seen
-   over a lit 3D scene. */
-.fc.off { background: var(--cat-warn); color: var(--cat-ink-900); border-color: var(--cat-warn); font-weight: 700; }
-.fieldbtns { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 4px; }
-.fbtn {
-  border: 1px solid var(--cat-hair);
-  background: color-mix(in srgb, var(--cat-ink-900) 82%, transparent);
-  color: var(--cat-muted); border-radius: var(--r-sm); padding: 8px 12px;
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: 600; cursor: pointer;
+   it is allowed amber, as a filled pill so it is seen over a lit scene. */
+.fc.off {
+  display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 999px;
+  background: var(--cat-warn); color: #000000; font-size: var(--fs-12); font-weight: var(--cat-w-semi);
 }
-.fbtn:hover { color: var(--cat-white); }
-/* Marked by fill, not by colour. Three buttons with one filled is unambiguous without spending the
-   accent, which the board keeps clear of on purpose — up here every colour means something. */
-.fbtn[aria-pressed="true"] { background: var(--cat-ink-700); color: var(--cat-white); border-color: var(--cat-hair-str); }
+.fc.off[hidden] { display: none; }
+
+.fieldlab {
+  position: absolute; left: 24px; bottom: 16px;
+  font-family: var(--sans); font-size: var(--fs-12); letter-spacing: 0; text-transform: none;
+  color: var(--cat-faint); font-weight: var(--cat-w-medium); pointer-events: none;
+}
+
+/* Tesla's map buttons: round, dark, floating, stacked at the right edge, one glyph each. The camera in
+   use is the one lit white. */
+.fieldbtns {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.fbtn {
+  width: 42px; height: 42px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: rgba(28, 28, 30, 0.86); color: var(--cat-dim);
+  cursor: pointer;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect), color var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.fbtn svg { width: 20px; height: 20px; }
+.fbtn:hover { color: var(--cat-white); background: rgba(44, 44, 46, 0.92); }
+.fbtn[aria-pressed="true"] { background: rgba(58, 58, 60, 0.95); color: var(--cat-white); }
 
 /* =================================================================== dock ==== */
+/* Tesla's bottom bar: black, edge to edge, taller than a toolbar because it is aimed at, not read.
+   Left, the car that opens Controls, then the robot's state where Tesla keeps the cabin temperature;
+   in the middle the apps, each a tile in its own colour, with a short bar under the one on screen;
+   right, the session's own controls. Icons are white line drawings with no ground until pressed. */
 .dock {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair);
-  border-radius: var(--r); padding: 0 8px;
+  display: flex; align-items: center; gap: 10px;
+  background: #000000;
+  border-top: 1px solid var(--cat-hair);
+  padding: 0 calc(var(--gutter) + 4px);
+  min-width: 0;
 }
+.dock-rule { width: 1px; height: 28px; background: var(--cat-line-strong); flex: none; margin: 0 4px; }
+
+.dk {
+  border: 0; background: transparent; color: var(--cat-body);
+  border-radius: 12px; height: 48px; padding: 0 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.dk svg { width: 22px; height: 22px; }
+.dk:hover { background: var(--cat-surface-1); color: var(--cat-white); }
+.dk[aria-pressed="true"] { background: var(--cat-surface-2); color: var(--cat-white); }
+.dk-icon { width: 48px; padding: 0; justify-content: center; }
+.dk-car { width: 56px; padding: 0; justify-content: center; color: var(--cat-white); }
+.dk-car svg { width: 30px; height: 30px; }
+
+/* The robot's state, set the way Tesla sets the temperature: a small label over a medium figure. */
 .state {
-  display: flex; align-items: center; gap: 12px; height: 40px;
-  padding: 0 16px 0 12px; border-radius: var(--r-sm);
-  background: var(--cat-ink-700); min-width: 200px;
+  display: flex; align-items: center; gap: 12px; height: 48px;
+  padding: 0 14px 0 10px; min-width: 190px; max-width: 280px;
 }
 /* Same three shapes as the header dots, at the size the dock can carry: circle healthy, square
    fault. The lamp is the loudest single thing in the program and it must not rest on hue alone. */
 .state .lamp {
-  width: 12px; height: 12px; border-radius: 50%; background: var(--cat-muted); flex: none;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--cat-faint); flex: none;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
     box-shadow var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .app[data-live="true"] .state .lamp {
   background: var(--cat-ok);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-ok) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-ok) 20%, transparent);
 }
 .app[data-estop="true"] .state .lamp {
   background: var(--cat-bad); border-radius: 2px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-bad) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-bad) 24%, transparent);
 }
-.state .txt { line-height: 1.2; min-width: 0; }
-.state .txt b { display: block; font-size: var(--fs-13); font-weight: 700; color: var(--cat-white); }
-.state .txt small { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
+.state .txt { line-height: 1.2; min-width: 0; display: flex; flex-direction: column; }
+.state .txt b {
+  display: block; font-size: 17px; font-weight: var(--cat-w-medium); color: var(--cat-white);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.state .txt small {
+  font-size: var(--fs-12); color: var(--cat-dim); font-weight: var(--cat-w-medium);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
-.dk {
-  border: 0; background: transparent; color: var(--cat-muted);
-  border-radius: var(--r-sm); height: 40px; padding: 0 16px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
+/* The apps. A tile in the app's own colour with a white glyph, the name beside it only when the dock
+   has room, and under the app on screen a short white bar - Tesla marks its running apps the same
+   way. The colours are identities, not states: nothing about an app's health is said by its tile. */
+.tabs.apps { display: flex; align-items: center; gap: 4px; flex: none; }
+.tab {
+  border: 0; background: transparent; color: var(--cat-body);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  height: 56px; padding: 0 12px 0 8px; border-radius: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
     color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.dk svg { width: 18px; height: 18px; }
-.dk:hover { background: var(--cat-ink-700); color: var(--cat-white); }
-.dk[aria-pressed="true"] { background: var(--cat-ink-700); color: var(--cat-white); }
+.tab:hover { background: var(--cat-surface-1); color: var(--cat-white); }
+.app-ic {
+  position: relative; width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+  border-radius: 10px; background: var(--app, var(--cat-surface-3)); color: #ffffff;
+}
+.app-ic svg { width: 22px; height: 22px; }
+.app-ic::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; width: 16px; height: 3px; margin-left: -8px;
+  border-radius: 2px; background: #ffffff; opacity: 0;
+  transition: opacity var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.tab[aria-selected="true"] { color: var(--cat-white); }
+.tab[aria-selected="true"] .app-ic::after { opacity: 1; }
+.app-name { white-space: nowrap; }
+/* The names go before anything else does. Five tiles without words are still five apps. */
+@media (max-width: 1360px) {
+  .app-name { display: none; }
+  .tab { padding: 0 8px; }
+}
+
 /* Demo data on means every number on the board is invented, which is the one thing amber exists to
    say. It is the only coloured control in the dock and that is the point: the third rule is worth
    more than a consistent icon. The switch in Settings breaks the same way for the same reason. */
-#demoBtn[aria-pressed="true"] { background: color-mix(in srgb, var(--cat-warn) 16%, transparent); color: var(--cat-warn); }
+#demoBtn[aria-pressed="true"] { background: var(--cat-warn-tint); color: var(--cat-warn); }
 #demoBtn[aria-pressed="true"] svg { color: var(--cat-warn); }
+#rttChip { color: var(--cat-dim); }
 
 /* ================================================================ notices ====
    The loudest thing on the screen, and the only thing allowed to be. It floats over the view
    rather than pushing it down, so a camera dropping out mid-match changes what the driver sees and
    not where their tiles are. */
+/* Tesla's alert: a rounded dark card near the top of the screen, a telltale symbol in the level's
+   colour, a sentence in white. Centred over the cards rather than across the car panel, and narrow,
+   so the speed and the scene behind it stay readable while it is up. The symbol is a shape as well as
+   a colour - a triangle to check, a square for a fault, a circle for a note, the same square and
+   circle the status bar's dots use - so the level still reads in greyscale. An octagon was tried for
+   the fault and at this size it could not be told from the circle. */
 .notices {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
-  display: flex; flex-direction: column; gap: 8px; padding: 4px 4px 0; pointer-events: none;
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 20;
+  width: min(620px, calc(100% - 2 * var(--gutter)));
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
 }
 .notices[hidden] { display: none; }
 .notice {
-  display: flex; align-items: baseline; gap: 12px; padding: 12px 16px;
-  border-radius: var(--r-sm);
-  background: var(--cat-ink-700);
-  border: 1px solid var(--cat-hair-str); border-left: 3px solid var(--cat-muted);
-  font-size: var(--fs-13);
+  display: flex; align-items: center; gap: 14px; padding: 12px 18px 12px 14px;
+  border-radius: 16px;
+  background: rgba(44, 44, 46, 0.97);
+  border: 0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-size: var(--fs-15);
   /* No fill mode. A filled animation keeps owning `opacity` after it ends and outranks the
      stylesheet, so `[data-stale="true"]` below would never dim the notice it is there to dim. */
   animation: noticeIn var(--cat-dur-release) var(--cat-ease-release);
 }
-.notice.error { border-left-color: var(--cat-bad); background: color-mix(in srgb, var(--cat-bad) 22%, var(--cat-ink-700)); }
-.notice.warn { border-left-color: var(--cat-warn); background: color-mix(in srgb, var(--cat-warn) 18%, var(--cat-ink-700)); }
-/* Blue, not green. Green is "healthy" everywhere else in this program and an informational notice
-   is not a health report. */
-.notice.info { border-left-color: var(--cat-info); }
-/* The level, in a word, before the sentence. A notice bar that is three shades of tint reads as
-   three tints; with the words it reads as a ranked list. */
 .notice::before {
-  flex: none; align-self: center; content: "NOTE";
-  padding: 2px 8px; border-radius: 999px;
-  font-size: var(--fs-12); font-weight: 700; letter-spacing: var(--track-label);
-  background: var(--cat-track); color: var(--cat-text);
+  flex: none; content: ""; width: 26px; height: 26px;
+  background: var(--cat-info);
+  /* A note: a circle. */
+  clip-path: circle(50%);
 }
-.notice.error::before { content: "FAULT"; background: var(--cat-bad); color: var(--cat-ink-900); }
-.notice.warn::before { content: "CHECK"; background: var(--cat-warn); color: var(--cat-ink-900); }
-.notice.info::before { content: "INFO"; background: color-mix(in srgb, var(--cat-info) 22%, transparent); color: var(--cat-info); }
-.notice .nt { font-weight: 700; color: var(--cat-white); white-space: nowrap; }
-.notice .nd { color: var(--cat-text); font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice.warn::before {
+  background: var(--cat-warn);
+  /* Check: a rounded-off triangle, Tesla's amber warning shape. */
+  clip-path: polygon(50% 4%, 97% 90%, 3% 90%);
+}
+.notice.error::before {
+  background: var(--cat-bad);
+  /* Fault: a square. */
+  clip-path: inset(3px round 4px);
+}
+.notice .nt { font-weight: var(--cat-w-medium); color: var(--cat-white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.notice .nd { color: var(--cat-dim); font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice .nk {
-  margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: 600;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  margin-left: auto; font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none; color: var(--cat-dim); flex: none;
 }
 .notice[data-stale="true"] { opacity: 0.45; }
 @keyframes noticeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
@@ -925,25 +1129,28 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 /* ============================================= sheets (tune / logs / topics / can) ==== */
 .sheetwrap { grid-template-columns: 1fr; overflow: hidden; }
 .sheet {
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair);
-  border-radius: var(--r); padding: 20px 24px; overflow: auto;
+  background: var(--cat-ink-800); border: 0;
+  border-radius: var(--r); padding: 24px 32px; overflow: auto;
 }
 .sheet::-webkit-scrollbar { width: 8px; }
 .sheet::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
+/* A section of a sheet is titled the way Tesla titles a section of Controls: sentence case, white,
+   medium, a size up from the rows under it. */
 .sh {
-  font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase;
-  color: var(--cat-muted); font-weight: 700; margin: 0 0 16px;
+  font-size: 18px; letter-spacing: 0; text-transform: none;
+  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 12px 0 8px;
 }
+.sh:first-child { margin-top: 0; }
 .tr { display: grid; grid-template-columns: 200px 1fr 82px; align-items: center; gap: 16px; padding: 12px 0; }
 .tr + .tr { border-top: 1px solid var(--hair-dense); }
-.tr .nm { font-size: var(--fs-13); font-weight: 600; color: var(--cat-white); }
+.tr .nm { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .tr .nm small { display: block; color: var(--cat-muted); font-family: var(--mono); font-size: var(--fs-12); margin-top: 4px; font-weight: 500; }
-.tr .v { font-family: var(--mono); font-size: var(--fs-15); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; color: var(--cat-white); }
+.tr .v { font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); text-align: right; font-variant-numeric: tabular-nums; color: var(--cat-white); }
 
 .empty { color: var(--cat-muted); font-size: var(--fs-13); padding: 20px 0; text-align: center; line-height: 1.6; }
 
 .lg { display: grid; grid-template-columns: 68px 12px 1fr; gap: 0 12px; }
-.lg .lt { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-muted); padding: 8px 0; font-variant-numeric: tabular-nums; }
+.lg .lt { font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-muted); padding: 8px 0; font-variant-numeric: tabular-nums; }
 .lg .rl { position: relative; }
 .lg .rl::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px; background: var(--cat-hair-str); transform: translateX(-50%); }
 .lg .rl i {
@@ -960,11 +1167,11 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .lg .rl.down i { background: var(--cat-bad); border-radius: 1px; }
 .lg .le { padding: 8px 0; font-size: var(--fs-13); line-height: 1.45; color: var(--cat-text); }
 .lg .le .sub { color: var(--cat-muted); font-size: var(--fs-12); margin-top: 4px; }
-.lg .le .held { color: var(--cat-muted); font-family: var(--mono); font-size: var(--fs-12); }
+.lg .le .held { color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-12); }
 
 .lh { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
 .lh .sh { margin: 0; }
-.lh .sum { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
+.lh .sum { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
 
 .note {
   margin-top: 12px; padding: 12px 16px; border-radius: var(--r-sm);
@@ -983,8 +1190,8 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    two boxes do not. */
 .canhead { display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
 .canstat { display: flex; align-items: baseline; gap: 6px; }
-.canstat b { font-size: var(--fs-15); font-weight: 700; color: var(--cat-white); font-variant-numeric: tabular-nums; }
-.canstat small { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
+.canstat b { font-size: var(--fs-15); font-weight: var(--cat-w-semi); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canstat small { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
 
 .cangroup { border: 1px solid var(--cat-hair); border-radius: var(--r-sm); padding: 14px 16px; }
 .cangroup + .cangroup { margin-top: 12px; }
@@ -995,13 +1202,13 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 /* The pair total, above the buses it sums. It is the constraint they are both inside, not a third
    bus, so it leads the group rather than trailing it. */
 .canpair { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; margin-bottom: 12px; }
-.canpair > span { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
-.canpair > b { font-size: var(--fs-13); font-weight: 700; text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canpair > span { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
+.canpair > b { font-size: var(--fs-13); font-weight: var(--cat-w-semi); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
 
 .canbus + .canbus { margin-top: 10px; border-top: 1px solid var(--hair-dense); padding-top: 10px; }
 .canline { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; }
 .canline > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-text); }
-.canline > b { font-size: var(--fs-13); font-weight: 700; text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canline > b { font-size: var(--fs-13); font-weight: var(--cat-w-semi); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
 .canmeta { font-size: var(--fs-12); color: var(--cat-muted); margin: 6px 0 0 90px; }
 
 /* Idle and absent must not look alike. An idle bus measured at zero is dimmed — it is real, it is
@@ -1011,7 +1218,7 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .canbus[data-idle="true"] .canline > span,
 .canbus[data-idle="true"] .canline > b { color: var(--cat-muted); }
 .canbus[data-absent="true"] .canline > b,
-.canpair[data-absent="true"] > b { color: var(--cat-muted); font-weight: 600; }
+.canpair[data-absent="true"] > b { color: var(--cat-muted); font-weight: var(--cat-w-medium); }
 .canbus[data-absent="true"] .ctrack,
 .canpair[data-absent="true"] .ctrack { background: repeating-linear-gradient(
   135deg, var(--cat-track) 0 3px, transparent 3px 6px); }
@@ -1021,7 +1228,7 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   display: flex; align-items: baseline; gap: 6px; padding: 3px 8px;
   background: var(--cat-ink-700); border: 1px solid var(--hair-dense); border-radius: var(--r-sm);
 }
-.candev i { font-style: normal; font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.candev i { font-style: normal; font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-white); font-variant-numeric: tabular-nums; }
 .candev span { font-size: var(--fs-12); color: var(--cat-text); }
 .candev small { font-size: var(--fs-12); color: var(--cat-muted); }
 
@@ -1040,7 +1247,7 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 select, input[type="text"], input[type="number"] {
   background-color: var(--cat-ink-700); border: 1px solid var(--cat-hair-str); color: var(--cat-white);
   border-radius: var(--r-sm); padding: 8px 12px;
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   min-width: 150px;
 }
 /* The colour only, and room on the right. The `background` shorthand this rule used to set also
@@ -1065,17 +1272,19 @@ input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18p
 input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 
 /* ================================================================= modals ==== */
+/* Tesla's pop-up: the screen behind dims, and a dark rounded sheet sits over it with its action as a
+   solid blue button along the bottom. No frosted glass - Tesla dims, it does not blur. */
 .modal {
   position: fixed; inset: 0; z-index: 60;
-  background: color-mix(in srgb, var(--cat-ink-900) 82%, transparent);
-  backdrop-filter: blur(7px);
+  background: rgba(0, 0, 0, 0.62);
   display: none; align-items: center; justify-content: center; padding: 24px;
 }
 .modal[data-open="true"] { display: flex; }
 .picker {
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair-str);
-  border-radius: var(--r-lg); padding: 24px; max-width: 800px; width: 100%;
+  background: var(--cat-surface-1); border: 0;
+  border-radius: 18px; padding: 28px; max-width: 800px; width: 100%;
   max-height: 90vh; overflow: auto;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 /* The same hairline thumb the sheets and the settings pane use. Without it the palette gets the
    user agent's own scrollbar, which on a near-black dialog is a bar of light down one edge and the
@@ -1086,33 +1295,36 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    cards. The narrower measure was an inline width on the markup, which is the one place a value
    like this cannot be found by anyone looking at the stylesheet. */
 .picker.narrow { max-width: 560px; }
-.picker h3 { margin: 0 0 4px; font-size: var(--fs-18); font-weight: 700; letter-spacing: var(--track-head); color: var(--cat-white); }
+.picker h3 { margin: 0 0 6px; font-size: 22px; font-weight: var(--cat-w-medium); letter-spacing: 0; color: var(--cat-white); }
 .picker p { margin: 0 0 16px; font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.55; }
 .pg {
-  font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase;
-  color: var(--cat-muted); font-weight: 700; margin: 16px 0 8px;
+  font-size: var(--fs-15); letter-spacing: 0; text-transform: none;
+  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 20px 0 10px;
 }
 .cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
 .item {
-  background: var(--cat-ink-700); border: 1px solid var(--cat-hair); border-radius: var(--r-sm);
-  padding: 12px; cursor: pointer; text-align: left; color: var(--cat-text); font-family: var(--sans);
+  background: var(--cat-surface-2); border: 0; border-radius: 12px;
+  padding: 14px; cursor: pointer; text-align: left; color: var(--cat-text); font-family: var(--sans);
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.item:hover { border-color: var(--cat-hair-str); }
+.item:hover { background: var(--cat-surface-3); }
 .item .i { color: var(--cat-muted); display: block; margin-bottom: 8px; }
 /* The signal marks provenance, which is what the accent is for here: these are Catalyst's own tiles
    rather than generic ones. */
 .item.own .i { color: var(--cat-coral); }
-.item .n2 { font-size: var(--fs-13); font-weight: 600; color: var(--cat-white); }
+.item .n2 { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .item .d2 { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.4; }
+/* The action, the way Tesla sets one: a solid blue rectangle, softly rounded, white words. */
 .picker .close {
-  margin-top: 16px; width: 100%; height: 44px; border: 1px solid var(--cat-hair-str);
-  border-radius: var(--r-sm); background: var(--cat-ink-700); color: var(--cat-white);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600; cursor: pointer;
+  margin-top: 20px; width: 100%; height: 48px; border: 0;
+  border-radius: 8px; background: var(--cat-signal); color: #ffffff;
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); cursor: pointer;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.picker .close:hover { background: var(--tile-4); }
+.picker .close:hover { background: var(--cat-signal-lt); }
 
 .cfgrow { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px; padding: 8px 0; }
-.cfgrow label { font-size: var(--fs-13); font-weight: 600; color: var(--cat-text); }
+.cfgrow label { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-text); }
 .cfgrow select, .cfgrow input { width: 100%; }
 .hint { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.45; }
 
@@ -1155,8 +1367,8 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .srailhead {
   display: flex; align-items: center; gap: 8px;
   padding: 0 4px 16px 12px;
-  font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase;
-  color: var(--cat-muted); font-weight: 700;
+  font-size: var(--fs-12); letter-spacing: 0; text-transform: none;
+  color: var(--cat-muted); font-weight: var(--cat-w-semi);
 }
 .srailhead span { flex: 1; min-width: 0; }
 /* Outside the scrolling pane, which is why it was pinned in the first place: a close control that
@@ -1194,7 +1406,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .snav {
   flex: none; height: 44px; padding: 0 16px; text-align: left;
   border: 0; border-radius: var(--r-sm); background: transparent; color: var(--cat-text);
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: 600; letter-spacing: var(--track-head);
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: var(--track-head);
   cursor: pointer; display: flex; align-items: center; gap: 12px;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
@@ -1206,7 +1418,9 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 /* The active nav item, which is the second and last thing in the program the accent is spent on.
    The old grey pill needed a hand-picked value off the ramp to clear 3:1 against black; the signal
    clears 5:1 and says what it is at the same time. */
-.snav[aria-selected="true"] { background: var(--cat-coral); color: var(--cat-ink-900); }
+/* Tesla's Controls list marks the open category with a lighter grey sheet behind it, and keeps the
+   blue for the switches and buttons inside it. */
+.snav[aria-selected="true"] { background: var(--cat-surface-2); color: var(--cat-white); }
 .snav[aria-selected="true"] svg { opacity: 1; }
 .snav:active { transform: scale(0.985); }
 
@@ -1224,7 +1438,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    seven of them sliding up on every keystroke is a strobe. */
 .settings[data-search="true"] .ssec[data-active="true"] { animation: none; }
 .snohits { margin: 8px 0 0; font-size: var(--fs-15); color: var(--cat-text); }
-.snohits b { color: var(--cat-white); font-weight: 600; }
+.snohits b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 
 /* The gutter is reserved whether or not this section needs it. Without that, moving from a section
    short enough to fit to one that scrolls shifts the whole column by the width of the scrollbar. */
@@ -1241,7 +1455,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 /* A settle, not an entrance. Six pixels and it is over. */
 @keyframes secIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-.stitle { margin: 8px 0 8px; font-size: var(--fs-32); font-weight: 700; letter-spacing: var(--track-head); color: var(--cat-white); }
+.stitle { margin: 8px 0 8px; font-size: var(--fs-32); font-weight: var(--cat-w-semi); letter-spacing: var(--track-head); color: var(--cat-white); }
 .slead { margin: 0; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 56ch; }
 
 /* ---- rows ----
@@ -1255,20 +1469,20 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   border-bottom: 1px solid var(--cat-hair);
 }
 .srow.stack { grid-template-columns: 1fr; align-items: stretch; gap: 12px; }
-.slab b { display: block; font-size: var(--fs-15); font-weight: 600; letter-spacing: var(--track-head); color: var(--cat-white); }
+.slab b { display: block; font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: var(--track-head); color: var(--cat-white); }
 .slab span { display: block; margin-top: 4px; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 56ch; }
 
 .sctl { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .sctl.start { justify-content: flex-start; }
 .sctl input[type="number"] {
   min-width: 0; width: 132px; height: 44px; text-align: right;
-  font-family: var(--mono); font-size: var(--fs-15); font-weight: 700;
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-semi);
   font-variant-numeric: tabular-nums; border-radius: var(--r-sm);
 }
 .sctl input[type="range"] { width: 240px; height: 6px; }
 .sctl input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
 .sval {
-  font-family: var(--mono); font-size: var(--fs-15); font-weight: 700;
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-semi);
   font-variant-numeric: tabular-nums; color: var(--cat-white); min-width: 72px; text-align: right;
 }
 .sval.wide { min-width: 0; font-size: var(--fs-18); letter-spacing: var(--track-head); }
@@ -1281,7 +1495,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .snote[data-tone="ok"] { color: var(--cat-ok); }
 .snote[data-tone="bad"] { color: var(--cat-bad); }
 .sprose { margin: 24px 0 0; font-size: var(--fs-13); line-height: 1.75; color: var(--cat-text); max-width: 62ch; }
-.sprose b { color: var(--cat-white); font-weight: 600; }
+.sprose b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 
 /* ---- controls ----
    Filled, not outlined, and only in here. In Settings a border made two rows look like a web form
@@ -1338,7 +1552,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .choice button {
   position: relative; z-index: 1; height: 36px; padding: 0 16px;
   border: 0; background: transparent; border-radius: 999px; cursor: pointer;
-  color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
+  color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   transition:
     color var(--cat-dur-effect) var(--cat-ease-effect),
     transform var(--cat-dur-hold) var(--cat-ease-hold);
@@ -1351,7 +1565,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   flex: none; height: 44px; padding: 0 20px; border: 1px solid var(--cat-hair);
   border-radius: var(--r-sm);
   background: var(--cat-ink-800); color: var(--cat-white);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600; cursor: pointer;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); cursor: pointer;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
     color var(--cat-dur-effect) var(--cat-ease-effect),
@@ -1380,12 +1594,12 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .saddr li {
   display: flex; align-items: center; gap: 12px; background: var(--cat-ink-800); padding: 16px;
-  font-family: var(--mono); font-size: var(--fs-13); font-weight: 600; color: var(--cat-text);
+  font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-text);
 }
 .saddr li[data-answered="true"] { color: var(--cat-white); }
 .saddr .what {
-  margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 .saddr li[data-answered="true"] .what { color: var(--cat-ok); }
 
@@ -1412,7 +1626,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .garage[data-known="true"] .gempty { display: none; }
 
 .gempty { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 24px 0; max-width: 46ch; }
-.gempty b { font-size: var(--fs-15); font-weight: 600; color: var(--cat-text); }
+.gempty b { font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-text); }
 .gempty span { font-size: var(--fs-13); line-height: 1.6; color: var(--cat-muted); }
 
 /* Drawn, not photographed. The canvas is sized in CSS and scaled for the device ratio in script,
@@ -1420,8 +1634,8 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .gplan { margin: 0; display: grid; justify-items: center; gap: 12px; }
 .gplan canvas { width: 380px; height: 320px; max-width: 100%; display: block; }
 .gplan figcaption {
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 
 .ghead { text-align: center; margin-top: 24px; }
@@ -1437,8 +1651,8 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .ggroup { display: grid; align-content: start; }
 .ggroup h4 {
-  margin: 0 0 4px; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  margin: 0 0 4px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 .grow {
   display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
@@ -1446,7 +1660,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .grow:last-child { border-bottom: 0; }
 .grow span { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-text); }
-.grow b { font-family: var(--mono); font-size: var(--fs-13); font-weight: 500; color: var(--cat-white); text-align: right; }
+.grow b { font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-white); text-align: right; }
 
 /* ---- the two diagrams ----
    Cards rather than more rows, because neither of these is a label-and-value: one is a topology and
@@ -1462,17 +1676,17 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .gcard { background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r); padding: 16px; min-width: 0; }
 .gcard h4 {
   margin: 0 0 16px; display: flex; align-items: baseline; gap: 8px;
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
-.gcard h4 b { font-family: var(--mono); font-weight: 600; color: var(--cat-text); letter-spacing: 0; }
+.gcard h4 b { font-family: var(--sans); font-weight: var(--cat-w-medium); color: var(--cat-text); letter-spacing: 0; }
 
 /* A bus and the ids hanging off it. Indented and rule-led rather than boxed: the point being made
    is that these devices are on one wire, and a box would say the opposite. */
 .gbus + .gbus { margin-top: 16px; }
 .gbusname {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600; color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white);
   padding-bottom: 8px; border-bottom: 1px solid var(--cat-hair);
 }
 .gbusname span { font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
@@ -1482,7 +1696,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .gdev i {
   flex: none; min-width: 26px; text-align: center;
-  font-family: var(--mono); font-size: var(--fs-12); font-weight: 600; font-style: normal;
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium); font-style: normal;
   color: var(--cat-text); background: var(--cat-ink-700); border-radius: var(--r-sm); padding: 2px 8px;
 }
 .gdev span { font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1492,12 +1706,12 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .gpower { display: grid; grid-template-columns: repeat(auto-fit, minmax(30px, 1fr)); gap: 4px; }
 .gslot {
   aspect-ratio: 1; border-radius: var(--r-sm); background: var(--cat-ink-900); display: grid; place-items: center;
-  font-family: var(--mono); font-size: var(--fs-12); font-weight: 600; color: var(--cat-muted); min-width: 0;
+  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium); color: var(--cat-muted); min-width: 0;
 }
 .gslot[data-on="true"] { background: color-mix(in srgb, var(--cat-data) 32%, var(--cat-ink-900)); color: var(--cat-white); }
 .gpowerkey { margin-top: 16px; display: grid; gap: 8px; }
 .gpowerkey div { display: flex; gap: 12px; font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-text); }
-.gpowerkey b { flex: none; min-width: 26px; font-family: var(--mono); font-weight: 600; color: var(--cat-white); }
+.gpowerkey b { flex: none; min-width: 26px; font-family: var(--sans); font-weight: var(--cat-w-medium); color: var(--cat-white); }
 
 .gfoot {
   width: 100%; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--hair-dense);
@@ -1522,9 +1736,9 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .gcam[data-state="HOT"], .gcam[data-state="LOW_FPS"],
 .gcam[data-state="REJECTING"], .gcam[data-state="NO_NT"] { background: color-mix(in srgb, var(--cat-warn) 9%, transparent); }
 .gcam[data-state="DISCONNECTED"], .gcam[data-state="STALE"] { background: color-mix(in srgb, var(--cat-bad) 12%, transparent); }
-.gcam .n { font-family: var(--sans); font-size: var(--fs-13); font-weight: 600; color: var(--cat-white); min-width: 0; letter-spacing: 0; }
+.gcam .n { font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); min-width: 0; letter-spacing: 0; }
 .gcam .n small { display: block; font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gcam .m { font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; color: var(--cat-text); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gcam .m { font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-text); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---- about, as the last section ----
    The one section that is a document rather than a set of rows, so it keeps its masthead — but at
@@ -1542,7 +1756,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    it rather than the work of separating capitals. */
 .mastname h1 span {
   display: block; margin-bottom: 0.3em; color: var(--cat-muted);
-  font-size: var(--fs-12); font-weight: 300; letter-spacing: 0.42em; text-transform: uppercase;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none;
 }
 .mastname p { margin: 16px 0 0; font-size: var(--fs-15); color: var(--cat-text); line-height: 1.55; max-width: 42ch; }
 .mastver { text-align: right; flex: none; padding-top: 4px; }
@@ -1552,7 +1766,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    column with the dot stranded at one end. Tabular figures because `.cat-pill` sets no `font`
    shorthand, so the root's declaration reaches it and a version is a number. */
 .mastver .cat-pill { font-variant-numeric: tabular-nums; }
-.mastver small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted); font-weight: 700; }
+.mastver small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
 
 /* The one moving thing on the page. An instrument sweeps a line across its face when it is awake;
    this does that once every eight seconds and then rests, which is the difference between a signal
@@ -1566,7 +1780,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   100% { transform: translateX(294%); opacity: 0; }
 }
 
-.ah { margin: 0 0 4px; font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted); font-weight: 700; }
+.ah { margin: 0 0 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
 .alead { margin: 0 0 20px; font-size: var(--fs-13); color: var(--cat-text); line-height: 1.55; }
 
 .rulelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0 44px; }
@@ -1577,11 +1791,11 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 /* Outlined rather than filled: at this size a solid crimson numeral would out-shout the sentence it
    is numbering, and the sentence is the point. */
 .rn {
-  display: block; font-family: var(--mono); font-size: var(--fs-24); font-weight: 700;
+  display: block; font-family: var(--sans); font-size: var(--fs-24); font-weight: var(--cat-w-semi);
   line-height: 1; letter-spacing: -0.05em; color: color-mix(in srgb, var(--cat-coral) 35%, transparent);
   -webkit-text-fill-color: transparent; -webkit-text-stroke: 1.2px color-mix(in srgb, var(--cat-coral) 80%, transparent);
 }
-.rulelist h3 { margin: 0 0 8px; font-size: var(--fs-18); font-weight: 700; letter-spacing: var(--track-head); line-height: 1.25; color: var(--cat-white); }
+.rulelist h3 { margin: 0 0 8px; font-size: var(--fs-18); font-weight: var(--cat-w-semi); letter-spacing: var(--track-head); line-height: 1.25; color: var(--cat-white); }
 /* Scoped to the list items: unscoped, this outranks .alead and flattens the lead paragraph into
    the same size as the rule bodies. */
 .rulelist li p { margin: 0; font-size: var(--fs-13); line-height: 1.7; color: var(--cat-text); max-width: 66ch; }
@@ -1592,11 +1806,11 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .diag { margin-top: 44px; }
 .dgrid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(134px, 1fr)); gap: 1px; background: var(--cat-hair); border-radius: var(--r); overflow: hidden; }
 .dcell { background: var(--cat-ink-800); padding: 16px; min-width: 0; }
-.dcell b { display: block; font-family: var(--mono); font-size: var(--fs-18); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: var(--track-head); color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dcell small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted); font-weight: 700; }
-.assets { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: var(--fs-13); color: var(--cat-text); font-weight: 600; }
+.dcell b { display: block; font-family: var(--sans); font-size: var(--fs-18); font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; letter-spacing: var(--track-head); color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcell small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
+.assets { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: var(--fs-13); color: var(--cat-text); font-weight: var(--cat-w-medium); }
 .asset { display: inline-flex; align-items: center; gap: 8px; }
-.asset b { color: var(--cat-white); font-family: var(--mono); font-weight: 600; }
+.asset b { color: var(--cat-white); font-family: var(--mono); font-weight: var(--cat-w-medium); }
 
 .acols { display: grid; grid-template-columns: 1fr; gap: 44px; margin-top: 44px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 12px 0 0; font-size: var(--fs-13); }
@@ -1605,7 +1819,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 /* A filled cap rather than an outlined one, for the same reason the inputs lost their borders:
    this panel is built out of fills and hairlines. */
 kbd {
-  font-family: var(--mono); font-size: var(--fs-12); font-weight: 700;
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
   background: var(--cat-ink-700); border: 0; border-radius: var(--r-sm); padding: 4px 8px;
   min-width: 22px; text-align: center; color: var(--cat-white);
 }
@@ -1615,7 +1829,7 @@ kbd {
   display: flex; align-items: center; gap: 12px; width: 100%;
   border: 1px solid var(--cat-hair); border-radius: var(--r-sm);
   background: var(--cat-ink-800); color: var(--cat-white);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   padding: 12px 16px; cursor: pointer; text-align: left;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
@@ -1623,7 +1837,7 @@ kbd {
 }
 .alink:hover { background: var(--cat-ink-700); }
 .alink:active { background: var(--tile-4); transform: scale(0.99); }
-.alink small { margin-left: auto; font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
+.alink small { margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
 .credit { margin: 20px 0 0; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); }
 
 .relnotes { margin-top: 20px; background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r); padding: 20px; }
@@ -1665,8 +1879,8 @@ kbd {
 .cvital[data-level="warn"]::before { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 6px, transparent 6px 11px); }
 .cvital[data-level="crit"]::before { background: var(--cat-bad); }
 .cvk {
-  font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 .cvn { display: flex; align-items: baseline; gap: 4px; margin: 8px 0 12px; }
 .cvn b {
@@ -1702,13 +1916,13 @@ kbd {
 .cbuses { display: flex; flex-direction: column; gap: 16px; }
 .cgroup { border-left: 2px solid var(--cat-hair-str); padding-left: 12px; }
 .cgroup > h4 {
-  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 .cbus { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 12px; }
 .cbus + .cbus { margin-top: 8px; }
 .cbus > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-text); }
-.cbus > b { font-size: var(--fs-13); text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--cat-white); }
+.cbus > b { font-size: var(--fs-13); text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .cbus[data-idle="true"] > span,
 .cbus[data-idle="true"] > b { color: var(--cat-muted); }
 
@@ -1733,7 +1947,7 @@ kbd {
   padding: 8px 0; border-bottom: 1px solid var(--cat-hair); font-size: var(--fs-13);
 }
 .crow > span { color: var(--cat-text); }
-.crow > b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--cat-white); }
+.crow > b { font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; text-align: right; color: var(--cat-white); }
 .crow > b.dim { color: var(--cat-muted); font-weight: 500; }
 .crow .sub { color: var(--cat-muted); font-size: var(--fs-12); margin-left: 8px; }
 .crows.tight .crow { padding: 4px 0; font-size: var(--fs-13); }
@@ -1752,19 +1966,19 @@ kbd {
 .ccores { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .ccore { display: grid; grid-template-columns: 26px 1fr 42px; align-items: center; gap: 8px; }
 .ccore > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-muted); }
-.ccore > b { font-size: var(--fs-12); text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--cat-white); }
+.ccore > b { font-size: var(--fs-12); text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .ccore .mhz { display: block; font-size: var(--fs-12); color: var(--cat-muted); font-weight: 500; }
 
 .csplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
 .csplit h4 {
-  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
+  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
 }
 
 .ccounters { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 24px; }
 .ccounters:empty { display: none; }
 .ccounter { font-size: var(--fs-12); color: var(--cat-text); font-variant-numeric: tabular-nums; }
-.ccounter b { color: var(--cat-white); font-weight: 600; }
+.ccounter b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 .ccounter .bad { color: var(--cat-bad); }
 .ccounter .name { font-family: var(--mono); color: var(--cat-muted); }
 

@@ -277,11 +277,13 @@ export function createField(canvas, opts) {
            The band is narrow on purpose. Too light and the field is a slab of glare that pulls the eye
            off the robot; too dark and it is a black void with no readable structure. These sit the
            carpet and framing around #3a-#48 — clearly present, clearly behind the robot. */
+        // Tesla renders the world around its car in flat greys and keeps colour for what matters, so the
+        // field keeps only a trace of each part's hue - enough that alliance structures still lean red
+        // or blue - and the robot, lit near-white, is the one bright thing in the scene.
         const colour = new THREE.Color().setHSL(
           hsl.h,
-          hsl.s * 0.55,
-          // Grey parts land mid-dark and even; coloured parts keep a little more presence.
-          hsl.s < 0.15 ? 0.33 : 0.35 + hsl.s * 0.12,
+          hsl.s * 0.22,
+          hsl.s < 0.15 ? 0.3 : 0.31 + hsl.s * 0.08,
           THREE.SRGBColorSpace
         );
         const flatMat = new THREE.MeshLambertMaterial({

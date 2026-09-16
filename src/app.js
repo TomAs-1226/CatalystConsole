@@ -911,9 +911,11 @@ define("tower", {
       return;
     }
 
+    // Sentence case, as every other state on the board is written now. The pill's colour and the tile's
+    // tint already carry the urgency the capitals were adding.
     x.status.textContent = soon
-      ? (active ? "CLOSING" : "OPENING")
-      : (active ? "HUB ACTIVE" : "HUB INACTIVE");
+      ? (active ? "Closing" : "Opening")
+      : (active ? "Hub active" : "Hub inactive");
     x.count.textContent = left === null ? "—" : left.toFixed(1);
     x.unit.textContent = left === null ? "" : "s";
     x.src.textContent = source || "robot";
@@ -1777,19 +1779,33 @@ define("field", {
   ],
   render(body, cfg, state) {
     track(cfg.poseKey);
+    /* Tesla's car panel, for a robot: the speed large at the top left with its unit under it, the
+     * pose as the small line of figures Tesla sets beneath, the scene filling the panel, and the
+     * camera choices as round buttons floating at the right edge the way Tesla floats its map
+     * controls. The label goes to the foot of the panel as a quiet credit, where Tesla's map puts
+     * its attribution. */
     body.innerHTML = `
       <canvas class="fieldcanvas" data-x="canvas"></canvas>
-      <div class="fieldlab">Field</div>
-      <div class="fieldchips">
-        <div class="fc">x <b data-x="fx">—</b> m</div>
-        <div class="fc">y <b data-x="fy">—</b> m</div>
-        <div class="fc">θ <b data-x="ft">—</b>°</div>
+      <div class="car-head">
+        <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
+        <div class="car-stats">
+          <span>x <b data-x="fx">—</b> m</span>
+          <span>y <b data-x="fy">—</b> m</span>
+          <span>θ <b data-x="ft">—</b>°</span>
+        </div>
         <div class="fc off" data-x="foff" hidden>drawn at the wall</div>
       </div>
-      <div class="fieldbtns">
-        <button class="fbtn" data-mode="chase">Chase</button>
-        <button class="fbtn" data-mode="top">Overhead</button>
-        <button class="fbtn" data-mode="free">Free</button>
+      <div class="fieldlab">Field</div>
+      <div class="fieldbtns" role="group" aria-label="Camera">
+        <button class="fbtn" data-mode="chase" title="Chase" aria-label="Chase camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/></svg>
+        </button>
+        <button class="fbtn" data-mode="top" title="Overhead" aria-label="Overhead camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9.5" y="9" width="5" height="6" rx="1"/></svg>
+        </button>
+        <button class="fbtn" data-mode="free" title="Free" aria-label="Free camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="3.6"/><path d="M18 7.5l2.2 1.3-1 2.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>
+        </button>
       </div>`;
 
     const canvas = body.querySelector("[data-x=canvas]");
@@ -1839,6 +1855,27 @@ define("field", {
     x.fx.textContent = valid ? pose[0].toFixed(2) : "—";
     x.fy.textContent = valid ? pose[1].toFixed(2) : "—";
     x.ft.textContent = valid ? ((pose[2] * 180) / Math.PI).toFixed(0) : "—";
+
+    /* The speed Tesla puts at the top of its panel, taken from how far the estimated pose moved since
+     * the last paint. Smoothed, because a pose estimator's step-to-step noise divided by a 100ms
+     * interval would make the figure flicker at rest; a pose that stops arriving reads as the robot
+     * stopping, which is also what it is from here. */
+    const now = performance.now();
+    if (valid) {
+      const last = state.lastPose;
+      if (last && now > last.t) {
+        const step = Math.hypot(pose[0] - last.x, pose[1] - last.y) / ((now - last.t) / 1000);
+        // A teleport - a reset pose, an alliance flip - is not a speed.
+        const instant = step > 8 ? state.speed ?? 0 : step;
+        state.speed = (state.speed ?? instant) * 0.7 + instant * 0.3;
+      }
+      state.lastPose = { x: pose[0], y: pose[1], t: now };
+    } else {
+      state.lastPose = null;
+      state.speed = null;
+    }
+    x.speed.textContent = state.speed == null ? "—" : state.speed < 0.05 ? "0.0" : state.speed.toFixed(1);
+    x.speed.dataset.empty = String(state.speed == null);
     /* The readouts are the estimator's numbers wherever they are. The drawing is held inside the
        walls: a robot rendered through a wall, or off the slab entirely, tells the driver nothing
        that the chip does not say better. */
@@ -1869,20 +1906,23 @@ const GRID_COLS = 12;
 const GRID_ROWS = 8;
 const STORE_KEY = "catalyst.console.layout.v2";
 
+/* Tesla's arrangement: the car panel down the whole left third, and the cards to its right where
+ * Tesla opens its apps over the map. The field is a tile like any other and can still be moved or
+ * removed; this is only where a new board starts. */
 const DEFAULT_LAYOUT = [
-  { type: "match", x: 0, y: 0, w: 3, h: 2 },
-  { type: "tower", x: 3, y: 0, w: 3, h: 2 },
-  { type: "health", x: 6, y: 0, w: 3, h: 2 },
-  { type: "battery", x: 9, y: 0, w: 3, h: 2 },
-  { type: "field", x: 0, y: 2, w: 5, h: 6 },
-  { type: "gauge", x: 5, y: 2, w: 4, h: 3,
+  { type: "field", x: 0, y: 0, w: 4, h: 8 },
+  { type: "match", x: 4, y: 0, w: 3, h: 2 },
+  { type: "tower", x: 7, y: 0, w: 2, h: 2 },
+  { type: "health", x: 9, y: 0, w: 3, h: 2 },
+  { type: "gauge", x: 4, y: 2, w: 5, h: 3,
     cfg: { topic: "/Catalyst/Drive/FrontLeft/Velocity,/Catalyst/Drive/FrontRight/Velocity,/Catalyst/Drive/BackLeft/Velocity,/Catalyst/Drive/BackRight/Velocity",
            title: "Drive", style: "arc", unit: "RPM", scale: 60, min: 0, max: 6000, redline: 5800, decimals: 0 } },
   { type: "physics", x: 9, y: 2, w: 3, h: 3 },
-  { type: "alerts", x: 5, y: 5, w: 4, h: 3 },
-  { type: "auto", x: 9, y: 5, w: 3, h: 1 },
-  { type: "graph", x: 9, y: 6, w: 3, h: 2,
+  { type: "alerts", x: 4, y: 5, w: 3, h: 3 },
+  { type: "graph", x: 7, y: 5, w: 3, h: 2,
     cfg: { topic: "/Catalyst/Loop/Robot/AverageMs", title: "Loop time", decimals: 1 } },
+  { type: "auto", x: 7, y: 7, w: 3, h: 1 },
+  { type: "battery", x: 10, y: 5, w: 2, h: 3 },
 ];
 
 let layout = [];
@@ -2612,12 +2652,17 @@ function paintTune() {
       const isBool = raw(t.key)?.t === "bool";
 
       if (isBool) {
-        const btn = el("button", "dk");
-        btn.style.cssText = "height:34px;background:var(--tile-2)";
-        btn.textContent = bool(t.key) ? "On" : "Off";
-        btn.onclick = () => ntSet(t.key, !bool(t.key));
-        row.appendChild(btn);
-        row.appendChild(el("div", "v", bool(t.key) ? "ON" : "OFF"));
+        // A switch, the control Settings already uses for an on-or-off setting, and the one Tesla's
+        // Controls screen uses. A button that read "On" had to be read to be understood.
+        const tog = el("button", "tog");
+        tog.type = "button";
+        tog.setAttribute("role", "switch");
+        tog.setAttribute("aria-checked", String(bool(t.key)));
+        tog.setAttribute("aria-label", t.name || leaf(t.key));
+        tog.appendChild(el("i"));
+        tog.onclick = () => ntSet(t.key, !bool(t.key));
+        row.appendChild(tog);
+        row.appendChild(el("div", "v", bool(t.key) ? "On" : "Off"));
       } else {
         const slider = el("input");
         slider.type = "range";
@@ -3220,11 +3265,41 @@ function paintHeader() {
   const event = str("/FMSInfo/EventName", "");
   const match = num("/FMSInfo/MatchNumber", null);
   const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
-  /* The house wordmark, then the robot's state. Both halves are rewritten together because this one
-   * assignment owns the whole span; the classes are the identity's and styles.css leaves them alone. */
+  /* The status line carries the match, not the product: Tesla's bar has no wordmark on it, and the mark
+   * beside the drive-mode letters already says whose screen this is. */
   $("#ident").innerHTML =
-    `<span class="cat-wordmark"><span class="cat-wordmark__prefix">Catalyst</span> <span class="cat-wordmark__name">Console</span></span>` +
-    `<span class="idstate"> · ${side ? (side === "red" ? "Red" : "Blue") : "no"} alliance · ${escapeHtml(where)}</span>`;
+    `<span class="idstate">${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance · ${escapeHtml(where)}</span>`;
+
+  /* The drive-mode letters. Unlinked lights none of them: with nothing on the other end the robot is
+   * in no mode, and a lit D would say it had been disabled. */
+  const gears = $("#gears");
+  const gear = !linked ? "none"
+    : ds.estop ? "estop"
+    : !ds.enabled ? "disabled"
+    : ds.test ? "test"
+    : ds.auto ? "auto"
+    : "teleop";
+  if (gears.dataset.mode !== gear) {
+    gears.dataset.mode = gear;
+    gears.setAttribute("aria-label", `Robot mode: ${linked ? ds.mode : "no robot"}`);
+  }
+
+  /* The charge. The cell is drawn between 10.5 V, where a robot browns out, and 12.8 V, a pack fresh
+   * off the charger; the thresholds are the battery tile's defaults, so the bar and the tile agree
+   * about what "low" means. */
+  // The same keys, in the same order, the battery tile reads, so the bar and the tile never disagree.
+  const voltKey = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"]
+    .find((k) => has(k));
+  const volts = linked && voltKey ? num(voltKey, null) : null;
+  const batt = $("#batt");
+  $("#battText").textContent = volts === null ? "— V" : `${volts.toFixed(1)} V`;
+  $("#battFill").setAttribute("width", volts === null ? "0" : (19 * clamp01((volts - 10.5) / (12.8 - 10.5))).toFixed(1));
+  batt.dataset.level = volts === null ? "none" : volts < 10.5 ? "critical" : volts < 11.5 ? "low" : "ok";
+
+  /* Tesla's clock, in the status line. Written only when the minute changes, not ten times a second. */
+  const now = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const clockEl = $("#clock");
+  if (clockEl.textContent !== now) clockEl.textContent = now;
 
   $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
   $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";

@@ -11,12 +11,13 @@
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",
     "serve": "node scripts/serve.mjs",
-    "dev": "tauri dev",
-    "build": "node scripts/check-identity.mjs --write && tauri build",
+    "dev": "node scripts/vendor.mjs && tauri dev",
+    "build": "node scripts/check-identity.mjs --write && node scripts/vendor.mjs && tauri build",
     "identity": "node scripts/check-identity.mjs --write",
     "check-identity": "node scripts/check-identity.mjs"
   },
   "devDependencies": {
+    "@fontsource-variable/figtree": "^5.3.0",
     "@tauri-apps/cli": "^2",
     "three": "^0.170.0"
   }
