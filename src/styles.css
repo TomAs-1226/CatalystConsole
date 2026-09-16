@@ -22,6 +22,19 @@
    The handful of literals left here are the two things the identity deliberately leaves to the app:
    Console's squared geometry, and the sizes its board readouts are set at. Both are called out
    where they appear. */
+/* The dash a large reading shows when it has no value, and nothing else, taken from the mono face.
+   In the display face at a light weight an em dash is a long hairline, and with no digits beside it
+   it reads as an underline waiting to be filled in; Cascadia's is one cell wide and sits on the
+   digits' centre. `unicode-range` limits this face to that one character, so every digit, colon and
+   letter in a reading still comes from the display face, and the thirty places app.js writes a dash
+   need no change. Local fonts only: nothing is fetched. */
+@font-face {
+  font-family: "Catalyst Readout Dash";
+  src: local("Cascadia Code"), local("CascadiaCode-Regular"), local("Cascadia Code Regular"),
+       local("Cascadia Mono"), local("CascadiaMono-Regular"), local("Consolas");
+  unicode-range: U+2014;
+}
+
 :root {
   /* The shape scale is the identity's, unchanged.
      This sheet used to square everything to 2px, on the theory that an instrument has hard corners.
@@ -53,12 +66,13 @@
 
   /* ---- derived, and deliberately few ----
      Two grounds the identity does not name but a dashboard cannot do without: the empty half of a
-     bar, and the fill of a bar showing a magnitude rather than a state. The second one has to be
-     neutral — motor hours are data, and painting data in --cat-ok would spend the one colour that is
-     supposed to mean "healthy" — so it takes the identity's faint ink, which is the step reserved
-     for something that is looked at rather than read. */
+     bar, and the colour of a magnitude rather than a state - a gauge's arc, a graph's trace, motor
+     hours. The second was the faint ink for a while, and a board of grey arcs and grey traces read as
+     switched off. It is the identity's steel blue now, which is Bezel's "ice": the colour for a
+     quantity. It still never spends ok, warn or bad, so green, amber and red keep meaning healthy,
+     check and fault; blue only ever says "this is how much". 7.3:1 on a tile, so it holds as text. */
   --cat-track: var(--cat-surface-3);
-  --cat-data: var(--cat-faint);
+  --cat-data: var(--cat-info);
 
   --r-sm: var(--cat-r-chip);
   --r: var(--cat-r-card);
@@ -66,6 +80,8 @@
 
   --sans: var(--cat-sans);
   --mono: var(--cat-mono);
+  /* Large readings: the display face, with the placeholder dash drawn from the mono one (above). */
+  --readout: "Catalyst Readout Dash", var(--cat-sans);
 
   /* The scale. Six steps, nothing between them. A size that is not on this list is an accident.
      Four of the six are the identity's own. The top two are not: the identity's display scale steps
@@ -340,21 +356,44 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   /* buildBoard sets both inline from GRID_COLS / GRID_ROWS; kept in step so the stylesheet does
      not lie about the board it is describing. */
   grid-template-rows: repeat(8, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 
 /* ================================================================== tiles ====
-   Depth comes from ground, not from shadow: --cat-ink-800 sitting on --cat-ink-900 with one
-   hairline. Nothing on this board casts. */
+   Depth comes from tone, not from shadow and not from an outline: the first surface on the ground,
+   with the identity's one-pixel lift along its top edge where light would catch it. Nothing on this
+   board casts.
+
+   The anatomy is Bezel's tile, and every tile on the board shares it: a quiet mono label, a display
+   value, a secondary line, and any controls last. Padding is 18 by 20 rather than Bezel's 24 because
+   this board holds ten tiles where a Bezel panel holds four, and a row here is 84px tall. */
 .t {
-  background: var(--cat-ink-800);
-  border: 1px solid var(--cat-hair);
+  background: var(--cat-surface-1);
+  border: 0;
+  box-shadow: var(--cat-lift);
   border-radius: var(--r);
-  padding: 16px;
+  /* Proportional to the window's height, because that is what decides a row's: 18px at 900px tall,
+     down to 10px on the short Console that sits above a Driver Station on a 768px laptop. */
+  padding: clamp(10px, 2vh, 18px) clamp(14px, 1.4vw, 20px);
   min-width: 0; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column; position: relative;
 }
 .t.pad0 { padding: 0; }
+
+/* A one-row tile is a row: the label on the left, the reading or the control on the right. Stacked,
+   the anatomy left a dropdown 22px to sit in at 900px tall and less below that, so the chooser
+   scrolled inside its own tile; side by side, the control gets the tile's whole height at any window
+   size, and a single value reads as a labelled line, which is what a one-row tile is for. The body
+   stretches rather than centres, because it is a size container and has no height of its own to be
+   centred by. */
+.t[data-h="1"] {
+  flex-direction: row; align-items: stretch; column-gap: 16px;
+  padding: clamp(6px, 1.3vh, 12px) clamp(12px, 1.2vw, 16px);
+}
+.t[data-h="1"] > .h { align-self: center; flex: none; max-width: 45%; min-height: 0; margin-bottom: 0; }
+.t[data-h="1"] > .fillhost { min-width: 0; }
+.t[data-h="1"] .fill { align-items: stretch; }
+.t[data-h="1"] select { padding-top: 4px; padding-bottom: 4px; }
 
 /* ---- the severity channel -------------------------------------------------
    This is the whole point of the redesign. app.js marks a bad value by putting `crit` or `warn` on
@@ -391,11 +430,14 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t:has(.crit)::before,
 .t:has(.al.error)::before { background: var(--cat-bad); }
 
+/* The label is the launch material's eyebrow: mono, small, tracked, quiet. It names the tile and says
+   nothing else, so the value under it is the first thing read. */
 .t > .h {
   display: flex; align-items: center; gap: 8px; flex: none;
-  font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase;
-  color: var(--cat-muted);
+  min-height: clamp(14px, 2.2vh, 20px); margin-bottom: clamp(2px, 0.7vh, 6px);
+  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--cat-dim);
 }
 .t > .h > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t > .h .s {
@@ -405,9 +447,9 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 .t > .h::after {
   display: none; content: "";
-  flex: none; padding: 2px 8px; border-radius: 999px;
-  font-size: var(--fs-12); font-weight: 700; letter-spacing: var(--track-label);
-  line-height: 1.3;
+  flex: none; padding: 3px 9px; border-radius: 999px;
+  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 700; letter-spacing: 0.1em;
+  line-height: 1.2;
 }
 .t:has(.warn) > .h::after,
 .t.tower[data-soon="true"] > .h::after {
@@ -426,15 +468,33 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
 .t .fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
 
+/* A tile's body is a size container, so what is inside can be sized by the room the tile actually has
+   rather than by the room a 900px window gives it. A large reading declares the size it wants as
+   --size and is capped at a share of the body's height, --fit, so a short tile gets a smaller number
+   instead of a number that pushes everything else out of the tile. The body's own size never depends
+   on its contents - it is a flex:1 child of a grid cell - so the containment costs nothing. */
+.fillhost { container: tile / size; }
+[style*="--size"] { font-size: min(var(--size), var(--fit, 40cqh)); }
+/* The line a large reading sits on is the reading's height and no more. Left to inherit the page's
+   1.45, the wrapper around a 52px number was a 75px-tall line with the number in the middle of it. */
+.t .fill > div:has(> .n) { line-height: 1; }
+
 /* ---- values ----
    `.n` and `.mv` are written by app.js, which reassigns className wholesale, so every state cue
    below has to hang off the state class itself rather than off anything added here. */
+/* A reading is set in the display face at a light weight, the way the launch material sets its
+   numbers: large and thin reads from across a pit, where heavy mono at the same size turns every
+   digit into a block. Tabular figures, so a value that changes ten times a second does not jitter
+   sideways. The unit is quiet mono beside it, so the number is the only large thing. */
 .n {
-  font-family: var(--mono); font-weight: 700;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.035em; line-height: 1;
+  font-family: var(--readout); font-weight: 300;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1;
   color: var(--cat-white);
 }
-.u { font-size: var(--fs-13); color: var(--cat-muted); font-weight: 600; margin-left: 4px; }
+.u {
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: 500;
+  color: var(--cat-dim); margin-left: 6px; letter-spacing: 0;
+}
 .cap { font-size: var(--fs-12); color: var(--cat-muted); line-height: 1.45; }
 .cap b { color: var(--cat-text); font-weight: 600; }
 
@@ -493,6 +553,10 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t .tools { display: none; position: absolute; top: 8px; right: 8px; gap: 4px; z-index: 2; }
 .app[data-edit="true"] .t .tools { display: flex; }
 .app[data-edit="true"] .t .h .s { opacity: 0; }
+/* The two edit buttons sit in the corner where the label row ends, over the CHECK or FAULT badge. The
+   row gives up their width while editing rather than hiding the badge: a board being rearranged mid-
+   practice is still reporting a fault. */
+.app[data-edit="true"] .t > .h { padding-right: 46px; }
 .tbtn {
   width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--cat-hair-str);
   cursor: pointer; font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
@@ -507,19 +571,20 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
 /* ---- match timer ---- */
 .phase {
-  font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase;
-  font-weight: 700; color: var(--cat-text); margin-bottom: 4px;
+  font-family: var(--mono); font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase;
+  font-weight: 600; color: var(--cat-text); margin-bottom: 8px;
 }
 .segs { display: flex; gap: 4px; margin-top: 12px; flex: none; }
 .seg { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); overflow: hidden; }
 /* Neutral, because "which third of the match is this" is not a state — it is a position. Only the
    endgame segment is coloured, and it is amber because the last thirty seconds genuinely is one. */
 .seg i { display: block; height: 100%; width: 0; background: var(--cat-text); }
+.seg.auto i { background: var(--cat-data); }
 .seg.end i { background: var(--cat-warn); }
 .seglab {
-  display: flex; gap: 4px; margin-top: 4px;
-  font-size: var(--fs-12); color: var(--cat-muted);
-  letter-spacing: var(--track-label); text-transform: uppercase; font-weight: 700;
+  display: flex; gap: 4px; margin-top: 6px;
+  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim);
+  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
 }
 .seglab span { flex: 1; }
 
@@ -530,10 +595,10 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower { position: relative; overflow: hidden; }
 .tower .fill { justify-content: space-between; }
 .tower .status {
-  display: inline-block; padding: 4px 12px; border-radius: 999px;
-  font-size: var(--fs-18); font-weight: 700; letter-spacing: var(--track-head);
+  display: inline-block; padding: 5px 14px; border-radius: 999px;
+  font-size: var(--fs-15); font-weight: 600; letter-spacing: 0.02em;
 }
-.tower .n { font-size: var(--fs-32); }
+.tower .n { font-size: min(var(--fs-32), 30cqh); }
 .tower[data-active="true"] { background: linear-gradient(160deg, color-mix(in srgb, var(--cat-ok) 14%, transparent), var(--cat-ink-800) 62%); }
 .tower[data-active="true"] .status {
   color: var(--cat-ok);
@@ -553,8 +618,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower[data-active="true"] .bars i { background: var(--cat-ok); }
 .tower[data-soon="true"] .bars i { background: var(--cat-warn); }
 .tower .who {
-  font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--cat-dim);
 }
 .tower .who.red { color: var(--cat-bad); }
 .tower .who.blue { color: var(--cat-info); }
@@ -572,13 +637,13 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .gauge { text-align: center; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge svg { display: block; overflow: visible; }
 .gauge .gv {
-  font-family: var(--mono); font-weight: 700;
-  font-variant-numeric: tabular-nums; letter-spacing: var(--track-head);
+  font-family: var(--readout); font-weight: 300;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
   color: var(--cat-white);
 }
 .gauge .gl {
-  font-size: var(--fs-12); color: var(--cat-muted);
-  letter-spacing: var(--track-label); text-transform: uppercase; font-weight: 700; margin-top: 4px;
+  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim);
+  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; margin-top: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 
@@ -586,22 +651,24 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
    `.row` and `.k` are emitted by the Systemcore component (app.js, the CPU/RAM/Disk lines) and had
    no rule anywhere in this sheet, so the label, the number and the unit ran together as three
    unaligned inline spans. Three rows of one shape, with the numbers in a column that lines up. */
+/* Two pixels between rows, not four: at the readout size the tile's anatomy gives these numbers, three
+   rows and the battery line only fit a two-row tile with the spacing coming out of the gaps. */
 .t .row {
   display: grid; grid-template-columns: 52px 1fr auto;
-  align-items: baseline; gap: 8px; padding: 4px 0;
+  align-items: baseline; gap: 8px; padding: 2px 0;
 }
 .t .row .k {
-  font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted);
+  font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--cat-dim);
 }
-.t .row .n { font-size: var(--fs-18); text-align: right; }
+.t .row .n { font-size: var(--fs-24); text-align: right; }
 .t .row .u { margin-left: 0; }
 
 /* ---- multi-value tiles ---- */
 .m3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .mv {
-  font-family: var(--mono); font-size: var(--fs-18); font-weight: 700;
-  font-variant-numeric: tabular-nums; letter-spacing: var(--track-head);
+  font-family: var(--readout); font-size: min(var(--fs-32), 34cqh); font-weight: 300;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1.05;
   color: var(--cat-white);
   /* The severity rule under a flagged cell. Inset shadow, so switching it on is a repaint and the
      three cells beside it never move. */
@@ -610,8 +677,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mv.warn { box-shadow: inset 0 -3px 0 var(--cat-warn); }
 .mv.crit { box-shadow: inset 0 -3px 0 var(--cat-bad); }
 .ml {
-  font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px;
-  letter-spacing: var(--track-label); text-transform: uppercase; font-weight: 700;
+  font-family: var(--mono); font-size: var(--cat-fs-11); color: var(--cat-dim); margin-top: 6px;
+  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* The label under a flagged cell says so in words as well, because in a three-up tile the colour
@@ -620,6 +687,37 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mv.warn + .ml::before { content: "\25B2  "; }
 .mv.crit + .ml { color: var(--cat-bad); }
 .mv.crit + .ml::before { content: "\25A0  "; }
+
+/* ---- short tiles ----
+   What gives when a tile has less room than the anatomy was drawn for. Gaps close before anything is
+   hidden, and nothing that says what state a thing is in is hidden at all. */
+@container tile (max-height: 120px) {
+  .phase { margin-bottom: 2px; line-height: 1.15; }
+  .segs { margin-top: 6px; }
+  .seglab { margin-top: 3px; }
+  .ml { margin-top: 3px; }
+  .t .track { margin: 5px 0; }
+  .cap { line-height: 1.3; }
+
+  /* Hub activation keeps its three facts - which hub, whether it is live, how long it has - but the
+     countdown moves up beside the pill instead of taking a row of its own. */
+  .tower .fill { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
+  .tower .fill > div:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .tower .fill > div:nth-child(2) { grid-column: 2; grid-row: 1; align-self: end; }
+  .tower .fill > div:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .tower .bars { margin-top: 4px; }
+}
+
+/* The shortest tiles, on a window that has given most of its height to something else. Explanations
+   give way here - which rule is in force, what the budget is - and every state stays. */
+@container tile (max-height: 80px) {
+  .tower .cap, .t .m3 ~ .cap { display: none; }
+  .t .track { margin: 3px 0; }
+  .segs { margin-top: 4px; }
+  /* The phase line above the clock already names the period, so the segment names are the repeat. */
+  .seglab { display: none; }
+  .tower .status { padding: 2px 10px; font-size: var(--fs-13); }
+}
 
 /* ---- alert rows ----
    Ground tint as well as a stripe: a hairline of colour on the left of a 12px row is not enough
@@ -655,15 +753,15 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .au-fill { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .au-authority { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 4px 12px; align-items: center; }
 .au-scale { grid-row: 1 / span 2; display: flex; align-items: baseline; gap: 4px; }
-.au-scale .n { font-size: var(--fs-32); }
+.au-scale .n { font-size: min(var(--fs-32), 20cqh); }
 .au-scale .u { font-size: var(--fs-12); color: var(--cat-muted); }
 .au-track { height: 6px; background: var(--cat-track); border-radius: 999px; overflow: hidden; align-self: end; }
 .au-track i { display: block; height: 100%; border-radius: 999px; }
 .au-authority .cap { align-self: start; }
-.au-row { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: baseline; font-size: var(--fs-13); }
+.au-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: baseline; font-size: var(--fs-13); }
 .au-row .k {
-  color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-12); font-weight: 700;
-  letter-spacing: var(--track-label); text-transform: uppercase;
+  color: var(--cat-dim); font-family: var(--mono); font-size: var(--cat-fs-11); font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
 }
 .au-row .dim { color: var(--cat-muted); }
 .au-row .warn { color: var(--cat-warn); }
@@ -700,10 +798,12 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 
 /* ---- field view ---- */
 .fieldcanvas { display: block; width: 100%; height: 100%; border-radius: var(--r); }
+/* The same label every other tile wears, placed where the tile padding would have put it: this tile
+   draws edge to edge, so its label sits over the scene rather than above it. */
 .fieldlab {
-  position: absolute; left: 16px; top: 14px;
-  font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase;
-  color: var(--cat-muted); font-weight: 700; pointer-events: none;
+  position: absolute; left: 20px; top: 18px;
+  font-family: var(--mono); font-size: var(--cat-fs-11); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--cat-dim); font-weight: 600; pointer-events: none;
 }
 .fieldchips { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; pointer-events: none; }
 .fc {
@@ -938,11 +1038,15 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    that reasoning does not travel. Out here a control's ground is the panel, and a fill alone is
    too small a step to say "you can type in this". */
 select, input[type="text"], input[type="number"] {
-  background: var(--cat-ink-700); border: 1px solid var(--cat-hair-str); color: var(--cat-white);
+  background-color: var(--cat-ink-700); border: 1px solid var(--cat-hair-str); color: var(--cat-white);
   border-radius: var(--r-sm); padding: 8px 12px;
   font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
   min-width: 150px;
 }
+/* The colour only, and room on the right. The `background` shorthand this rule used to set also
+   reset the identity's background image, which is the chevron: with the platform's arrow switched
+   off and the drawn one wiped, every dropdown in Console looked like a text box. */
+select { padding-right: var(--cat-space-6); }
 /* WebView2 draws spin arrows over the right edge of a right-aligned mono field, on top of the
    digits — and every number in this program is set by typing or by the row above it, never by
    nudging a two-pixel arrow at arm's length in a pit. */
@@ -1390,7 +1494,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   aspect-ratio: 1; border-radius: var(--r-sm); background: var(--cat-ink-900); display: grid; place-items: center;
   font-family: var(--mono); font-size: var(--fs-12); font-weight: 600; color: var(--cat-muted); min-width: 0;
 }
-.gslot[data-on="true"] { background: var(--cat-data); color: var(--cat-white); }
+.gslot[data-on="true"] { background: color-mix(in srgb, var(--cat-data) 32%, var(--cat-ink-900)); color: var(--cat-white); }
 .gpowerkey { margin-top: 16px; display: grid; gap: 8px; }
 .gpowerkey div { display: flex; gap: 12px; font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-text); }
 .gpowerkey b { flex: none; min-width: 26px; font-family: var(--mono); font-weight: 600; color: var(--cat-white); }

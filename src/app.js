@@ -460,11 +460,12 @@ function fmt(v, decimals = 1) {
 }
 
 function clock(seconds) {
-  // Figure dashes in the shape of the reading it stands in for, m:ss. Two em dashes either side of a
-  // colon, set 52px in the display face, drew as one bar with a dot through it rather than a clock
-  // with no time on it - and a figure dash is exactly a digit wide in tabular numerals, so the tile
-  // does not shift when the first real time arrives.
-  if (seconds === null || seconds === undefined) return "‒:‒‒";
+  // Minus signs in the shape of the reading they stand in for, m:ss, the way a clock that has not been
+  // set shows it. A minus is drawn on the figures' centre line, where the colon between them sits.
+  // Every other mark tried read wrong at 52px in the light display face: em dashes are long hairlines,
+  // hyphens sit at lowercase height below the colon, and the mono em dash that draws a large reading's
+  // lone placeholder (see "Catalyst Readout Dash" in styles.css) fuses with its neighbour into a bar.
+  if (seconds === null || seconds === undefined) return "−:−−";
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -637,7 +638,14 @@ function sparkline(values, w, h, color) {
   let d = `M0 ${y(values[0]).toFixed(1)}`;
   for (let i = 1; i < values.length; i++) d += `L${(i * step).toFixed(1)} ${y(values[i]).toFixed(1)}`;
   const fill = `${d}L${w} ${h}L0 ${h}Z`;
-  return `<path d="${fill}" fill="${color}" opacity="0.13"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  // The area fades toward the floor, so the trace is the brightest thing and the fill only says which
+  // side of it is "under". One gradient per colour, named by the colour: every sparkline of the same
+  // colour draws the same one, and a duplicate definition is harmless.
+  const id = `spark-${String(color).replace(/[^a-z0-9]/gi, "")}`;
+  return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="${color}" stop-opacity="0.34"/><stop offset="1" stop-color="${color}" stop-opacity="0.02"/>`
+    + `</linearGradient></defs>`
+    + `<path d="${fill}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
 }
 
 function arcPath(cx, cy, r, a0, a1) {
@@ -743,7 +751,7 @@ define("match", {
     body.innerHTML = `
       <div class="fill">
         <div class="phase" data-x="phase">No match</div>
-        <div><span class="n" data-x="time" style="font-size:52px">—:—</span></div>
+        <div><span class="n" data-x="time" style="--size:52px;--fit:46cqh">${clock(null)}</span></div>
         <div class="segs">
           <div class="seg auto"><i data-x="s0"></i></div>
           <div class="seg"><i data-x="s1"></i></div>
@@ -974,20 +982,22 @@ define("gauge", {
       const value = rawVal === null ? null : rawVal * (cfg.scale || 1);
       const frac = value === null ? 0 : clamp01((value - cfg.min) / span);
       const hot = value !== null && value >= cfg.redline;
-      const color = hot ? "var(--crit)" : "var(--blue)";
+      // A speed is a quantity, so its arc takes the quantity colour, and the redline is the one thing
+      // that turns it red.
+      const color = hot ? "var(--crit)" : "var(--cat-data)";
       const label = labels[i];
       const text = value === null ? "—" : value.toFixed(Math.max(0, cfg.decimals | 0));
 
       if (cfg.style === "number") {
         g.innerHTML =
-          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 46 : 26}px">${text}</div>` +
+          `<div class="gv ${hot ? "crit" : ""}" style="--size:${single ? 46 : 26}px">${text}</div>` +
           `<div class="gl">${label}</div>`;
         return;
       }
 
       if (cfg.style === "bar") {
         g.innerHTML =
-          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 32 : 20}px">${text}</div>` +
+          `<div class="gv ${hot ? "crit" : ""}" style="--size:${single ? 32 : 20}px">${text}</div>` +
           `<div class="track" style="width:100%;margin:9px 0 4px"><i style="width:${frac * 100}%;background:${color}"></i></div>` +
           `<div class="gl">${label}</div>`;
         return;
@@ -1012,7 +1022,10 @@ define("gauge", {
           ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
           : "") +
         needle +
-        `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${value === null ? TOK.faint : "currentColor"}" font-family="var(--mono)" font-weight="700" font-size="${single ? 22 : 16}" ${hot ? 'class="crit"' : ""}>${text}</text>` +
+        // Styled by class rather than by attributes: a presentation attribute cannot take var(), so
+        // `font-family="var(--mono)"` had never applied, and the stylesheet is where the readout face
+        // - and its placeholder dash - is defined for every other large reading.
+        `<text class="gv${hot ? " crit" : ""}" x="${cx}" y="${cy + (single ? 9 : 7)}" text-anchor="middle" fill="${value === null ? TOK.faint : "currentColor"}" font-size="${single ? 28 : 20}">${text}</text>` +
         `</svg><div class="gl">${label}</div>`;
     });
   },
@@ -1036,7 +1049,7 @@ define("battery", {
     track("/Catalyst/Brownout/MeasuredVoltage");
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:40px">—</span><span class="u">V</span></div>
+        <div><span class="n" data-x="v" style="--size:40px">—</span><span class="u">V</span></div>
         <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
         <div class="cap" data-x="cap">no history yet</div>
       </div>`;
@@ -1337,7 +1350,9 @@ define("physics", {
 
     const frac = trac === null ? 0 : clamp01(trac);
     x.bar.style.width = `${frac * 100}%`;
-    x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--brand)";
+    // Traction in use is a quantity until it is nearly all used. It was the signal colour, which on
+    // this board is also the fault colour, so a healthy 60% drew a bar that looked like a fault.
+    x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--cat-data)";
     // With nothing at all from Physics Core, "advisory only" under three dashes reads as a tile that
     // is working and quiet. It is waiting, and it says for what.
     x.cap.innerHTML = slip === null && tip === null && trac === null && conf === null
@@ -1367,7 +1382,7 @@ define("impacts", {
     state.lastStamp = null;
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="mag" style="font-size:30px">—</span><span class="u">m/s²</span></div>
+        <div><span class="n" data-x="mag" style="--size:30px">—</span><span class="u">m/s²</span></div>
         <div class="cap" data-x="when">no contact recorded</div>
         <div class="cap" data-x="hist" style="margin-top:8px"></div>
       </div>`;
@@ -1418,14 +1433,20 @@ define("swerve", {
     { key: "max", label: "Max speed (m/s)", type: "number", def: 5.0 },
   ],
   render(body) {
-    body.innerHTML = `<div class="fill"><svg data-x="svg" viewBox="0 0 120 120" style="width:100%;height:100%;max-height:none"></svg></div>`;
+    body.innerHTML = `<div class="fill"><svg data-x="svg" viewBox="0 0 120 120" style="width:100%;height:100%;max-height:none"></svg><div class="cap" data-x="cap" hidden></div></div>`;
   },
   update(body, cfg, x) {
     const states = arr(cfg.topic);
     const spots = [[34, 34], [86, 34], [34, 86], [86, 86]];
 
-    if (!Array.isArray(states) || states.length < 8) {
-      x.svg.innerHTML = `<text x="60" y="62" text-anchor="middle" fill="${TOK.faint}" font-size="8" font-family="var(--sans)">no module states</text>`;
+    // Said in the tile's own caption, like every other tile waiting on a topic. Drawn inside the
+    // drawing it was eight units tall in a hundred-and-twenty-unit viewBox, which on a two-row tile
+    // came out smaller than any text on the board, and it did not say which topic it was waiting for.
+    const waiting = !Array.isArray(states) || states.length < 8;
+    x.svg.style.display = waiting ? "none" : "";
+    x.cap.hidden = !waiting;
+    if (waiting) {
+      x.cap.textContent = `waiting for the robot to publish ${cfg.topic}`;
       return;
     }
 
@@ -1438,7 +1459,7 @@ define("swerve", {
       // Screen y grows downward and the field's +y is to the left, so the angle is negated.
       const dx = Math.cos(-angle) * 16 * (speed < 0 ? -1 : 1);
       const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
-      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.dim;
+      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.data;
       out +=
         `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="${TOK.rule}" stroke-width="3"/>` +
         `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
@@ -1584,7 +1605,7 @@ define("value", {
     { key: "decimals", label: "Decimals", type: "number", def: 2 },
   ],
   render(body) {
-    body.innerHTML = `<div class="fill"><div><span class="n" data-x="v" style="font-size:30px">—</span><span class="u" data-x="u"></span></div></div>`;
+    body.innerHTML = `<div class="fill"><div><span class="n" data-x="v" style="--size:30px;--fit:70cqh">—</span><span class="u" data-x="u"></span></div></div>`;
   },
   update(body, cfg, x) {
     const value = raw(cfg.topic);
@@ -1649,7 +1670,7 @@ define("graph", {
     track(cfg.topic);
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:26px">—</span></div>
+        <div><span class="n" data-x="v" style="--size:26px">—</span></div>
         <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
         <div class="cap" data-x="cap"></div>
       </div>`;
@@ -1693,7 +1714,7 @@ define("stopwatch", {
     state.wasEnabled = false;
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:36px">0.00</span><span class="u">s</span></div>
+        <div><span class="n" data-x="v" style="--size:36px">0.00</span><span class="u">s</span></div>
         <div style="display:flex;gap:6px;margin-top:10px">
           <button class="dk" data-x="go" style="height:34px;flex:1;background:var(--tile-2);justify-content:center">Start</button>
           <button class="dk" data-x="rst" style="height:34px;background:var(--tile-2)">Reset</button>
@@ -1955,6 +1976,9 @@ function buildBoard() {
 
     const tile = el("div", `t ${spec.tileClass || ""}`);
     tile.dataset.id = item.id;
+    // The stylesheet sizes a one-row tile's anatomy differently, and height is not otherwise visible
+    // to CSS: the grid span is an inline style it cannot select on.
+    tile.dataset.h = String(item.h);
     tile.style.gridColumn = `${item.x + 1} / span ${item.w}`;
     tile.style.gridRow = `${item.y + 1} / span ${item.h}`;
 
