@@ -583,6 +583,29 @@ shown, because inventing a battery voltage would be worse than admitting the fil
 
 ---
 
+## CAN buses
+
+Systemcore's five CAN buses are not five independent lanes. They are MCP2518FD controllers on three
+shared SPI hosts — `can_s0` and `can_s1` on one, `can_s2` alone, `can_s3` and `can_s4` on a third — so
+two buses on the same host throttle each other and two on different hosts do not.
+
+Nothing else in the FRC toolchain draws that distinction. A team moving half a drivetrain off a loaded
+bus can pick the pair that buys them nothing and find out on a field. So the CAN tab groups the five
+buses by the controller they hang off, and draws one combined utilisation figure per shared pair —
+against what that one SPI host can carry, not against two free wires.
+
+Each bus lists what is on it, and says whether its number came from the OS's own measurement or from
+Phoenix. Warnings the console works out live from the wire are kept apart from what the robot said the
+last time anything called `Preflight.run()`, because the second is a snapshot nothing republishes. A
+bus nobody measured shows a dash and *not measured*; a bus measured at nothing shows `0%` and *idle*.
+The layout is drawn with no robot attached at all — which buses share a controller is a fact about the
+Systemcore rather than a reading from one, and an empty bus is the most useful thing on the page.
+
+See [CAN buses](docs/can-buses.md) for the thresholds, the four topics it reads, and why the
+frames-per-second estimate the library makes is deliberately not drawn here.
+
+---
+
 ## Layout of the source
 
 ```
@@ -594,7 +617,18 @@ src/index.html            the shell: top strip, views, dock, the two component m
 src/styles.css            the design system
 src/app.js                NT store, component registry, layout, every component
 src/field3d.js            the procedural 3D field
+src/can-model.js          CAN topology: which buses share an SPI controller, and what counts as trouble
+src/core-format.js        the Systemcore page's rules: what is trouble, and how a reading is worded
+src/devices.js            the roster, the notices worth showing a driver, and holding a pose on the field
+src/motion.js             the springs the identity moves with, where CSS cannot carry a gesture
 ```
+
+`can-model.js`, `core-format.js` and `devices.js` are split out of `app.js` so they can be tested.
+`app.js` touches the DOM at import time; none of those rules need a DOM to be wrong, and they decide
+things nobody can reproduce on a robot without breaking it — a bus past its controller's budget, a
+pose off the carpet, a storage sensor that stopped answering. Each has a `.test.js` beside it and
+`npm test` runs them under `node --test`. `motion.js` is split out for a different reason: it is
+copied verbatim into Catalyst App, so both move the identity the same way.
 
 `nt4.rs` batches values into a map and flushes on a fixed cadence rather than emitting at wire rate.
 The robot publishes at 50 Hz across hundreds of topics; pushing each change straight into the webview
@@ -610,6 +644,7 @@ would spend the whole frame budget in IPC. UI cost is independent of how chatty 
 | [Settings](docs/settings.md) | Every section and every row, plus search and where each setting is stored. |
 | [The robot's spec sheet](docs/robot-identity.md) | What a robot publishes about itself, and the one line of robot code that starts it. |
 | [Components](docs/widgets.md) | Every tile, what it binds to, and how to configure it. |
+| [CAN buses](docs/can-buses.md) | Five buses on three SPI controllers, which pairs fight each other, and what the page will and will not claim. |
 | [Hub activation](docs/hub-schedule.md) | How the REBUILT hub schedule is derived from the rules and the FMS game data. |
 | [Diagnostics MCP](docs/mcp.md) | The read-only tool surface, for agents. |
 
