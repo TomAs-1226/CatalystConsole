@@ -12,85 +12,132 @@
  *
  * Everything else — grounds, hairlines, one accent — exists to keep those two legible. */
 
+/* ---- the system ----
+   Every colour in this program now comes from `styles/identity.css`, which is linked ahead of this
+   file and is a verbatim copy of the house stylesheet — graphite ground, one crimson signal. This
+   block is names, not values: Console's own token names are kept exactly as they were, so none of
+   the ~900 rules below and none of the `var(--…)` strings in app.js has to change, but each one
+   points at the house token it always meant.
+
+   The handful of literals left here are the two things the identity deliberately leaves to the app:
+   Console's squared geometry, and the sizes its board readouts are set at. Both are called out
+   where they appear. */
 :root {
-  /* ---- the system. These values are the contract; nothing here invents a colour. ---- */
-  --cat-ink-900: #0D100E;                   /* deepest ground, page background */
-  --cat-ink-800: #141815;                   /* panel background */
-  --cat-ink-700: #1C211D;                   /* raised panel / hover */
-  --cat-hair: rgba(228, 231, 225, 0.10);
-  --cat-hair-str: rgba(228, 231, 225, 0.20);
+  /* The shape scale is the identity's, unchanged.
+     This sheet used to square everything to 2px, on the theory that an instrument has hard corners.
+     Seen next to the app it read as unfinished rather than precise, and Bezel's rule is the better
+     one: corners are concentric, and an inner radius is its parent's less the padding. What makes
+     this an instrument is the near-black ground, the hairlines, the absence of shadow and one
+     accent — none of which is a corner. */
 
-  --cat-coral: #E9583D;                     /* THE accent. One accent, used sparingly. */
-  --cat-coral-lt: #FF7358;
-  --cat-coral-dk: #C4432C;
+  /* Grounds. Depth comes from tone and one hairline; nothing on this board casts. */
+  --cat-ink-900: var(--cat-ground);         /* deepest ground, page background */
+  --cat-ink-800: var(--cat-surface-1);      /* panel background */
+  --cat-ink-700: var(--cat-surface-2);      /* raised panel / hover */
+  /* --cat-hair is the identity's own hairline and is deliberately not redefined here. */
+  --cat-hair-str: var(--cat-line-strong);
 
-  --cat-text: #C9CFC7;
-  --cat-white: #E4E7E1;
-  --cat-muted: #98A09A;
+  --cat-coral: var(--cat-signal);           /* THE accent. One accent, used sparingly. */
+  --cat-coral-lt: var(--cat-signal-lt);
+  --cat-coral-dk: var(--cat-signal-dk);
 
-  /* Semantic, and semantic only. If one of these four appears anywhere it is because the robot is
-     in that state — never because a heading looked nice in green. */
-  --cat-ok: #6FBF73;
-  --cat-warn: #D9A441;
-  --cat-bad: #E0574B;
-  --cat-info: #7FA8C9;
+  --cat-text: var(--cat-body);
+  --cat-white: var(--cat-ink);
+  --cat-muted: var(--cat-dim);
+
+  /* --cat-ok, --cat-warn, --cat-bad and --cat-info are the identity's four status hues and are not
+     redefined here. The rule is unchanged: semantic, and semantic only. If one of them appears it is
+     because the robot is in that state — never because a heading looked nice in green. Fault is now
+     the signal colour at its brightest, which is the identity's position and this sheet's too: an
+     instrument has one red. */
 
   /* ---- derived, and deliberately few ----
-     Two grounds the palette does not name but a dashboard cannot do without: the empty half of a
-     bar, and the fill of a bar that is showing a magnitude rather than a state. The second one has
-     to be neutral: motor hours are data, and painting data in --cat-ok would spend the one colour
-     that is supposed to mean "healthy". 3.41:1 on --cat-ink-800, which is the floor for a
-     non-text indicator. */
-  --cat-track: rgba(228, 231, 225, 0.10);
-  --cat-data: #5A635C;
+     Two grounds the identity does not name but a dashboard cannot do without: the empty half of a
+     bar, and the fill of a bar showing a magnitude rather than a state. The second one has to be
+     neutral — motor hours are data, and painting data in --cat-ok would spend the one colour that is
+     supposed to mean "healthy" — so it takes the identity's faint ink, which is the step reserved
+     for something that is looked at rather than read. */
+  --cat-track: var(--cat-surface-3);
+  --cat-data: var(--cat-faint);
 
-  --r-sm: 2px;
-  --r: 2px;
-  --r-lg: 2px;
+  --r-sm: var(--cat-r-chip);
+  --r: var(--cat-r-card);
+  --r-lg: var(--cat-r-card);
 
-  --sans: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-  --mono: "Cascadia Mono", ui-monospace, Consolas, "Courier New", monospace;
+  --sans: var(--cat-sans);
+  --mono: var(--cat-mono);
 
   /* The scale. Six steps, nothing between them. A size that is not on this list is an accident.
-     (Board readouts above 32px are set inline by app.js — see .n and .mv — and are display
-     numerals rather than text; they are the one thing this scale does not govern.) */
-  --fs-12: 12px;
-  --fs-13: 13px;
-  --fs-15: 15px;
-  --fs-18: 18px;
+     Four of the six are the identity's own. The top two are not: the identity's display scale steps
+     18 → 22 → 28 → 40, and the board's readouts have always sat at 24 and 32. Moving them would
+     shrink the one number a driver reads from across a pit, so they stay written down here rather
+     than being bent onto a scale that was drawn for a page.
+     (Board readouts above 32px are set inline by app.js — see .n and .mv — and are display numerals
+     rather than text; they are the one thing this scale does not govern.) */
+  --fs-12: var(--cat-fs-12);
+  --fs-13: var(--cat-fs-13);
+  --fs-15: var(--cat-fs-15);
+  --fs-18: var(--cat-fs-18);
   --fs-24: 24px;
   --fs-32: 32px;
+  /* Not the identity's eyebrow tracking (0.16em): that is drawn for a lone label on a page, and this
+     one is spent on forty uppercase labels inside tiles that already fight for width. */
   --track-label: 0.06em;                    /* uppercase labels, and nothing else */
-  --track-head: -0.02em;
+  --track-head: var(--cat-track-tight);
 
   /* ---- compatibility layer ----
-     app.js and field3d.js reference a handful of custom properties by name from inline styles and
-     SVG attributes (grep `var(--` in app.js). Those names are part of the contract with the script
-     and cannot be renamed from here, so they are aliased onto the system above rather than left to
-     drift into a second palette. Nothing in this stylesheet below this block uses them. */
-  --black: var(--cat-ink-900);
-  --tile: var(--cat-ink-800);
-  --tile-2: var(--cat-ink-700);
-  --tile-3: #2a3450;
-  --tile-4: #364265;
-  --pill: var(--cat-coral);
-  --ink: var(--cat-white);
-  --ink-2: var(--cat-text);
-  --ink-3: var(--cat-muted);
-  --ink-3-on-tile: var(--cat-muted);
+     app.js references a handful of custom properties by name from inline styles and SVG attributes
+     (grep `var(--` in app.js). Those names are part of the contract with the script and cannot be
+     renamed from here, so they are aliased onto the system above rather than left to drift into a
+     second palette. The ones nothing referenced any more are gone. */
+  --tile-2: var(--cat-surface-2);
+  --tile-3: var(--cat-track);               /* the unfilled arc of a gauge */
+  --tile-4: var(--cat-surface-3);           /* pressed and hovered fills */
   --blue: var(--cat-info);
-  --brand: var(--cat-coral);
+  --brand: var(--cat-signal);
   --ok: var(--cat-ok);
   --warn: var(--cat-warn);
   --crit: var(--cat-bad);
+  /* Read by field3d.js for the driver-station glass and the alliance-side stripes, so the field
+     agrees with every other place the console says "red" or "blue". */
   --red-alliance: var(--cat-bad);
   --blue-alliance: var(--cat-info);
-  --hair: var(--cat-hair);
-  --hair-dense: rgba(255, 255, 255, 0.05);
-  /* Referenced by the motor-history bar and never defined, which drew every bar in transparent.
-     It is a magnitude, so it takes the neutral data fill rather than an accent. */
-  --accent: var(--cat-data);
-  --warn-bg: color-mix(in srgb, var(--cat-warn) 16%, transparent);
+  /* The identity has one hairline, not two. What was a fainter rule between dense rows is now the
+     same hairline the panel is drawn with, which is how the house sheet separates its own rows. */
+  --hair-dense: var(--cat-hair);
+
+  /* ---- drawn marks ----
+     The robot plan on the Settings page and the 3-D field are drawings, not interface: they are lit,
+     they have materials, and a material is not a surface in the identity's sense. They are still
+     written down once, here, and read at run time, so no colour lives inside a script and nothing
+     has to be kept in step by hand.
+
+     Where the identity already holds the colour, the token points at it — the field is graphite and
+     the robot's nose is the signal, which is what these two drawings were already doing before the
+     rest of the program caught up. The greys that are left are the drawing's own, at the values they
+     have always had: the surface scale is for panels behind text, and a lit material picked off it
+     would sink the robot into the carpet. */
+  --draw-floor: var(--cat-ground-top);      /* the venue floor the field sits on */
+  --draw-carpet: var(--cat-surface-3);
+  --draw-wall: var(--cat-surface-1);        /* the perimeter rail */
+  --draw-line: var(--cat-faint);            /* the one-metre grid and the field's painted marks */
+  --draw-shell: #4d5560;                    /* a bumper with no alliance to declare */
+  --draw-shell-lit: #5b5d67;                /* ...and the edge the light reaches */
+  --draw-body: #2b2e35;                     /* the belly, and the plan's deck */
+  --draw-body-lit: #3d424b;                 /* the top plate */
+  --draw-body-dark: #1c1e23;                /* the shaded end of the plan's deck */
+  --draw-tower: #30343c;
+  --draw-tyre: #101114;
+  --draw-tyre-lit: #34363d;
+  --draw-wheel: #0b0c0e;
+  --draw-sky: #c8d4e4;                      /* hemisphere light, from above */
+  --draw-bounce: #0a0b0d;                   /* hemisphere light, from below */
+  --draw-fill: #8fa8c8;                     /* the second directional light, so the far half is not a silhouette */
+  --draw-unknown: #888888;                  /* a CAD material that arrived with no colour of its own */
+  /* Light and shade in a drawing, as channels rather than a colour, so a ramp can set its own alpha
+     without a second token per stop. `rgb(var(--draw-light) / 0.3)`. */
+  --draw-light: 255 255 255;
+  --draw-shade: 0 0 0;
 }
 
 * { box-sizing: border-box; }
@@ -170,15 +217,21 @@ textarea:focus-visible, summary:focus-visible,
 }
 .mark:hover { background: var(--cat-ink-800); }
 .bolt { width: 18px; height: 18px; flex: none; color: var(--cat-coral); }
-/* Truncates from the tail, which is where the least is lost: the name stays, the alliance stays,
-   and the event and match number are what go. */
+/* Truncates from the tail, which is where the least is lost: the wordmark stays, the alliance stays,
+   and the event and match number are what go.
+
+   The wordmark itself is the identity's, not this sheet's: `.cat-wordmark` sets the thin grey
+   prefix and the bold white name, so the two words are drawn here exactly as they are drawn on the
+   launch material. Only the state that trails them belongs to Console, and it is the class rather
+   than the element that is selected on — `.idt span` would have outranked `.cat-wordmark__name` and
+   quietly greyed half the mark. */
 .idt {
   flex: 0 1 auto; min-width: 56px;
   font-size: var(--fs-13); font-weight: 700; letter-spacing: var(--track-head);
   color: var(--cat-white);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.idt span { color: var(--cat-muted); font-weight: 600; }
+.idt .idstate { color: var(--cat-muted); font-weight: 600; }
 
 .statgroup {
   display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0;
@@ -217,7 +270,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .d {
   width: 8px; height: 8px; flex: none; border-radius: 50%;
   background: var(--cat-muted);
-  transition: background-color 200ms ease;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .d.ok { background: var(--cat-ok); }
 .d.warn { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
@@ -231,14 +284,16 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   border: 0; background: transparent; color: var(--cat-muted);
   font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
   padding: 8px 16px; border-radius: var(--r-sm); cursor: pointer;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .tab:hover { color: var(--cat-text); background: var(--cat-ink-800); }
 /* The one accent on this bar. An active view is the only thing up here that is "selected", so it
-   is the only thing that gets coral — and because it is the only one, it reads instantly.
-   Ink rather than white on the fill: white on --cat-coral measures 3.57:1, which is under AA for a
-   13px label, and the deepest ground on it measures 5.01:1. Every coral fill in this sheet takes
-   dark text for that reason. */
+   is the only thing that gets the signal — and because it is the only one, it reads instantly.
+   Ink rather than white on the fill: white on --cat-coral measures 3.83:1, which the identity allows
+   for a short large label and not for a 13px one, and the deepest ground on it measures 5.05:1.
+   Every signal fill in this sheet takes dark text for that reason. */
 .tab[aria-selected="true"] { color: var(--cat-ink-900); background: var(--cat-coral); }
 .tab[aria-selected="true"]:hover { background: var(--cat-coral-lt); color: var(--cat-ink-900); }
 
@@ -412,7 +467,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .track i {
   display: block; height: 100%; width: 0; border-radius: 999px;
   background: var(--cat-ok);
-  transition: background-color 220ms ease;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 
 /* Stale data: the robot stopped talking, so stop presenting these numbers as current. */
@@ -676,7 +731,9 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    fault. The lamp is the loudest single thing in the program and it must not rest on hue alone. */
 .state .lamp {
   width: 12px; height: 12px; border-radius: 50%; background: var(--cat-muted); flex: none;
-  transition: background-color 200ms ease, box-shadow 200ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    box-shadow var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .app[data-live="true"] .state .lamp {
   background: var(--cat-ok);
@@ -695,7 +752,9 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   border-radius: var(--r-sm); height: 40px; padding: 0 16px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .dk svg { width: 18px; height: 18px; }
 .dk:hover { background: var(--cat-ink-700); color: var(--cat-white); }
@@ -721,7 +780,9 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   background: var(--cat-ink-700);
   border: 1px solid var(--cat-hair-str); border-left: 3px solid var(--cat-muted);
   font-size: var(--fs-13);
-  animation: noticeIn 200ms ease-out;
+  /* No fill mode. A filled animation keeps owning `opacity` after it ends and outranks the
+     stylesheet, so `[data-stale="true"]` below would never dim the notice it is there to dim. */
+  animation: noticeIn var(--cat-dur-release) var(--cat-ease-release);
 }
 .notice.error { border-left-color: var(--cat-bad); background: color-mix(in srgb, var(--cat-bad) 22%, var(--cat-ink-700)); }
 .notice.warn { border-left-color: var(--cat-warn); background: color-mix(in srgb, var(--cat-warn) 18%, var(--cat-ink-700)); }
@@ -860,7 +921,6 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .canw[data-level="crit"]::before { background: var(--cat-bad); border-radius: 1px; }
 .canw[data-level="ok"]::before { background: var(--cat-ok); }
 
-
 /* Bordered everywhere except Settings — see `.settings select` for why it comes off there and why
    that reasoning does not travel. Out here a control's ground is the panel, and a fill alone is
    too small a step to say "you can type in this". */
@@ -900,6 +960,11 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   border-radius: var(--r-lg); padding: 24px; max-width: 800px; width: 100%;
   max-height: 90vh; overflow: auto;
 }
+/* The same hairline thumb the sheets and the settings pane use. Without it the palette gets the
+   user agent's own scrollbar, which on a near-black dialog is a bar of light down one edge and the
+   brightest thing in the program — brighter than the one accent, which is the whole problem. */
+.picker::-webkit-scrollbar { width: 8px; }
+.picker::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
 /* Configure holds one label beside one control per row; the component palette holds a grid of
    cards. The narrower measure was an inline width on the markup, which is the one place a value
    like this cannot be found by anyone looking at the stylesheet. */
@@ -917,7 +982,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .item:hover { border-color: var(--cat-hair-str); }
 .item .i { color: var(--cat-muted); display: block; margin-bottom: 8px; }
-/* Coral marks provenance, which is what the accent is for here: these are Catalyst's own tiles
+/* The signal marks provenance, which is what the accent is for here: these are Catalyst's own tiles
    rather than generic ones. */
 .item.own .i { color: var(--cat-coral); }
 .item .n2 { font-size: var(--fs-13); font-weight: 600; color: var(--cat-white); }
@@ -984,7 +1049,10 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   border: 0; border-radius: 50%; background: var(--cat-ink-800); color: var(--cat-text);
   display: grid; place-items: center; cursor: pointer;
   font-family: var(--sans); font-size: var(--fs-13);
-  transition: background-color 180ms ease, color 180ms ease, transform 70ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .sclose svg { width: 16px; height: 16px; }
 .sclose:hover { background: var(--cat-ink-700); color: var(--cat-white); }
@@ -1011,12 +1079,15 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   border: 0; border-radius: var(--r-sm); background: transparent; color: var(--cat-text);
   font-family: var(--sans); font-size: var(--fs-15); font-weight: 600; letter-spacing: var(--track-head);
   cursor: pointer; display: flex; align-items: center; gap: 12px;
-  transition: background-color 180ms ease, color 180ms ease, transform 70ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .snav:hover { background: var(--cat-ink-800); color: var(--cat-white); }
 .snav svg { flex: none; width: 19px; height: 19px; opacity: 0.72; }
 /* The active nav item, which is the second and last thing in the program the accent is spent on.
-   The old grey pill needed a hand-picked value off the ramp to clear 3:1 against black; coral
+   The old grey pill needed a hand-picked value off the ramp to clear 3:1 against black; the signal
    clears 5:1 and says what it is at the same time. */
 .snav[aria-selected="true"] { background: var(--cat-coral); color: var(--cat-ink-900); }
 .snav[aria-selected="true"] svg { opacity: 1; }
@@ -1049,7 +1120,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .sbody:has(> .ssec[data-sec="about"][data-active="true"]) { max-width: 1320px; }
 
 .ssec { display: none; }
-.ssec[data-active="true"] { display: block; animation: secIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.ssec[data-active="true"] { display: block; animation: secIn var(--cat-dur-release) var(--cat-ease-release) both; }
 /* A settle, not an entrance. Six pixels and it is over. */
 @keyframes secIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -1110,14 +1181,17 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   position: relative; flex: none; width: 52px; height: 30px; padding: 0;
   border: 1px solid var(--cat-hair-str); border-radius: 999px; background: var(--cat-ink-700);
   font-family: var(--sans); font-size: var(--fs-13); cursor: pointer;
-  transition: background-color 200ms cubic-bezier(0.2, 0.85, 0.3, 1), transform 60ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 /* The one shadow in the panel, and it is functional: it is what says the knob sits on the track
    rather than being painted onto it. */
 .tog i {
   position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--cat-white); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  transition: transform 200ms cubic-bezier(0.2, 0.85, 0.3, 1);
+  background: var(--cat-white); box-shadow: 0 1px 2px rgb(var(--draw-shade) / 0.5);
+  /* A value travelling to where it was set, which is exactly the identity's `settle`. */
+  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
 }
 .tog:hover { background: var(--tile-4); }
 .tog:active { transform: scale(0.96); }
@@ -1142,13 +1216,15 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   position: absolute; top: 4px; bottom: 4px; left: 4px;
   width: calc((100% - 8px) / var(--n, 3));
   border-radius: 999px; background: var(--cat-ink-700);
-  transition: transform 240ms cubic-bezier(0.2, 0.85, 0.3, 1);
+  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
 }
 .choice button {
   position: relative; z-index: 1; height: 36px; padding: 0 16px;
   border: 0; background: transparent; border-radius: 999px; cursor: pointer;
   color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
-  transition: color 180ms ease, transform 60ms ease;
+  transition:
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .choice button:hover { color: var(--cat-text); }
 .choice button[aria-checked="true"] { color: var(--cat-white); }
@@ -1159,7 +1235,10 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   border-radius: var(--r-sm);
   background: var(--cat-ink-800); color: var(--cat-white);
   font-family: var(--sans); font-size: var(--fs-13); font-weight: 600; cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease, transform 60ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .sbtn:hover { background: var(--cat-ink-700); border-color: var(--cat-hair-str); }
 .sbtn:active { background: var(--tile-4); transform: scale(0.97); }
@@ -1204,7 +1283,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   /* Lit from above rather than a flat card, so the robot reads as sitting on a surface. The stop at
      58% is where the plan ends and the sheet begins. */
   background:
-    radial-gradient(120% 62% at 50% 0%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 58%),
+    radial-gradient(120% 62% at 50% 0%, rgb(var(--draw-light) / 0.05), rgb(var(--draw-light) / 0) 58%),
     var(--cat-ink-800);
 }
 /* No drawing, so no stage light and no hero spacing — it becomes an ordinary card of facts. */
@@ -1337,17 +1416,25 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .mastbolt { width: 40px; height: 40px; flex: none; fill: var(--cat-coral); margin-top: 4px; }
 .mastname { min-width: 0; flex: 1; }
 .mastname h1 { margin: 0; font-size: var(--fs-32); font-weight: 800; letter-spacing: -0.04em; line-height: 0.95; color: var(--cat-white); }
-/* The product name and the product type are not the same word. Setting them at different weights
-   on two lines says so without a second colour. The tracking is not the label tracking and should
-   not be: 0.42em is the mark's own, doing the work of spanning the name above it rather than the
-   work of separating capitals. */
+/* The family and the product are not the same word. Setting them at different weights on two lines
+   says so without a second colour. The family goes above, quiet and letterspaced, and the product
+   below in the display weight — the same order of emphasis as the identity's wordmark, which reads
+   thin "Catalyst" then bold "Console" in the top bar. It used to be the other way up, so the two
+   marks in one program disagreed about which word was the product. The tracking is not the label
+   tracking and should not be: 0.42em is the mark's own, doing the work of spanning the name below
+   it rather than the work of separating capitals. */
 .mastname h1 span {
-  display: block; margin-top: 0.3em; color: var(--cat-muted);
+  display: block; margin-bottom: 0.3em; color: var(--cat-muted);
   font-size: var(--fs-12); font-weight: 300; letter-spacing: 0.42em; text-transform: uppercase;
 }
 .mastname p { margin: 16px 0 0; font-size: var(--fs-15); color: var(--cat-text); line-height: 1.55; max-width: 42ch; }
 .mastver { text-align: right; flex: none; padding-top: 4px; }
-.mastver b { display: block; font-family: var(--mono); font-size: var(--fs-18); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: var(--track-head); color: var(--cat-white); }
+/* The version is the identity's own badge — a capsule with a lit dot, exactly as the launch material
+   draws it — so everything about how it looks comes from `.cat-pill`. All this rule has left to do is
+   keep it a capsule: a `display: block` here outranked the primitive and stretched it across the
+   column with the dot stranded at one end. Tabular figures because `.cat-pill` sets no `font`
+   shorthand, so the root's declaration reaches it and a version is a number. */
+.mastver .cat-pill { font-variant-numeric: tabular-nums; }
 .mastver small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--cat-muted); font-weight: 700; }
 
 /* The one moving thing on the page. An instrument sweeps a line across its face when it is awake;
@@ -1370,7 +1457,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   display: grid; grid-template-columns: 62px 1fr; gap: 24px;
   padding: 24px 0; border-top: 1px solid var(--cat-hair);
 }
-/* Outlined rather than filled: at this size a solid coral numeral would out-shout the sentence it
+/* Outlined rather than filled: at this size a solid crimson numeral would out-shout the sentence it
    is numbering, and the sentence is the point. */
 .rn {
   display: block; font-family: var(--mono); font-size: var(--fs-24); font-weight: 700;
@@ -1413,7 +1500,9 @@ kbd {
   background: var(--cat-ink-800); color: var(--cat-white);
   font-family: var(--sans); font-size: var(--fs-13); font-weight: 600;
   padding: 12px 16px; cursor: pointer; text-align: left;
-  transition: background-color 180ms ease, transform 60ms ease;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .alink:hover { background: var(--cat-ink-700); }
 .alink:active { background: var(--tile-4); transform: scale(0.99); }
@@ -1476,7 +1565,7 @@ kbd {
 .ctrack.big { height: 8px; }
 .ctrack > i {
   display: block; height: 100%; width: 0; border-radius: 999px; background: var(--cat-ok);
-  transition: background-color 220ms linear;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .ctrack > i[data-level="warn"] { background: var(--cat-warn); }
 .ctrack > i[data-level="crit"] { background: var(--cat-bad); }
@@ -1576,6 +1665,16 @@ kbd {
 .cagent:empty { display: none; }
 .cagent code { font-family: var(--mono); font-size: var(--fs-12); background: var(--cat-ink-700); padding: 1px 8px; border-radius: var(--r-sm); color: var(--cat-text); }
 
+/* ================================================================== press ====
+   Every control in this program answered a press by changing colour on the next frame, or by not
+   answering at all. The identity's `stateLayer` answers at the point the pointer went down, which is
+   the one thing a spring in CSS cannot do — so it is script, wired once in app.js, and this is all
+   the styling it needs: something for the layer to be positioned against and an edge to be clipped
+   by. The layer removes itself, and it declines to run at all under `prefers-reduced-motion`.
+
+   Not the tiles: the board is repainting ten times a second and a tile is a surface, not a button. */
+.tab, .dk, .snav, .sbtn, .sclose { position: relative; overflow: hidden; }
+
 /* ============================================================ responsive ==== */
 @media (max-width: 1040px) {
   .settings { grid-template-columns: 188px 1fr; }
@@ -1620,67 +1719,4 @@ kbd {
   .ssec[data-active="true"] { animation: none; }
   .tower[data-active="true"] .status { animation: none; }
   .notice { animation: none; }
-}
-
-/* ---------------------------------------------------------------- rev 2: the drawing set
-
-   Catalyst 2.0's identity is a drawing set, and these are the two conventions from it that a
-   product surface actually needs.
-
-   THE FILL RULE.  A filled mark means it was proven; an unfilled phantom mark means it was
-   only attempted. It is StateMachineCore's own invariant - current() is only ever a state
-   whose arrival every gating mechanism confirmed - promoted to a drawing grammar. Use it
-   anywhere the honest answer is "we have not measured that yet". The two are deliberately the
-   same size and weight: a checklist with one box left, not a badge next to a disclaimer.
-
-   REV 1 IS NEVER DELETED.  Where a value was superseded, the old one stays visible and demoted
-   rather than being dropped, so a reader can see what changed instead of being told. */
-
-:root {
-  --cat-ghost: #2A2F2B;                   /* Underlay: Rev 1, disabled, the drafting grid */
-}
-
-.proven,
-.attempted {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
-  font-size: 13px;
-  letter-spacing: 0.02em;
-}
-
-.proven { color: var(--cat-white); }
-.attempted { color: var(--cat-muted); }
-
-.proven::before,
-.attempted::before {
-  content: "";
-  width: 10px;
-  height: 10px;
-  flex: none;
-}
-
-.proven::before { background: var(--cat-white); }
-
-.attempted::before {
-  background: transparent;
-  border: 1.5px dashed var(--cat-coral);
-}
-
-.rev-1 {
-  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
-  color: var(--cat-ghost);
-  text-decoration: line-through;
-  text-decoration-color: var(--cat-hair-str);
-}
-
-.rev-2 {
-  font-family: var(--cat-mono, ui-monospace, Consolas, monospace);
-  color: var(--cat-white);
-}
-
-.rev-2::before {
-  content: "92 a0";
-  color: var(--cat-coral);
 }

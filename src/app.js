@@ -18,6 +18,10 @@
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
 import { clampToField, countState, deviceSummary, notices as computeNotices } from "./devices.js";
+/* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
+   every transition in this program; this is the one thing it cannot do — answer a press at the point
+   it was pressed. */
+import { stateLayer } from "./motion.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -549,25 +553,56 @@ function wireTablist(list) {
 }
 
 /**
- * The design tokens, mirrored for the marks this file draws in JavaScript.
+ * The design tokens, for the marks this file draws rather than styles.
  *
- * Everything styled in CSS reads --cat-* directly. These few are SVG attributes built into
- * template strings - sparkline strokes, gauge arcs - and an inline `fill="..."` cannot be a
- * custom property in every renderer, so they are mirrored here rather than guessed at.
+ * Everything styled in CSS reads --cat-* directly. These few are SVG presentation attributes built
+ * into template strings - sparkline strokes, gauge arcs - and canvas fills in the robot plan, and
+ * neither can be a custom property in every renderer.
  *
- * They were an older palette entirely (#30d158, #ff9f0a, #ff453a, #4d90fe), which put two
- * different greens on the same dashboard: one meaning "healthy" in a tile heading and another
- * meaning "healthy" in the sparkline right beneath it. On a board read at a glance between
- * matches, two greens is worse than one wrong one.
+ * They used to be a hand-copied list of hexes under a comment asking the next person to keep them in
+ * step with `:root`. They are read from `:root` now, so there is nothing left to keep in step: this
+ * is the same mirror, held up to the stylesheet instead of transcribed from it. Before that they
+ * were an older palette entirely (#30d158, #ff9f0a, #ff453a, #4d90fe), which put two different
+ * greens on the same dashboard - one meaning "healthy" in a tile heading and another meaning
+ * "healthy" in the sparkline right beneath it. A transcription drifts; a reading cannot.
  *
- * Keep in step with :root in styles.css. Semantic only - never decorative.
+ * Read once, not per use. The stylesheets are render-blocking and in <head>, so the values are there
+ * by the time a module in <body> evaluates; the console has one world and never switches theme; and
+ * getComputedStyle forces style resolution, which has no business running inside a 10 Hz paint.
  */
-const TOK = {
-  ok:   "#6FBF73",
-  warn: "#D9A441",
-  bad:  "#E0574B",
-  info: "#7FA8C9",
-};
+function readTokens(props) {
+  const style = getComputedStyle(document.documentElement);
+  const out = {};
+  for (const [name, prop] of Object.entries(props)) out[name] = style.getPropertyValue(prop).trim();
+  return out;
+}
+
+/** Semantic only - never decorative - plus the three inks a mark is labelled and ruled with. */
+const TOK = readTokens({
+  ok: "--cat-ok",
+  warn: "--cat-warn",
+  bad: "--cat-bad",
+  info: "--cat-info",
+  dim: "--cat-muted",
+  faint: "--cat-faint",
+  rule: "--cat-hair-str",
+});
+
+/* The robot plan's materials. A drawing, not interface: see the `drawn marks` block in styles.css
+   for why these are their own group rather than the surface scale. `light` and `shade` arrive as
+   bare channels so a ramp can set its own alpha without a token per stop. */
+const PLAN = readTokens({
+  shell: "--draw-shell",
+  shellLit: "--draw-shell-lit",
+  deck: "--draw-body",
+  deckDark: "--draw-body-dark",
+  tyre: "--draw-tyre",
+  tyreLit: "--draw-tyre-lit",
+  light: "--draw-light",
+  shade: "--draw-shade",
+});
+const lightAt = (alpha) => `rgb(${PLAN.light} / ${alpha})`;
+const shadeAt = (alpha) => `rgb(${PLAN.shade} / ${alpha})`;
 
 function sparkline(values, w, h, color) {
   if (values.length < 2) return "";
@@ -1352,7 +1387,7 @@ define("swerve", {
     const spots = [[34, 34], [86, 34], [34, 86], [86, 86]];
 
     if (!Array.isArray(states) || states.length < 8) {
-      x.svg.innerHTML = `<text x="60" y="62" text-anchor="middle" fill="#63656b" font-size="8" font-family="var(--sans)">no module states</text>`;
+      x.svg.innerHTML = `<text x="60" y="62" text-anchor="middle" fill="${TOK.faint}" font-size="8" font-family="var(--sans)">no module states</text>`;
       return;
     }
 
@@ -1367,9 +1402,9 @@ define("swerve", {
       const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
       const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.info;
       out +=
-        `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="#2c2e34" stroke-width="3"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="${TOK.rule}" stroke-width="3"/>` +
         `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
-        `<text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="#9a9ba1" font-size="7.5" font-family="var(--mono)">${speed.toFixed(1)}</text>`;
+        `<text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="${TOK.dim}" font-size="7.5" font-family="var(--mono)">${speed.toFixed(1)}</text>`;
     }
     x.svg.innerHTML = out;
   },
@@ -2451,7 +2486,7 @@ if (invoke) {
     if (!info || !info.available) return;
 
     const chip = el("button", "dk");
-    chip.style.cssText = "background:var(--brand);color:#fff";
+    chip.style.cssText = "background:var(--brand);color:var(--cat-on-signal)";
     chip.textContent = `Update to ${info.version}`;
     chip.title = info.notes ? info.notes.slice(0, 300) : `You are on ${info.current}`;
     chip.onclick = async () => {
@@ -3040,7 +3075,6 @@ function paintCanPreflight() {
   setHtml($("#canPre"), canCache.preHtml);
 }
 
-
 /* ----------------------------------------------------------- connection history */
 
 /* The link chip says what is true now. It says nothing about the last ten minutes, and that is the
@@ -3118,7 +3152,11 @@ function paintHeader() {
   const event = str("/FMSInfo/EventName", "");
   const match = num("/FMSInfo/MatchNumber", null);
   const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
-  $("#ident").innerHTML = `Catalyst<span> · ${side ? (side === "red" ? "Red" : "Blue") : "no"} alliance · ${escapeHtml(where)}</span>`;
+  /* The house wordmark, then the robot's state. Both halves are rewritten together because this one
+   * assignment owns the whole span; the classes are the identity's and styles.css leaves them alone. */
+  $("#ident").innerHTML =
+    `<span class="cat-wordmark"><span class="cat-wordmark__prefix">Catalyst</span> <span class="cat-wordmark__name">Console</span></span>` +
+    `<span class="idstate"> · ${side ? (side === "red" ? "Red" : "Blue") : "no"} alliance · ${escapeHtml(where)}</span>`;
 
   $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
   $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";
@@ -3952,13 +3990,13 @@ function drawPlan(canvas) {
    * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
    * colour depending on when you happened to open it. This card describes the machine, and the
    * machine is the same robot on either side. */
-  const bumper = "#4c4e57";
-  const bumperLit = "#5b5d67";
+  const bumper = PLAN.shell;
+  const bumperLit = PLAN.shellLit;
 
   /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
   const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
-  pool.addColorStop(0, "rgba(255,255,255,0.055)");
-  pool.addColorStop(1, "rgba(255,255,255,0)");
+  pool.addColorStop(0, lightAt(0.055));
+  pool.addColorStop(1, lightAt(0));
   g.fillStyle = pool;
   g.fillRect(0, 0, cw, ch);
 
@@ -3966,7 +4004,7 @@ function drawPlan(canvas) {
   const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
 
   g.save();
-  g.shadowColor = "rgba(0,0,0,0.55)";
+  g.shadowColor = shadeAt(0.55);
   g.shadowBlur = 26;
   g.shadowOffsetY = 10;
 
@@ -3980,7 +4018,7 @@ function drawPlan(canvas) {
   } else {
     /* No bumper figures, so nothing is drawn as though there were: the frame carries the silhouette
      * and the dashed edge says the outer dimension is not known. */
-    g.strokeStyle = "rgba(255,255,255,0.2)"; g.lineWidth = 1.5; g.setLineDash([6, 5]);
+    g.strokeStyle = lightAt(0.2); g.lineWidth = 1.5; g.setLineDash([6, 5]);
     g.beginPath(); g.roundRect(...outer, radius); g.stroke();
     g.setLineDash([]);
   }
@@ -3990,11 +4028,11 @@ function drawPlan(canvas) {
     const inner = box(frameL, frameW);
     const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
     const deck = g.createLinearGradient(0, inner[1], 0, inner[1] + inner[3]);
-    deck.addColorStop(0, "#2b2d34");
-    deck.addColorStop(1, "#1c1e23");
+    deck.addColorStop(0, PLAN.deck);
+    deck.addColorStop(1, PLAN.deckDark);
     g.fillStyle = deck;
     g.beginPath(); g.roundRect(...inner, ir); g.fill();
-    g.strokeStyle = "rgba(255,255,255,0.10)"; g.lineWidth = 1;
+    g.strokeStyle = lightAt(0.1); g.lineWidth = 1;
     g.beginPath(); g.roundRect(...inner, ir); g.stroke();
   }
 
@@ -4005,11 +4043,11 @@ function drawPlan(canvas) {
     for (let i = 0; i + 1 < mods.length; i += 2) {
       const [sx, sy] = px(mods[i], mods[i + 1]);
       g.save();
-      g.shadowColor = "rgba(0,0,0,0.5)"; g.shadowBlur = 7;
+      g.shadowColor = shadeAt(0.5); g.shadowBlur = 7;
       const tyre = g.createLinearGradient(sx - ww / 2, 0, sx + ww / 2, 0);
-      tyre.addColorStop(0, "#101114");
-      tyre.addColorStop(0.45, "#34363d");
-      tyre.addColorStop(1, "#101114");
+      tyre.addColorStop(0, PLAN.tyre);
+      tyre.addColorStop(0.45, PLAN.tyreLit);
+      tyre.addColorStop(1, PLAN.tyre);
       g.fillStyle = tyre;
       g.beginPath(); g.roundRect(sx - ww / 2, sy - wl / 2, ww, wl, ww / 2.4); g.fill();
       g.restore();
@@ -4021,8 +4059,8 @@ function drawPlan(canvas) {
   g.save();
   g.beginPath(); g.roundRect(...outer, radius); g.clip();
   const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
-  nose.addColorStop(0, "rgba(255,255,255,0.30)");
-  nose.addColorStop(1, "rgba(255,255,255,0)");
+  nose.addColorStop(0, lightAt(0.3));
+  nose.addColorStop(1, lightAt(0));
   g.fillStyle = nose;
   g.fillRect(outer[0], outer[1], outer[2], 16);
   g.restore();
@@ -5196,6 +5234,21 @@ const KEYS = Object.assign(Object.create(null), {
   "?": () => setSettings(true, "about"),
   F1: () => setSettings(true, "about"),
 });
+
+/* The press answer, from the identity's own motion module.
+ *
+ * One delegated listener rather than a handler per control, because the dock and the tablist are
+ * rebuilt and the update chip arrives six seconds after launch — a wiring pass would miss it. It is
+ * `pointerdown`, not `click`, because the whole point is to answer at the moment of the press.
+ *
+ * Only controls that are pressed: the views, the dock, the settings rail and its buttons. Not the
+ * tiles, which are surfaces repainting at 10 Hz, and not the chips, which are readouts that happen to
+ * be clickable. `stateLayer` declines to run at all under `prefers-reduced-motion` and removes its own
+ * element, so nothing here has to be undone. */
+window.addEventListener("pointerdown", (e) => {
+  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose") : null;
+  if (hit && !hit.disabled) stateLayer(hit, e);
+}, { passive: true });
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {

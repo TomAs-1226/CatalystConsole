@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <title>Catalyst Console</title>
+  <!-- The house stylesheet first, then this app's own. `identity.css` is a verbatim copy of the one
+       in FrcCatalyst's docs and is never edited here: it declares the tokens and the primitives, and
+       styles.css below re-points what an instrument needs differently — the radii, and its own
+       long-standing token names. Order matters: the second :root wins. -->
+  <link rel="stylesheet" href="styles/identity.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,10 +17,12 @@
       <!-- The wordmark opens Settings on About. A discreet target rather than a dock button: the board
            and the dock are working surfaces and neither has room for vanity. -->
       <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog">
-        <!-- The mark takes its coral from the token like everything else. `currentColor` rather than
-             a literal, so there is exactly one place the accent is written down. -->
+        <!-- The mark takes the signal colour from the token like everything else. `currentColor`
+             rather than a literal, so there is exactly one place the accent is written down. -->
         <svg class="bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
-        <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
+        <!-- The house wordmark: thin grey "Catalyst", bold white "Console". `paintHeader` in app.js
+             rewrites this whole span, so the two must stay the same shape. -->
+        <span class="idt" id="ident"><span class="cat-wordmark"><span class="cat-wordmark__prefix">Catalyst</span> <span class="cat-wordmark__name">Console</span></span><span class="idstate"> · no robot</span></span>
       </button>
       <!-- One object, not four floating words. "Is anything on the other end of this" is a single
            question and it is the first one asked at a driver's station, so the four chips that
@@ -692,11 +699,12 @@
           <header class="mast">
             <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
             <div class="mastname">
-              <h1>Catalyst<span>Console</span></h1>
+              <h1><span>Catalyst</span>Console</h1>
               <p>A driver station companion for teams running FrcCatalyst.</p>
             </div>
             <div class="mastver">
-              <b data-x="version2">—</b>
+              <!-- The version badge as the identity draws it: a capsule with a lit dot. -->
+              <b class="cat-pill" data-x="version2">—</b>
               <small data-x="versionSrc">reading version…</small>
             </div>
           </header>

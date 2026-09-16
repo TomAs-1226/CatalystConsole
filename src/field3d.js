@@ -18,11 +18,39 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 
-const CARPET = 0x24262b;
-const WALL = 0x15161a;
-const LINE = 0x4a4d55;
-const RED = 0xff453a;
-const BLUE = 0x4d90fe;
+/* The scene's palette, read from the stylesheet rather than written down twice.
+ *
+ * This module used to carry its own hexes, and they were the one part of the console that had
+ * already been drawn in the house identity - graphite field, crimson nose - while everything painted
+ * in CSS was still on the old one. That is exactly the failure a mirrored palette invites, so there
+ * is no mirror any more: `:root` holds these under `drawn marks`, and this reads them.
+ *
+ * Read when the module loads, which is when the field tile first asks for it, long after the
+ * stylesheets are in. THREE.Color parses a CSS string through the same sRGB conversion it applies to
+ * a hex literal, so nothing about how these land on screen has changed. */
+const T = ((style) => (name) => style.getPropertyValue(name).trim())(
+  getComputedStyle(document.documentElement)
+);
+
+const CARPET = T("--draw-carpet");
+const WALL = T("--draw-wall");
+const LINE = T("--draw-line");
+/* Alliance is the console's, not this scene's: the same two tokens the header and the hub tile read,
+   so a field that says "red" and a label that says "red" cannot disagree. */
+const RED = T("--red-alliance");
+const BLUE = T("--blue-alliance");
+const NEUTRAL = T("--draw-shell");      /* a bumper before an alliance is known */
+const FLOOR = T("--draw-floor");
+const BODY = T("--draw-body");
+const BODY_LIT = T("--draw-body-lit");
+const TOWER = T("--draw-tower");
+const WHEEL = T("--draw-wheel");
+const SIGNAL = T("--cat-signal");       /* the nose, and the trail behind it */
+const TRIM = T("--cat-ink-strong");     /* the lit lip, the key light, the centre line */
+const SKY = T("--draw-sky");
+const BOUNCE = T("--draw-bounce");
+const FILL_LIGHT = T("--draw-fill");
+const UNKNOWN = T("--draw-unknown");
 
 const FRAME_MS = 1000 / 30;
 
@@ -57,12 +85,12 @@ export function createField(canvas, opts) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(46, 16 / 9, 0.1, 120);
 
-  scene.add(new THREE.HemisphereLight(0xc8d4e4, 0x0a0b0d, 0.85));
-  const key = new THREE.DirectionalLight(0xffffff, 0.55);
+  scene.add(new THREE.HemisphereLight(SKY, BOUNCE, 0.85));
+  const key = new THREE.DirectionalLight(TRIM, 0.55);
   key.position.set(6, 12, 8);
   scene.add(key);
   // A second, weaker light from the opposite side so the far half of the field is not a silhouette.
-  const fill = new THREE.DirectionalLight(0x8fa8c8, 0.3);
+  const fill = new THREE.DirectionalLight(FILL_LIGHT, 0.3);
   fill.position.set(-8, 6, -7);
   scene.add(fill);
 
@@ -89,7 +117,7 @@ export function createField(canvas, opts) {
      outside `field` because it is wanted under the CAD model too. */
   const backdrop = new THREE.Group();
   scene.add(backdrop);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(length * 4, width * 6), flat(0x191b20));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(length * 4, width * 6), flat(FLOOR));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
   backdrop.add(floor);
@@ -142,7 +170,7 @@ export function createField(canvas, opts) {
       m.position.set(x, 0.004, 0);
       field.add(m);
     };
-    stripe(0, 0xffffff, 0.35);
+    stripe(0, TRIM, 0.35);
     stripe(-length / 2 + 2.0, BLUE, 0.5);
     stripe(length / 2 - 2.0, RED, 0.5);
   }
@@ -176,7 +204,7 @@ export function createField(canvas, opts) {
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
 
-    const { GLTFLoader } = await import("./vendor/GLTFLoader.js");
+    const { GLTFLoader } = await import("./vendor/loaders/GLTFLoader.js");
     const gltf = await new GLTFLoader().loadAsync("./vendor/field.glb");
     const model = gltf.scene;
     model.rotation.x = -Math.PI / 2;
@@ -242,7 +270,7 @@ export function createField(canvas, opts) {
         if (!m) return m;
         if (remapped.has(m.uuid)) return remapped.get(m.uuid);
 
-        (m.color || new THREE.Color(0x888888)).getHSL(hsl, THREE.SRGBColorSpace);
+        (m.color || new THREE.Color(UNKNOWN)).getHSL(hsl, THREE.SRGBColorSpace);
         /* Read and write in sRGB, not the linear working space. Pick these numbers linearly and the
            output transfer curve lifts them by roughly a third on screen.
 
@@ -289,21 +317,21 @@ export function createField(canvas, opts) {
   const BUMPER = 0.08;
   const OUTER = FRAME + BUMPER * 2;
 
-  const belly = new THREE.Mesh(new THREE.BoxGeometry(FRAME, 0.11, FRAME), lit(0x2b2e35));
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(FRAME, 0.11, FRAME), lit(BODY));
   belly.position.y = 0.115;
   robot.add(belly);
 
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(FRAME * 0.94, 0.03, FRAME * 0.94), lit(0x3d424b));
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(FRAME * 0.94, 0.03, FRAME * 0.94), lit(BODY_LIT));
   deck.position.y = 0.19;
   robot.add(deck);
 
   // A low superstructure, offset back, so the front of the robot is unmistakable from above.
-  const tower = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.5), lit(0x30343c));
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.5), lit(TOWER));
   tower.position.set(-0.13, 0.36, 0);
   robot.add(tower);
 
   const bumperMat = lit(BLUE);
-  const bumperTrim = lit(0xffffff);
+  const bumperTrim = lit(TRIM);
   const bumpers = new THREE.Group();
   for (const [w, d, x, z] of [
     [OUTER, BUMPER, 0, -(FRAME + BUMPER) / 2],
@@ -323,20 +351,20 @@ export function createField(canvas, opts) {
   robot.add(bumpers);
 
   for (const [x, z] of [[-0.26, -0.3], [0.26, -0.3], [-0.26, 0.3], [0.26, 0.3]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 14), lit(0x0b0c0e));
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 14), lit(WHEEL));
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(x, 0.075, z);
     robot.add(wheel);
   }
 
   /* The nose. Heading is what you actually read off this view, so it is the one thing on the robot
-     allowed to be brand coral, and it sits proud of the bumper where nothing can hide it. */
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 3), flat(0xe94560));
+     allowed to be the signal colour, and it sits proud of the bumper where nothing can hide it. */
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 3), flat(SIGNAL));
   nose.rotation.z = -Math.PI / 2;
   nose.position.set(OUTER / 2 + 0.11, 0.26, 0);
   robot.add(nose);
 
-  const noseBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34), flat(0xe94560));
+  const noseBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34), flat(SIGNAL));
   noseBar.position.set(OUTER / 2 - 0.02, 0.26, 0);
   robot.add(noseBar);
 
@@ -348,7 +376,7 @@ export function createField(canvas, opts) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailLen * 3), 3));
     geo.setDrawRange(0, 0);
-    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xe94560, transparent: true, opacity: 0.6 }));
+    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0.6 }));
     trail.frustumCulled = false;
     scene.add(trail);
   }
@@ -550,7 +578,7 @@ export function createField(canvas, opts) {
 
       if (state.alliance !== lastAlliance) {
         lastAlliance = state.alliance;
-        bumperMat.color.setHex(state.alliance === "red" ? RED : state.alliance === "blue" ? BLUE : 0x4d5560);
+        bumperMat.color.set(state.alliance === "red" ? RED : state.alliance === "blue" ? BLUE : NEUTRAL);
       }
 
       if (!state.pose) {

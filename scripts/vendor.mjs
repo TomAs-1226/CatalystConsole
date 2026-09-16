@@ -12,15 +12,19 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = resolve(root, "src/vendor");
 mkdirSync(out, { recursive: true });
 
+// The two examples keep three's own folder layout. GLTFLoader imports
+// `../utils/BufferGeometryUtils.js`, so flattening them put that import at src/utils/, outside
+// vendor, and the browser answered 404 — the loader then failed on exactly the field models it is
+// there to read. Both still resolve bare "three" through the import map in index.html.
 const files = [
   ["node_modules/three/build/three.module.min.js", "three.module.min.js"],
-  // Only needed when a field model is present; harmless otherwise. Both resolve bare "three" through
-  // the import map in index.html.
-  ["node_modules/three/examples/jsm/loaders/GLTFLoader.js", "GLTFLoader.js"],
-  ["node_modules/three/examples/jsm/utils/BufferGeometryUtils.js", "BufferGeometryUtils.js"],
+  ["node_modules/three/examples/jsm/loaders/GLTFLoader.js", "loaders/GLTFLoader.js"],
+  ["node_modules/three/examples/jsm/utils/BufferGeometryUtils.js", "utils/BufferGeometryUtils.js"],
 ];
 
 for (const [from, to] of files) {
-  copyFileSync(resolve(root, from), resolve(out, to));
+  const target = resolve(out, to);
+  mkdirSync(dirname(target), { recursive: true });
+  copyFileSync(resolve(root, from), target);
   console.log(`vendored ${to}`);
 }
