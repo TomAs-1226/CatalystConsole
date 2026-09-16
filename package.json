@@ -5,14 +5,16 @@
   "description": "Driver station companion dashboard for FrcCatalyst",
   "type": "module",
   "scripts": {
-    "test": "node --test \"src/**/*.test.js\"",
+    "test": "node scripts/check-identity.mjs && node --test \"src/**/*.test.js\"",
     "tauri": "tauri",
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",
     "serve": "node scripts/serve.mjs",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "node scripts/check-identity.mjs --write && tauri build",
+    "identity": "node scripts/check-identity.mjs --write",
+    "check-identity": "node scripts/check-identity.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
