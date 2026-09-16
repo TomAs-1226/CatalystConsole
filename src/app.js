@@ -586,6 +586,9 @@ const TOK = readTokens({
   dim: "--cat-muted",
   faint: "--cat-faint",
   rule: "--cat-hair-str",
+  // A magnitude rather than a state: the trace under a reading that is behaving. It has to be
+  // neutral, because painting data in --cat-ok spends the colour that is supposed to mean healthy.
+  data: "--cat-data",
 });
 
 /* The robot plan's materials. A drawing, not interface: see the `drawn marks` block in styles.css
@@ -1017,7 +1020,7 @@ define("battery", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    const color = v !== null && v < cfg.low ? TOK.warn : TOK.ok;
+    const color = v !== null && v < cfg.crit ? TOK.bad : v !== null && v < cfg.low ? TOK.warn : TOK.data;
     x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
 
     if (h.length > 3) {
@@ -1400,7 +1403,7 @@ define("swerve", {
       // Screen y grows downward and the field's +y is to the left, so the angle is negated.
       const dx = Math.cos(-angle) * 16 * (speed < 0 ? -1 : 1);
       const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
-      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.info;
+      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.dim;
       out +=
         `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="${TOK.rule}" stroke-width="3"/>` +
         `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
@@ -1623,7 +1626,7 @@ define("graph", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    x.spark.innerHTML = sparkline(h, w, ht, TOK.info);
+    x.spark.innerHTML = sparkline(h, w, ht, TOK.data);
     if (h.length > 2) {
       x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
     }
@@ -2719,9 +2722,9 @@ async function openSession(session) {
       `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
          <div><div class="ml">Battery ${stat(samples.battery)} V</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, TOK.ok)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, TOK.info)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
            <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, TOK.warn)}</svg></div>
        </div>`

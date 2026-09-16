@@ -446,6 +446,16 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .brand { color: var(--cat-coral); }
 .dim { color: var(--cat-muted); }
 
+/* A reading that is fine is ink, not green.
+ *
+ * Every numeric widget sets `ok` on its own value while the robot is healthy, so a good match put a
+ * green battery beside a green loop time beside a green sparkline beside the hub's green pill — and
+ * a board where the normal state is coloured is a board where colour has stopped meaning anything.
+ * Colour is reserved for a reading that is NOT fine; those keep `warn` and `crit`, and they keep
+ * the rule under the digits as their second channel. The state chips are unaffected: a chip exists
+ * to say which state a thing is in. */
+.n.ok, .gv.ok, .mv.ok { color: var(--cat-white); }
+
 /* Second channel on the number itself, for the tile that holds several and where the header badge
    cannot say which one. A rule under the digits, not a colour on them — text-decoration paints and
    never reflows, which matters on an element rewritten ten times a second. */
