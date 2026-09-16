@@ -643,7 +643,7 @@ function sparkline(values, w, h, color) {
   // colour draws the same one, and a duplicate definition is harmless.
   const id = `spark-${String(color).replace(/[^a-z0-9]/gi, "")}`;
   return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`
-    + `<stop offset="0" stop-color="${color}" stop-opacity="0.34"/><stop offset="1" stop-color="${color}" stop-opacity="0.02"/>`
+    + `<stop offset="0" stop-color="${color}" stop-opacity="0.2"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>`
     + `</linearGradient></defs>`
     + `<path d="${fill}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
 }
@@ -1189,7 +1189,7 @@ define("autonomy", {
       x.scale.textContent = pct.toFixed(0);
       x.scale.className = `n ${pct < 50 ? "crit" : pct < 90 ? "warn" : "ok"}`;
       x.bar.style.width = `${pct.toFixed(0)}%`;
-      x.bar.style.background = pct < 50 ? "var(--crit)" : pct < 90 ? "var(--warn)" : "var(--ok)";
+      x.bar.style.background = pct < 50 ? "var(--crit)" : pct < 90 ? "var(--warn)" : "var(--cat-data)";
       x.authWhy.textContent = str(K + "Authority/Explain", "no limits");
     }
 
@@ -1303,7 +1303,7 @@ define("health", {
 
     const frac = loop === null ? 0 : clamp01(loop / cfg.budget);
     x.bar.style.width = `${frac * 100}%`;
-    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--ok)";
+    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--cat-data)";
     x.cap.innerHTML = loop === null
       ? "waiting for the robot to publish loop time"
       : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;

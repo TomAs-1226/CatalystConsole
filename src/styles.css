@@ -30,6 +30,12 @@
    letter in a reading still comes from the display face, and the thirty places app.js writes a dash
    need no change. Local fonts only: nothing is fetched. */
 /* ================================================================ the Tesla layer ====
+   Monochrome first. Tesla's screen is black, greys and white almost everywhere; blue is a switch that
+   is on, a primary button and the car's planned path, and red, amber and green are small lights that
+   mean something. A reading - a gauge, a graph, a meter - is white. The first pass of this layer spent
+   blue on every gauge and gave each app its own coloured tile, and against the telltales the colours
+   fought; this is the correction.
+
    Console is drawn after Tesla's in-car screens, the way the app is drawn after the Catalyst launch
    material. What was taken from them, from the owner's manual illustrations and photographs of the
    v11 and v12 software, and what it became here:
@@ -99,11 +105,11 @@
   --cat-bad: #ff453a;
   --cat-warn: #ffb340;
   --cat-ok: #30d158;
-  --cat-info: #3e6ae1;
+  --cat-info: #d1d1d6;                      /* a note is information, not an alarm: grey-white */
   --cat-warn-tint: rgba(255, 179, 64, 0.16);
   --cat-bad-tint: rgba(255, 69, 58, 0.16);
   --cat-ok-tint: rgba(48, 209, 88, 0.16);
-  --cat-info-tint: rgba(62, 106, 225, 0.18);
+  --cat-info-tint: rgba(255, 255, 255, 0.08);
   --cat-hair: rgba(255, 255, 255, 0.08);
   --cat-lift-strong: 0 0 0 0 transparent;
   --cat-ground-grad: #000000;
@@ -125,12 +131,6 @@
   --cat-r-field: 8px;
   --cat-r-inner: 6px;
 
-  /* Each app's own tile colour, the way Tesla's apps each have one. */
-  --app-board: #3e6ae1;
-  --app-tune: #ff9f0a;
-  --app-logs: #30b454;
-  --app-topics: #a05ce6;
-  --app-can: #1ea5c8;
 }
 
 @font-face {
@@ -177,7 +177,7 @@
      quantity. It still never spends ok, warn or bad, so green, amber and red keep meaning healthy,
      check and fault; blue only ever says "this is how much". 7.3:1 on a tile, so it holds as text. */
   --cat-track: var(--cat-surface-3);
-  --cat-data: var(--cat-info);
+  --cat-data: #ebebf0;
 
   --r-sm: var(--cat-r-chip);
   --r: var(--cat-r-card);
@@ -521,7 +521,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
    second. */
 .t::before {
   content: "";
-  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: transparent;
   pointer-events: none;
 }
@@ -568,8 +568,8 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t:has(.crit) > .h::after,
 .t:has(.al.error) > .h::after {
   display: block; content: "Fault";
-  background: var(--cat-bad);
-  color: #ffffff;
+  background: var(--cat-bad-tint);
+  color: var(--cat-bad);
   box-shadow: none;
 }
 
@@ -644,7 +644,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 .track i {
   display: block; height: 100%; width: 0; border-radius: 999px;
-  background: var(--cat-ok);
+  background: var(--cat-data);
   transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 
@@ -707,35 +707,31 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: 0;
 }
 .tower .n { font-size: min(var(--fs-32), 30cqh); }
-.tower[data-active="true"] { background: linear-gradient(160deg, color-mix(in srgb, var(--cat-ok) 14%, transparent), var(--cat-ink-800) 62%); }
-.tower[data-active="true"] .status {
-  color: var(--cat-ok);
-  background: color-mix(in srgb, var(--cat-ok) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-ok) 40%, transparent);
+/* The hub's state is a word in a grey capsule with a light in front of it - green while the hub
+   scores, amber in the seconds before it changes, none while it is off - the way Tesla lights a
+   small lamp beside a word rather than washing a panel in colour. The bars fill white. */
+.tower .status { background: var(--cat-surface-2); color: var(--cat-white); }
+.tower .status::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px;
+  border-radius: 50%; background: var(--cat-faint);
 }
-.tower[data-active="false"] { background: var(--cat-ink-800); }
-.tower[data-active="false"] .status { color: var(--cat-muted); background: var(--cat-track); }
-.tower[data-soon="true"] { background: linear-gradient(160deg, color-mix(in srgb, var(--cat-warn) 16%, transparent), var(--cat-ink-800) 62%); }
-.tower[data-soon="true"] .status {
-  color: var(--cat-warn);
-  background: color-mix(in srgb, var(--cat-warn) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-warn) 40%, transparent);
-}
+.tower[data-active="true"] .status::before { background: var(--cat-ok); }
+.tower[data-soon="true"] .status::before { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
+.tower[data-active="false"] .status { color: var(--cat-dim); }
 .tower .bars { display: flex; gap: 4px; margin-top: 8px; }
-.tower .bars i { flex: 1; height: 5px; border-radius: 999px; background: var(--cat-track); }
-.tower[data-active="true"] .bars i { background: var(--cat-ok); }
+.tower .bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); }
+.tower[data-active="true"] .bars i { background: var(--cat-data); }
 .tower[data-soon="true"] .bars i { background: var(--cat-warn); }
 .tower .who {
   font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
-.tower .who.red { color: var(--cat-bad); }
-.tower .who.blue { color: var(--cat-info); }
+.tower .who.red, .tower .who.blue { color: var(--cat-body); }
 
 /* Opacity only — a compositor property, so a tile that is already repainting ten times a second
    does not also relayout twice a second for a pulse. */
-@keyframes towerPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
-.tower[data-active="true"] .status { animation: towerPulse 1.6s ease-in-out infinite; }
+@keyframes towerPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.tower[data-active="true"] .status::before { animation: towerPulse 1.6s ease-in-out infinite; }
 
 /* ---- gauges ---- */
 .gaugewrap { display: flex; gap: 8px; align-items: center; justify-content: space-around; flex: 1; min-height: 0; }
@@ -1034,9 +1030,9 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* The apps. A tile in the app's own colour with a white glyph, the name beside it only when the dock
-   has room, and under the app on screen a short white bar - Tesla marks its running apps the same
-   way. The colours are identities, not states: nothing about an app's health is said by its tile. */
+/* The apps: a white glyph, the name beside it when the dock has room, and under the app on screen a
+   short white bar - the way Tesla marks the apps that are open. No coloured tiles; the dock is
+   monochrome like the rest of the screen. */
 .tabs.apps { display: flex; align-items: center; gap: 4px; flex: none; }
 .tab {
   border: 0; background: transparent; color: var(--cat-body);
@@ -1050,11 +1046,13 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .tab:hover { background: var(--cat-surface-1); color: var(--cat-white); }
 .app-ic {
   position: relative; width: 38px; height: 38px; flex: none; display: grid; place-items: center;
-  border-radius: 10px; background: var(--app, var(--cat-surface-3)); color: #ffffff;
+  border-radius: 10px; background: transparent; color: var(--cat-dim);
+  transition: color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.app-ic svg { width: 22px; height: 22px; }
+.app-ic svg { width: 24px; height: 24px; }
+.tab:hover .app-ic, .tab[aria-selected="true"] .app-ic { color: #ffffff; }
 .app-ic::after {
-  content: ""; position: absolute; left: 50%; bottom: -8px; width: 16px; height: 3px; margin-left: -8px;
+  content: ""; position: absolute; left: 50%; bottom: -6px; width: 16px; height: 3px; margin-left: -8px;
   border-radius: 2px; background: #ffffff; opacity: 0;
   transition: opacity var(--cat-dur-effect) var(--cat-ease-effect);
 }
@@ -1070,7 +1068,7 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 /* Demo data on means every number on the board is invented, which is the one thing amber exists to
    say. It is the only coloured control in the dock and that is the point: the third rule is worth
    more than a consistent icon. The switch in Settings breaks the same way for the same reason. */
-#demoBtn[aria-pressed="true"] { background: var(--cat-warn-tint); color: var(--cat-warn); }
+#demoBtn[aria-pressed="true"] { background: var(--cat-surface-2); color: var(--cat-white); }
 #demoBtn[aria-pressed="true"] svg { color: var(--cat-warn); }
 #rttChip { color: var(--cat-dim); }
 
