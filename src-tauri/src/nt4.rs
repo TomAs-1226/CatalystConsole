@@ -188,6 +188,12 @@ impl Nt4Client {
             };
             rt.block_on(async move {
                 let mut index = 0usize;
+                // The last failure logged for each address. With no robot on the network every
+                // address fails the same way every cycle, and a line per attempt buried everything
+                // else the app printed under five identical timeouts a second. A failure is logged
+                // when it is new for that address, and the slate is wiped by a real connection, so
+                // the first failure after a robot goes away is news again.
+                let mut logged: HashMap<String, String> = HashMap::new();
                 loop {
                     // Cycle the candidate addresses. A robot is reachable by mDNS at the field, by
                     // static IP in the pit, and by localhost in simulation - trying all of them in
@@ -214,13 +220,21 @@ impl Nt4Client {
                     let session = run_session(
                         &addr, &values, &status, &dirty, &rtt_us, &offset_us, &mut set_rx,
                     );
-                    if let Err(e) = session.await {
-                        eprintln!("[nt4] {addr}: {e}");
-                    }
+                    let result = session.await;
 
                     {
                         let mut s = status.lock().unwrap();
+                        if s.connected {
+                            logged.clear();
+                        }
                         s.connected = false;
+                    }
+                    if let Err(e) = result {
+                        let text = e.to_string();
+                        if logged.get(&addr) != Some(&text) {
+                            eprintln!("[nt4] {addr}: {text} (not repeated until it changes)");
+                            logged.insert(addr.clone(), text);
+                        }
                     }
                     dirty.store(true, Ordering::Relaxed);
                     tokio::time::sleep(Duration::from_millis(600)).await;
