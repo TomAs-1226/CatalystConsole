@@ -460,7 +460,11 @@ function fmt(v, decimals = 1) {
 }
 
 function clock(seconds) {
-  if (seconds === null || seconds === undefined) return "—:—";
+  // Figure dashes in the shape of the reading it stands in for, m:ss. Two em dashes either side of a
+  // colon, set 52px in the display face, drew as one bar with a dot through it rather than a clock
+  // with no time on it - and a figure dash is exactly a digit wide in tabular numerals, so the tile
+  // does not shift when the first real time arrives.
+  if (seconds === null || seconds === undefined) return "‒:‒‒";
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -499,6 +503,22 @@ function distinctLabels(keys) {
     }
   }
   return keys.map((k) => leaf(k));
+}
+
+/**
+ * The path a set of topics share, whole segments only: `/Catalyst/Drive` for the four module
+ * velocities. Empty when they share nothing but the root, which the caller words around.
+ */
+function commonPrefix(keys) {
+  const parts = keys.map((k) => String(k).split("/").filter(Boolean));
+  if (!parts.length) return "";
+  const shared = [];
+  for (let i = 0; i < parts[0].length; i++) {
+    const seg = parts[0][i];
+    if (!parts.every((p) => p.length > i + 1 && p[i] === seg)) break;
+    shared.push(seg);
+  }
+  return shared.length ? "/" + shared.join("/") : "";
 }
 
 function clamp01(x) {
@@ -917,7 +937,7 @@ define("gauge", {
     { key: "decimals", label: "Decimals", type: "number", def: 0 },
   ],
   render(body, cfg) {
-    body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div>`;
+    body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div><div class="cap gauge-cap" data-x="cap" hidden></div>`;
     for (const key of String(cfg.topic).split(",").map((s) => s.trim()).filter(Boolean)) track(key);
   },
   update(body, cfg, x) {
@@ -936,6 +956,17 @@ define("gauge", {
     const span = Math.max(1e-6, cfg.max - cfg.min);
     const single = keys.length === 1;
     const labels = single ? [cfg.unit || ""] : distinctLabels(keys);
+
+    // Rings of dashes say nothing about why. When not one of the topics has a value, the tile says
+    // what it is waiting for; as soon as any arrives the caption goes, because a gauge showing three
+    // readings and a dash is reporting one missing topic, and the dash says that on its own.
+    const waiting = keys.every((k) => num(k, null) === null);
+    x.cap.hidden = !waiting;
+    if (waiting) {
+      x.cap.textContent = keys.length === 1
+        ? `waiting for the robot to publish ${keys[0]}`
+        : `waiting for the robot to publish ${keys.length} topics under ${commonPrefix(keys) || "these paths"}`;
+    }
 
     keys.forEach((key, i) => {
       const g = wrap.children[i];
@@ -981,7 +1012,7 @@ define("gauge", {
           ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
           : "") +
         needle +
-        `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="currentColor" font-family="var(--mono)" font-weight="700" font-size="${single ? 22 : 16}" ${hot ? 'class="crit"' : ""}>${text}</text>` +
+        `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${value === null ? TOK.faint : "currentColor"}" font-family="var(--mono)" font-weight="700" font-size="${single ? 22 : 16}" ${hot ? 'class="crit"' : ""}>${text}</text>` +
         `</svg><div class="gl">${label}</div>`;
     });
   },
@@ -1307,9 +1338,13 @@ define("physics", {
     const frac = trac === null ? 0 : clamp01(trac);
     x.bar.style.width = `${frac * 100}%`;
     x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--brand)";
-    x.cap.innerHTML = conf === null
-      ? "advisory only — never gates control"
-      : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
+    // With nothing at all from Physics Core, "advisory only" under three dashes reads as a tile that
+    // is working and quiet. It is waiting, and it says for what.
+    x.cap.innerHTML = slip === null && tip === null && trac === null && conf === null
+      ? "waiting for Physics Core on the robot · advisory only"
+      : conf === null
+        ? "advisory only — never gates control"
+        : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
   },
 });
 
@@ -1629,6 +1664,12 @@ define("graph", {
     x.spark.innerHTML = sparkline(h, w, ht, TOK.data);
     if (h.length > 2) {
       x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
+    } else if (v === null) {
+      // An empty plot under a dash is the tile that most looks broken, so it is the one that most
+      // needs to say it is only waiting, and for which topic.
+      x.cap.textContent = `waiting for the robot to publish ${cfg.topic}`;
+    } else {
+      x.cap.textContent = "collecting samples…";
     }
   },
 });

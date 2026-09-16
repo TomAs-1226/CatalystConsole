@@ -566,6 +566,9 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
 /* ---- gauges ---- */
 .gaugewrap { display: flex; gap: 8px; align-items: center; justify-content: space-around; flex: 1; min-height: 0; }
+/* Under the rings, only while none of them has a value. */
+.gauge-cap { flex: none; text-align: center; }
+.gauge-cap[hidden] { display: none; }
 .gauge { text-align: center; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge svg { display: block; overflow: visible; }
 .gauge .gv {
