@@ -802,6 +802,65 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 
 .pickrow { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
 
+/* --- the CAN sheet -----------------------------------------------------------------------------
+   `.ctrack` is borrowed from the Systemcore card rather than reinvented: a filled bar means bus
+   utilisation on both pages, and a reader should not have to learn it twice. A controller is a box
+   because that is what the page is claiming — the buses inside one share a bandwidth ceiling, and
+   two boxes do not. */
+.canhead { display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+.canstat { display: flex; align-items: baseline; gap: 6px; }
+.canstat b { font-size: var(--fs-15); font-weight: 700; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canstat small { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
+
+.cangroup { border: 1px solid var(--cat-hair); border-radius: var(--r-sm); padding: 14px 16px; }
+.cangroup + .cangroup { margin-top: 12px; }
+.cangroup > header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.cangroup > header h4 { margin: 0; font-size: var(--fs-13); font-weight: 650; color: var(--cat-white); }
+.cangroup > header small { font-size: var(--fs-12); color: var(--cat-muted); }
+
+/* The pair total, above the buses it sums. It is the constraint they are both inside, not a third
+   bus, so it leads the group rather than trailing it. */
+.canpair { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; margin-bottom: 12px; }
+.canpair > span { font-size: var(--fs-12); color: var(--cat-muted); font-weight: 600; }
+.canpair > b { font-size: var(--fs-13); font-weight: 700; text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+
+.canbus + .canbus { margin-top: 10px; border-top: 1px solid var(--hair-dense); padding-top: 10px; }
+.canline { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; }
+.canline > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-text); }
+.canline > b { font-size: var(--fs-13); font-weight: 700; text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canmeta { font-size: var(--fs-12); color: var(--cat-muted); margin: 6px 0 0 90px; }
+
+/* Idle and absent must not look alike. An idle bus measured at zero is dimmed — it is real, it is
+   just carrying nothing, and dimming keeps the eye on the buses under load. A bus nobody measured
+   keeps its name at full strength and shows a dash, because it is not a low reading, it is the
+   absence of one, and the reader is meant to notice that rather than skim past it. */
+.canbus[data-idle="true"] .canline > span,
+.canbus[data-idle="true"] .canline > b { color: var(--cat-muted); }
+.canbus[data-absent="true"] .canline > b,
+.canpair[data-absent="true"] > b { color: var(--cat-muted); font-weight: 600; }
+.canbus[data-absent="true"] .ctrack,
+.canpair[data-absent="true"] .ctrack { background: repeating-linear-gradient(
+  135deg, var(--cat-track) 0 3px, transparent 3px 6px); }
+
+.candevs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 90px; }
+.candev {
+  display: flex; align-items: baseline; gap: 6px; padding: 3px 8px;
+  background: var(--cat-ink-700); border: 1px solid var(--hair-dense); border-radius: var(--r-sm);
+}
+.candev i { font-style: normal; font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.candev span { font-size: var(--fs-12); color: var(--cat-text); }
+.candev small { font-size: var(--fs-12); color: var(--cat-muted); }
+
+.canwarn { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.canwarn:empty { display: none; }
+.canwarn .sh { margin: 0; }
+.canw { display: grid; grid-template-columns: 8px 1fr; gap: 10px; align-items: start; font-size: var(--fs-13); line-height: 1.5; color: var(--cat-text); }
+/* The same three shapes the header uses, so a warning is read with a vocabulary already learned. */
+.canw::before { content: ""; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--cat-warn); }
+.canw[data-level="crit"]::before { background: var(--cat-bad); border-radius: 1px; }
+.canw[data-level="ok"]::before { background: var(--cat-ok); }
+
+
 /* Bordered everywhere except Settings — see `.settings select` for why it comes off there and why
    that reasoning does not travel. Out here a control's ground is the panel, and a fill alone is
    too small a step to say "you can type in this". */

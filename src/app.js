@@ -212,6 +212,35 @@ function demoTick() {
   set("/Catalyst/Systemcore/HardwareSubRev", "num", 2);
   set("/Catalyst/Systemcore/NetworkInterfaces", "strs", ["eth0", "wlan0"]);
 
+  /* What is on each wire, in CANRegistry's own format — bus|canId|type|name. This is the plan the
+     paragraph above describes, written out: the drivetrain together on can_s0, the mechanisms on
+     can_s2 which shares its controller with nothing, and a CANivore carrying the two devices that
+     came with a bought mechanism. Twelve on can_s0 is the most a bus takes before the CAN page
+     objects, so the demo sits right against the line rather than comfortably inside it — the point
+     of the page is that the line is where it is, and a layout nowhere near it demonstrates nothing. */
+  set("/Catalyst/CAN/Devices", "strs", [
+    "can_s0|1|Kraken X60|Front left drive", "can_s0|2|Kraken X60|Front left steer",
+    "can_s0|3|CANcoder|Front left encoder",
+    "can_s0|4|Kraken X60|Front right drive", "can_s0|5|Kraken X60|Front right steer",
+    "can_s0|6|CANcoder|Front right encoder",
+    "can_s0|7|Kraken X60|Back left drive", "can_s0|8|Kraken X60|Back left steer",
+    "can_s0|9|CANcoder|Back left encoder",
+    "can_s0|10|Kraken X60|Back right drive", "can_s0|11|Kraken X60|Back right steer",
+    "can_s0|12|CANcoder|Back right encoder",
+    "can_s2|20|Pigeon 2|Gyro", "can_s2|21|Kraken X60|Shooter left",
+    "can_s2|22|Kraken X60|Shooter right", "can_s2|23|Kraken X60|Feeder",
+    "canivore|30|Kraken X60|Elevator", "canivore|31|CANcoder|Elevator encoder",
+  ]);
+  /* Phoenix's view of the CANivore. The OS array cannot reach it — it covers the Systemcore's own
+     five buses and nothing else — so this is the one bus on the demo robot whose reading the page
+     attributes to Phoenix rather than to the OS, which is the distinction it is there to make. */
+  set("/Catalyst/CAN/Health/canivore/OK", "bool", true);
+  set("/Catalyst/CAN/Health/canivore/Utilization", "num", 0.11 + 0.03 * Math.sin(t * 1.1));
+  set("/Catalyst/CAN/Health/canivore/BusOffCount", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/TxFullCount", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/REC", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/TEC", "num", 0);
+
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
 
@@ -2721,6 +2750,297 @@ function paintTopics() {
   }
 }
 
+/* ------------------------------------------------------------------- CAN sheet */
+
+/* Five buses on three SPI controllers, drawn as three controllers.
+ *
+ * That grouping is the entire reason this is a view rather than another row on the Systemcore page.
+ * can_s0 and can_s1 share an SPI host and throttle each other; can_s0 and can_s2 do not. Every other
+ * tool in FRC draws all five as equals, so a team moving half a drivetrain off a loaded bus can pick
+ * the pair that buys them nothing and find out on a field. The rules — the pairing, the thresholds,
+ * the warnings — are in can-model.js where they can be tested without a DOM. This draws what it
+ * returns and adds no rule of its own.
+ *
+ * Four sources feed it, and the page keeps them apart because they are not equally true:
+ *
+ *   /Catalyst/CAN/Devices                  what is wired where — CANRegistry.republish()
+ *   /Catalyst/Systemcore/CanUtilization    the OS's own measurement, all five buses, always
+ *   /Catalyst/CAN/Health/<bus>/*           Phoenix's view: reaches CANivores, carries the counters
+ *   /Catalyst/Preflight/Findings           what the robot said about its own CAN plan, when it ran
+ *
+ * The first three are continuous. The fourth is a snapshot from whenever robot code last called
+ * Preflight.run(), and nothing republishes it — so it is labelled as the robot's word and kept in its
+ * own block, rather than mixed in with what the console is working out live from the wire.
+ *
+ * The topology is drawn with no robot attached. Five buses on three controllers is a fact about the
+ * Systemcore rather than a reading from one, and an empty bus is the most useful thing on this page:
+ * it is where the next mechanism should go. Every number stays a dash until something answers. */
+
+const CAN_DEVICES = "/Catalyst/CAN/Devices";
+const CAN_HEALTH = "/Catalyst/CAN/Health/";
+const PREFLIGHT_FINDINGS = "/Catalyst/Preflight/Findings";
+
+/* Phoenix publishes six keys per bus and can-model.js reads six named fields. The mapping is a table
+   rather than six lines of assignment so the per-bus key strings can be built once, at the point the
+   set of buses changes, instead of being concatenated afresh ten times a second. */
+const CAN_HEALTH_FIELDS = [
+  ["ok", "OK", bool],
+  ["utilization", "Utilization", num],
+  ["busOff", "BusOffCount", num],
+  ["txFull", "TxFullCount", num],
+  ["rec", "REC", num],
+  ["tec", "TEC", num],
+];
+
+/* Everything that survives between frames. The structure — which buses exist, what is on them — is
+   rebuilt only when the published device roster changes, which is when somebody plugs something in.
+   The numbers are written straight to the cached nodes on every frame. */
+const canCache = {
+  rowsRaw: undefined,   // the last array object seen on CAN_DEVICES, for a free early-out
+  rowsSig: null,        // its contents, for when a frame re-sends an unchanged key as a new array
+  devices: [],          // parseDevices() of those rows
+  health: null,         // bus → the object handed to layout(), fields overwritten in place
+  probes: [],           // {row, fields:[{name, key, read}]} — where those fields come from
+  shape: null,          // the structure the cached nodes below were built for
+  groups: [],           // {el, track, num} per shared controller, in controller order
+  buses: [],            // {el, track, num, meta} per bus, in controller order
+  preRaw: undefined,    // the last array object seen on PREFLIGHT_FINDINGS
+  preHtml: "",          // its rendering, so a snapshot nobody has updated is formatted once
+};
+
+function paintCan() {
+  const sheet = $("#canSheet");
+  if (!sheet.dataset.built) {
+    sheet.dataset.built = "1";
+    sheet.innerHTML = `
+      <div class="sh">CAN buses</div>
+      <div class="canhead">
+        <div class="canstat"><b id="canDevCount">—</b><small>devices</small></div>
+        <div class="canstat"><b id="canBusiest">—</b><small>busiest bus</small></div>
+      </div>
+      <div class="note" id="canNote" hidden></div>
+      <div id="canGroups"></div>
+      <div class="canwarn" id="canWarn"></div>
+      <div class="canwarn" id="canPre"></div>`;
+  }
+
+  /* A frame that did not touch this key hands back the same array object, so the common case costs
+     one comparison. When it does hand back a new one the contents are usually identical anyway — the
+     roster is written once at robot boot — and re-parsing and re-sorting it to discover that is the
+     one piece of per-frame work here worth avoiding. */
+  const rows = arr(CAN_DEVICES);
+  if (rows !== canCache.rowsRaw) {
+    canCache.rowsRaw = rows;
+    const sig = rows ? rows.join("\n") : "";
+    if (sig !== canCache.rowsSig) {
+      canCache.rowsSig = sig;
+      canCache.devices = canModel.parseDevices(rows);
+      canCache.health = null;   // a new roster can mean a new bus to read health for
+    }
+  }
+
+  if (!canCache.health) buildCanProbes();
+  for (const p of canCache.probes) {
+    for (const f of p.fields) p.row[f.name] = f.read(f.key, null);
+  }
+
+  /* Called every frame, and deliberately. What it folds in — utilisation per bus, the combined figure
+     for a shared pair — changes every frame, and the alternative is to re-implement the pair rule out
+     here against the cached nodes, which is the duplication can-model.js exists to prevent. It costs a
+     map and a couple of dozen small objects. What is gated is everything that reaches the DOM. */
+  const model = canModel.layout({
+    devices: canCache.devices,
+    osUtilization: arr(CORE + "CanUtilization"),
+    health: canCache.health,
+  });
+
+  const shape = canShapeOf(model);
+  if (shape !== canCache.shape) {
+    canCache.shape = shape;
+    buildCanGroups(model);
+  }
+
+  setText($("#canDevCount"), String(model.deviceCount));
+  setText($("#canBusiest"), canModel.utilizationText(model.busiest) ?? "—");
+
+  /* Compared before it is written, like everything else on this page. Assigning `hidden` the value it
+     already holds still rewrites the attribute, which is a style invalidation ten times a second for a
+     line that changes twice a match. */
+  const note = $("#canNote");
+  const linked = nt.status.connected || demo.on;
+  if (note.hidden !== linked) note.hidden = linked;
+  if (!linked) {
+    setHtml(note, "No robot. Which buses share a controller is a fact about the Systemcore rather "
+      + "than a reading from one, so the layout is drawn — every number stays a dash until "
+      + "something answers.");
+  }
+
+  let gi = 0;
+  let bi = 0;
+  for (const c of model.controllers) {
+    if (c.shared) writeCanPair(canCache.groups[gi++], c);
+    for (const b of c.buses) writeCanBus(canCache.buses[bi++], b);
+  }
+
+  paintCanWarnings(model);
+  paintCanPreflight();
+}
+
+/* The set of buses to read Phoenix health for: Systemcore's own five, always, plus whatever the
+   roster puts a device on. Nothing else can reach the page — layout() only raises a non-Systemcore
+   group for a bus that has devices — so scanning every NetworkTables key for a CANivore that
+   published health and carries nothing would find only buses with nothing to draw. */
+function buildCanProbes() {
+  const names = new Set();
+  for (const c of canModel.CONTROLLERS) for (const b of c.buses) names.add(b);
+  for (const d of canCache.devices) names.add(d.bus);
+
+  canCache.health = Object.create(null);
+  canCache.probes = [];
+  for (const bus of names) {
+    const row = {};
+    canCache.health[bus] = row;
+    canCache.probes.push({
+      row,
+      fields: CAN_HEALTH_FIELDS.map(([name, key, read]) => ({ name, key: CAN_HEALTH + bus + "/" + key, read })),
+    });
+  }
+}
+
+/* What the markup depends on, and nothing that does not: bus names, the devices on them, and whether
+   a group draws a combined bar. Utilisation is absent on purpose — it changes every frame and is
+   written to nodes that already exist. */
+function canShapeOf(model) {
+  let s = "";
+  for (const c of model.controllers) {
+    s += `${c.group}:${c.shared ? "p" : "-"}:`;
+    for (const b of c.buses) {
+      s += b.name + "[";
+      for (const d of b.devices) s += `${d.id},${d.type},${d.name};`;
+      s += "]";
+    }
+    s += "|";
+  }
+  return s;
+}
+
+function buildCanGroups(model) {
+  $("#canGroups").innerHTML = model.controllers.map((c) => `
+    <section class="cangroup" data-shared="${c.shared}">
+      <header>
+        <h4>${escapeHtml(c.name)}</h4>
+        <small>${escapeHtml(c.note)}</small>
+      </header>
+      ${c.shared ? `<div class="canpair">
+        <span>together</span>
+        <div class="ctrack big"><i></i></div>
+        <b>—</b>
+      </div>` : ""}
+      ${c.buses.map(canBusHtml).join("")}
+    </section>`).join("");
+
+  /* One walk of the tree, so a frame never runs a selector. The order below is the order the writers
+     step through the model, which is the order the markup was just built in. */
+  canCache.groups = [...$("#canGroups").querySelectorAll(".canpair")].map((row) => ({
+    el: row,
+    track: row.querySelector("i"),
+    num: row.querySelector("b"),
+  }));
+  canCache.buses = [...$("#canGroups").querySelectorAll(".canbus")].map((node) => ({
+    el: node,
+    track: node.querySelector(".canline i"),
+    num: node.querySelector(".canline b"),
+    meta: node.querySelector(".canmeta"),
+  }));
+}
+
+function canBusHtml(b) {
+  const devices = b.devices.map((d) =>
+    `<div class="candev"><i>${d.id}</i><span>${escapeHtml(d.type)}</span>`
+    + `${d.name ? `<small>${escapeHtml(d.name)}</small>` : ""}</div>`).join("");
+  return `<div class="canbus" data-bus="${escapeHtml(b.name)}" data-kind="${b.kind}">
+      <div class="canline">
+        <span>${escapeHtml(b.name)}</span>
+        <div class="ctrack"><i></i></div>
+        <b>—</b>
+      </div>
+      <div class="canmeta"></div>
+      ${devices ? `<div class="candevs">${devices}</div>` : ""}
+    </div>`;
+}
+
+/* One bus's live numbers.
+ *
+ * `absent` and `idle` are the distinction the whole model is careful about and the one the page is
+ * most able to blur: a bus nobody measured and a bus carrying nothing both draw an empty track. They
+ * are separated in the text — a dash against a zero — and in the styling, because reading "0%" off a
+ * bus that was never reported on is how somebody concludes a wire is free and hangs a mechanism on
+ * it. */
+function writeCanBus(node, b) {
+  setText(node.num, canModel.utilizationText(b.utilization) ?? "—");
+  setWidth(node.track, canModel.barWidth(b.utilization));
+  setLevel(node.track, coreFmt.level(
+    b.utilization === null ? null : b.utilization * 100, 70, canModel.UTILIZATION_WARN * 100));
+
+  setFlag(node.el, "absent", b.utilization === null);
+  setFlag(node.el, "idle", b.idle);
+
+  /* Device count first: it is the half of the page that is true with the robot disabled, which is
+     when somebody is standing in front of it able to move a wire. */
+  let meta = b.devices.length
+    ? `${b.devices.length} device${b.devices.length === 1 ? "" : "s"}`
+    : "nothing registered";
+  if (b.utilization === null) meta += " · not measured";
+  else if (b.idle) meta += " · idle";
+  if (b.source === "phoenix") meta += " · Phoenix";
+  if (b.health?.busOff) meta += ` · bus-off ×${b.health.busOff}`;
+  if (b.health?.txFull) meta += ` · TX full ×${b.health.txFull}`;
+  /* The counters climb before a bus drops. Catching that in the pit is the difference between
+     finding a loose connector and finding it during an elimination. */
+  if (canModel.hasErrorActivity(b.health)) {
+    meta += ` · errors REC ${b.health.rec ?? 0} / TEC ${b.health.tec ?? 0}`;
+  }
+  setText(node.meta, meta);
+}
+
+/* The combined figure for a shared controller, which is the number the grouping exists to show. Drawn
+ * against what the pair can carry rather than against two full buses: the ceiling is one SPI host's
+ * throughput, not the sum of two free wires. */
+function writeCanPair(node, c) {
+  setText(node.num, canModel.utilizationText(c.utilization) ?? "—");
+  setWidth(node.track, canModel.barWidth(c.utilization, canModel.PAIR_UTILIZATION_LIMIT));
+  setLevel(node.track, c.utilization === null ? null
+    : c.utilization > canModel.PAIR_UTILIZATION_LIMIT ? "crit"
+    : c.utilization > canModel.PAIR_UTILIZATION_LIMIT * 0.8 ? "warn" : "ok");
+  /* Marked absent on the same terms as a bus, and drawn the same way. A pair total is null unless
+     both its buses were measured, so half a reading shows as no reading — and the one thing this
+     page cannot afford is for a missing number to look like a low one in one place and not another. */
+  setFlag(node.el, "absent", c.utilization === null);
+}
+
+/* What the console worked out, from what is on the wire right now. */
+function paintCanWarnings(model) {
+  setHtml($("#canWarn"), canModel.contentionWarnings(model)
+    .map((w) => `<div class="canw" data-level="${w.level}">${escapeHtml(w.text)}</div>`).join(""));
+}
+
+/* What the robot said, the last time anything asked it. Kept in its own block and labelled, because
+ * it is a snapshot from whenever Preflight.run() was called and nothing republishes it — a finding
+ * sitting beside a live warning would be read as equally current. */
+function paintCanPreflight() {
+  const rows = arr(PREFLIGHT_FINDINGS);
+  if (rows !== canCache.preRaw) {
+    canCache.preRaw = rows;
+    const found = canModel.parsePreflightCan(rows);
+    canCache.preHtml = found.length
+      ? `<div class="sh">From the robot&rsquo;s preflight</div>`
+        + found.map((f) => `<div class="canw" data-level="${f.level}">${escapeHtml(f.text)}</div>`).join("")
+      : "";
+  }
+  setHtml($("#canPre"), canCache.preHtml);
+}
+
+
 /* ----------------------------------------------------------- connection history */
 
 /* The link chip says what is true now. It says nothing about the last ten minutes, and that is the
@@ -3804,6 +4124,35 @@ function setHtml(el, html) {
   if (el.dataset.html === html) return;
   el.dataset.html = html;
   el.innerHTML = html;
+}
+
+/* The same bargain one step down, for the nodes a page rewrites rather than rebuilds. Assigning
+   textContent or a style property that already holds that value still dirties the node, and a bar
+   whose width is re-set to the width it already has restarts its CSS transition — which is what turns
+   a bar easing to a new reading into one that never settles. Reading the property back first is a
+   cache hit; writing it is layout. */
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function setWidth(el, pct) {
+  const w = `${pct.toFixed(1)}%`;
+  if (el.style.width !== w) el.style.width = w;
+}
+
+/* Null clears it, so a reading that goes away takes its colour with it rather than leaving the last
+   one behind as a statement about a number that is no longer there. */
+function setLevel(el, level) {
+  if (level === null || level === undefined) {
+    if (el.dataset.level !== undefined) delete el.dataset.level;
+  } else if (el.dataset.level !== level) {
+    el.dataset.level = level;
+  }
+}
+
+function setFlag(el, name, on) {
+  const v = String(on);
+  if (el.dataset[name] !== v) el.dataset[name] = v;
 }
 
 /* The wording and the thresholds live in core-format.js so they can be tested: the states they
