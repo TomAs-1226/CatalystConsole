@@ -2,9 +2,10 @@
  *
  * While the robot is disabled the console gives it the whole vehicle area: the robot, lit like a
  * product on a dark studio stage, turned by a finger. It is Tesla's Park screen for an FRC robot, and
- * like that screen it is not a data view. Nothing on the stage follows telemetry. It is there so a
- * parked robot looks like a machine rather than an empty tile, and so the callouts around it have
- * something to point at.
+ * like that screen it is not a data view. Nothing on the stage moves with telemetry; it shows what the
+ * robot is - its size, its alliance, the team number on its bumpers - so a parked robot looks like
+ * that team's machine rather than an empty tile, and so the callouts around it have something to point
+ * at.
  *
  * The model is built from the robot's configured dimensions instead of loaded from CAD, for the reason
  * the field is (see field3d.js): a team's assembly is hundreds of megabytes and says nothing here that
@@ -257,6 +258,97 @@ export function normalizeRobot(spec) {
   }
 
   return { frameLength, frameWidth, bumperLength, bumperWidth, bumperThickness, height, modules };
+}
+
+/**
+ * A team number as the bumpers print it, or null when there is nothing to print.
+ *
+ * FRC team numbers are whole numbers from 1 up, and none has yet passed five digits. Zero is what an
+ * unconfigured controller reports, so it prints nothing rather than a 0 on every side of the robot.
+ */
+export function bumperNumber(value) {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 99999 ? String(n) : null;
+}
+
+/* ---- callout layout ---- */
+
+/**
+ * Where the callouts' labels go and where their hairlines run, in canvas pixels.
+ *
+ * Tesla labels a parked car beside it, never on it, and here there is a plainer reason too: a white
+ * word over a silver frame cannot be read. So a label goes out past the robot's edge on the side its
+ * part is on, level with the part, and a hairline joins the two. A part named in `opts.above` - the top
+ * of the superstructure - is labelled over the robot instead. Labels on one side keep their order and
+ * are pushed apart so they never overlap, and each side keeps to its band of the canvas, clear of
+ * whatever else stands in that column. A label with no room on its own side crosses to the other one
+ * when there is more room there.
+ *
+ * `points`  { name: { x, y, visible } }, as anchors() returns them
+ * `box`     { left, top, right, bottom }, the robot on screen, as bounds() returns it
+ * `sizes`   { name: { w, h } }, each label's size
+ * `area`    { w, h, left: [top, bottom], right: [top, bottom], top }: the canvas, the two side bands
+ *           and the highest a label over the robot may sit
+ *
+ * Returns { name: { side, x, y, line: [x1, y1, x2, y2] } } for each label to show: `x` and `y` are the
+ * label's top-left corner, and the line runs from beside the label to the part.
+ */
+export function layoutCallouts(points, box, sizes, area, opts = {}) {
+  const out = {};
+  if (!points || !box || !sizes || !area || !(area.w > 0) || !(area.h > 0)) return out;
+  const gap = opts.gap ?? 44;
+  const spacing = opts.spacing ?? 14;
+  const margin = opts.margin ?? 24;
+  const above = new Set(opts.above ?? ["top"]);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const middle = (box.left + box.right) / 2;
+  const sides = { left: [], right: [] };
+
+  for (const [name, p] of Object.entries(points)) {
+    const size = sizes[name];
+    if (!p || !p.visible || !size || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    const { w, h } = size;
+    if (above.has(name)) {
+      const x = clamp(p.x - w / 2, margin, Math.max(margin, area.w - margin - w));
+      const y = Math.max(area.top ?? 0, box.top - gap - h);
+      out[name] = { side: "top", x, y, line: [clamp(p.x, x + 6, x + w - 6), y + h + 6, p.x, p.y] };
+      continue;
+    }
+    const room = {
+      left: box.left - gap - w - margin,
+      right: area.w - margin - (box.right + gap + w),
+    };
+    let side = p.x < middle ? "left" : "right";
+    const other = side === "left" ? "right" : "left";
+    if (room[side] < 0 && room[other] > room[side]) side = other;
+    sides[side].push({ name, p, w, h, y: p.y - h / 2 });
+  }
+
+  for (const side of ["left", "right"]) {
+    const list = sides[side].sort((a, b) => a.y - b.y);
+    const band = area[side] ?? [0, area.h];
+    /* Down the band pushing each label below the one before, then back up it pulling any that ran off
+       the bottom. A band too short for every label keeps the top ones where they were asked for. */
+    let floor = band[0];
+    for (const item of list) {
+      item.y = Math.max(item.y, floor);
+      floor = item.y + item.h + spacing;
+    }
+    let ceiling = band[1];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const item = list[i];
+      item.y = Math.max(band[0], Math.min(item.y, ceiling - item.h));
+      ceiling = item.y - spacing;
+    }
+    for (const item of list) {
+      const x = side === "left"
+        ? Math.max(margin, box.left - gap - item.w)
+        : Math.min(area.w - margin - item.w, box.right + gap);
+      const edge = side === "left" ? x + item.w + 10 : x - 10;
+      out[item.name] = { side, x, y: item.y, line: [edge, item.y + item.h / 2, item.p.x, item.p.y] };
+    }
+  }
+  return out;
 }
 
 /* ---- the scene ---- */
@@ -762,6 +854,8 @@ function buildRobot(spec, mat, keep) {
     drivetrain: { point: new THREE.Vector3(m0x, FRAME_TOP + housingH, -m0y), normal: new THREE.Vector3(m0x / m0, 0.8, -m0y / m0).normalize() },
     bumper: { point: new THREE.Vector3(spec.bumperLength / 2, BUMPER_BOTTOM + BUMPER_HEIGHT * 0.55, 0), normal: new THREE.Vector3(1, 0.15, 0).normalize() },
     top: { point: crown, normal: new THREE.Vector3(0, 1, 0) },
+    /* The top of the controller on the belly pan, beside its status light. */
+    controller: { point: new THREE.Vector3(L * 0.18, deck + 0.032, W * 0.03), normal: new THREE.Vector3(0, 1, 0) },
   };
 
   /* What the camera frames: a wide low cylinder reaching the bumper outline's true corners (or a module
@@ -771,7 +865,85 @@ function buildRobot(spec, mat, keep) {
   const parts = [{ radius, bottom: 0, top: baseTop }];
   if (reach > 0) parts.push({ radius: reach, bottom: 0, top: H });
 
-  return { group, anchors, parts, corner };
+  /* The model's own box, which bounds() projects to find the robot on screen, and whether it has
+     bumpers to print a number on. */
+  const box = new THREE.Box3().setFromObject(group);
+  return { group, anchors, parts, corner, box, bumpered: thin > 0.004 };
+}
+
+/**
+ * The team number on all four bumper faces, as white numerals on a transparent plane just proud of the
+ * fabric, the way iron-on numbers sit on a real bumper cover.
+ *
+ * Three inches tall rather than the four the rules ask for: the flat of a five-inch bumper face ends
+ * where its rounded edges begin, and numerals any taller would hang out over the curve.
+ */
+function bumperNumbers(text, spec, fontFamily) {
+  /* The flat of the shorter face, less its rounded corners and a margin. A bumper too short to carry
+     a number legibly carries none. */
+  const flat = Math.min(spec.bumperLength, spec.bumperWidth) - 0.24;
+  if (!(flat >= 0.08)) return null;
+  const size = 160;
+  const pad = 10;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const font = `600 ${size}px ${fontFamily}`;
+  context.font = font;
+  const ink = context.measureText(text);
+  const ascent = Math.ceil(ink.actualBoundingBoxAscent || size * 0.72);
+  const descent = Math.ceil(ink.actualBoundingBoxDescent || 0);
+  const left = Math.ceil(ink.actualBoundingBoxLeft || 0);
+  const width = Math.ceil((ink.actualBoundingBoxRight || ink.width) + left);
+  canvas.width = width + 2 * pad;
+  canvas.height = ascent + descent + 2 * pad;
+  context.font = font;
+  context.fillStyle = "#ffffff";
+  context.textBaseline = "alphabetic";
+  context.fillText(text, pad + left, pad + ascent);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+
+  const numeral = 0.0762;
+  const metresPerPx = numeral / Math.max(1, ascent + descent);
+  let w = canvas.width * metresPerPx;
+  let h = canvas.height * metresPerPx;
+  /* A long number on a short side is scaled to fit between the rounded corners. */
+  if (w > flat) {
+    h *= flat / w;
+    w = flat;
+  }
+  const geometry = new THREE.PlaneGeometry(w, h);
+  const material = new THREE.MeshStandardMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    roughness: 0.85,
+    metalness: 0,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  material.envMapIntensity = 0.25;
+
+  const y = BUMPER_BOTTOM + BUMPER_HEIGHT / 2;
+  const proud = 0.0015;
+  const faces = [
+    [spec.bumperLength / 2 + proud, 0, Math.PI / 2],
+    [-spec.bumperLength / 2 - proud, 0, -Math.PI / 2],
+    [0, spec.bumperWidth / 2 + proud, 0],
+    [0, -spec.bumperWidth / 2 - proud, Math.PI],
+  ];
+  const meshes = faces.map(([x, z, turn]) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = turn;
+    /* After the bumper, whose fabric it lies on. */
+    mesh.renderOrder = 1;
+    return mesh;
+  });
+  return { meshes, geometry, material, texture };
 }
 
 /* ---- the studio ---- */
@@ -999,10 +1171,59 @@ export function createPark(canvas, opts) {
   stage.add(floor);
 
   let robot = null;
+  let robotBox = null;
+  let robotSpec = null;
+  let bumpered = false;
   let anchorDefs = null;
   let parts = [];
   let lookY = 0;
   let lastSpec = "";
+
+  /* ---- the team number ---- */
+
+  const FONT = style.getPropertyValue("--cat-sans").trim() || "system-ui, sans-serif";
+  let teamText = null;
+  let numbers = null;
+  /* Counts every change, so a font load that finishes late cannot print a number that has since been
+     replaced. */
+  let numbersWanted = 0;
+
+  function dropNumbers() {
+    if (!numbers) return;
+    for (const mesh of numbers.meshes) mesh.removeFromParent();
+    numbers.geometry.dispose();
+    numbers.material.dispose();
+    numbers.texture.dispose();
+    numbers = null;
+  }
+
+  function applyNumbers() {
+    dropNumbers();
+    const wanted = ++numbersWanted;
+    if (!robot || !bumpered || !teamText) {
+      requestRender();
+      return;
+    }
+    const text = teamText;
+    const print = () => {
+      if (disposed || wanted !== numbersWanted || !robot) return;
+      dropNumbers();
+      const built = bumperNumbers(text, robotSpec, FONT);
+      if (!built) return;
+      numbers = built;
+      if (environment) {
+        built.material.envMap = environment.texture;
+        built.material.needsUpdate = true;
+      }
+      for (const mesh of built.meshes) robot.add(mesh);
+      requestRender();
+    };
+    /* The console's face is already on the page, but a canvas does not wait for a font: numerals drawn
+       before it loads come out in the fallback face and stay that way. */
+    const loading = document.fonts?.load?.(`600 160px ${FONT}`, text);
+    if (loading) loading.then(print, print);
+    else print();
+  }
 
   function applyRobot(spec) {
     const next = normalizeRobot(spec);
@@ -1013,12 +1234,16 @@ export function createPark(canvas, opts) {
     lastSpec = signature;
 
     if (robot) {
+      dropNumbers();
       stage.remove(robot);
       for (const geometry of robotGeometries) geometry.dispose();
       robotGeometries = new Set();
     }
     const built = buildRobot(next, mat, keep);
     robot = built.group;
+    robotBox = built.box;
+    robotSpec = next;
+    bumpered = built.bumpered;
     anchorDefs = built.anchors;
     parts = built.parts;
     /* Looking at the middle of the robot's height. placeCamera's lens shift does the fine centring, so
@@ -1028,6 +1253,8 @@ export function createPark(canvas, opts) {
 
     floorUniforms.uFootprint.value.set(next.bumperLength / 2, next.bumperWidth / 2);
     floorUniforms.uCorner.value = built.corner;
+    /* The numbers are printed to the new model's size. */
+    applyNumbers();
     requestRender();
   }
 
@@ -1215,6 +1442,10 @@ export function createPark(canvas, opts) {
         thing.envMap = environment.texture;
         thing.needsUpdate = true;
       }
+      if (numbers) {
+        numbers.material.envMap = environment.texture;
+        numbers.material.needsUpdate = true;
+      }
     }
     placeCamera();
     renderer.render(scene, camera);
@@ -1392,6 +1623,15 @@ export function createPark(canvas, opts) {
       applyRobot(spec);
     },
 
+    /** The team number on the bumpers. Anything bumperNumber() refuses prints none. */
+    setTeamNumber(value) {
+      if (disposed) return;
+      const text = bumperNumber(value);
+      if (text === teamText) return;
+      teamText = text;
+      applyNumbers();
+    },
+
     /** "red" or "blue" colours the bumpers; anything else is a robot with no alliance yet. */
     setAlliance(alliance) {
       if (disposed) return;
@@ -1448,14 +1688,16 @@ export function createPark(canvas, opts) {
      *
      * battery: the outer top edge of the battery. drivetrain: the top of the first module's housing
      * (front-left by WPILib's order). bumper: the middle of the front bumper. top: the top of the
-     * superstructure. `visible` is false when the point is off the canvas or its surface has turned
-     * away from the camera, so a callout can step aside rather than point through the robot.
+     * superstructure. controller: the top of the controller on the belly pan. `visible` is false when
+     * the point is off the canvas or its surface has turned away from the camera, so a callout can
+     * step aside rather than point through the robot.
      */
     anchors() {
-      const hidden = () => ({ x: 0, y: 0, visible: false });
-      if (disposed || !anchorDefs) return { battery: hidden(), drivetrain: hidden(), bumper: hidden(), top: hidden() };
+      const none = () =>
+        Object.fromEntries(["battery", "drivetrain", "bumper", "top", "controller"].map((name) => [name, { x: 0, y: 0, visible: false }]));
+      if (disposed || !anchorDefs) return none();
       resize();
-      if (!sized.w || !sized.h) return { battery: hidden(), drivetrain: hidden(), bumper: hidden(), top: hidden() };
+      if (!sized.w || !sized.h) return none();
       placeCamera();
       const out = {};
       for (const [name, def] of Object.entries(anchorDefs)) {
@@ -1472,6 +1714,36 @@ export function createPark(canvas, opts) {
         };
       }
       return out;
+    },
+
+    /**
+     * The robot's extent on the canvas right now, in CSS pixels from its top-left corner: the rectangle
+     * the corners of the model's box project into. Callouts are set out beside it. Null while there is
+     * nothing to measure.
+     */
+    bounds() {
+      if (disposed || !robot || !robotBox || robotBox.isEmpty()) return null;
+      resize();
+      if (!sized.w || !sized.h) return null;
+      placeCamera();
+      let left = Infinity;
+      let top = Infinity;
+      let right = -Infinity;
+      let bottom = -Infinity;
+      const { min, max } = robotBox;
+      for (let i = 0; i < 8; i++) {
+        const p = scratch.point
+          .set(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z)
+          .applyMatrix4(robot.matrixWorld)
+          .project(camera);
+        const x = ((p.x + 1) / 2) * sized.w;
+        const y = ((1 - p.y) / 2) * sized.h;
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+      return { left, top, right, bottom };
     },
 
     /** Ease the camera back to the default three-quarter view. */
@@ -1504,6 +1776,7 @@ export function createPark(canvas, opts) {
       frameListeners.clear();
       canvas.style.touchAction = previousTouchAction;
       canvas.style.cursor = previousCursor;
+      dropNumbers();
       for (const geometry of robotGeometries) geometry.dispose();
       for (const thing of owned) thing.dispose();
       environment?.dispose();

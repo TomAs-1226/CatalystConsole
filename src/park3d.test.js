@@ -9,12 +9,14 @@ import {
   IDLE_RATE,
   RELEASE_WINDOW_MS,
   SPIN_MAX,
+  bumperNumber,
   clampElevation,
   closest,
   coastAngle,
   dampVelocity,
   fitDistance,
   idleSpin,
+  layoutCallouts,
   normalizeRobot,
   releaseVelocity,
   silhouette,
@@ -354,4 +356,117 @@ test("no usable modules means the default four, and more than eight are cut to e
   assert.equal(normalizeRobot({ modules: [[NaN, NaN]] }).modules.length, 4);
   const many = Array.from({ length: 12 }, (_, i) => [i * 0.05, 0.2]);
   assert.equal(normalizeRobot({ modules: many }).modules.length, 8);
+});
+
+// --- the team number ---------------------------------------------------------
+
+test("a team number prints as written, from a number or a string", () => {
+  assert.equal(bumperNumber(5805), "5805");
+  assert.equal(bumperNumber("254"), "254");
+  assert.equal(bumperNumber(" 1 "), "1");
+});
+
+test("zero, fractions, negatives and garbage print nothing", () => {
+  for (const value of [0, -5, 12.5, 100000, NaN, Infinity, "", "  ", "abc", null, undefined, {}, [5805]]) {
+    assert.equal(bumperNumber(value), null, `for ${String(value)}`);
+  }
+});
+
+// --- the callouts ------------------------------------------------------------
+
+/* A 1200 x 700 canvas with the robot in the middle third, and labels of one size. */
+const AREA = { w: 1200, h: 700, top: 16, left: [150, 600], right: [80, 640] };
+const BOX = { left: 400, top: 180, right: 800, bottom: 520 };
+const SIZE = { w: 120, h: 40 };
+const sizesFor = (points) => Object.fromEntries(Object.keys(points).map((name) => [name, SIZE]));
+const overlaps = (a, b) =>
+  a.x < b.x + SIZE.w && b.x < a.x + SIZE.w && a.y < b.y + SIZE.h && b.y < a.y + SIZE.h;
+
+test("a label goes beside the robot on its part's side, never over the robot", () => {
+  const points = { battery: { x: 450, y: 400, visible: true }, drivetrain: { x: 760, y: 350, visible: true } };
+  const spots = layoutCallouts(points, BOX, sizesFor(points), AREA);
+  assert.equal(spots.battery.side, "left");
+  assert.ok(spots.battery.x + SIZE.w <= BOX.left, "left label clear of the robot");
+  assert.equal(spots.drivetrain.side, "right");
+  assert.ok(spots.drivetrain.x >= BOX.right, "right label clear of the robot");
+});
+
+test("a label sits level with its part, and its line ends on the part", () => {
+  const points = { battery: { x: 450, y: 400, visible: true } };
+  const { battery } = layoutCallouts(points, BOX, sizesFor(points), AREA);
+  near(battery.y + SIZE.h / 2, 400, 1e-9, "label middle");
+  assert.deepEqual(battery.line.slice(2), [450, 400]);
+  near(battery.line[1], 400, 1e-9, "line starts level with the label");
+  assert.ok(battery.line[0] > battery.x + SIZE.w && battery.line[0] < BOX.left, "line starts between label and robot");
+});
+
+test("the part named above is labelled over the robot", () => {
+  const points = { top: { x: 610, y: 200, visible: true } };
+  const { top } = layoutCallouts(points, BOX, sizesFor(points), AREA);
+  assert.equal(top.side, "top");
+  assert.ok(top.y + SIZE.h <= BOX.top, "label above the robot");
+  near(top.x + SIZE.w / 2, 610, 1e-9, "centred on its part");
+  assert.deepEqual(top.line.slice(2), [610, 200]);
+});
+
+test("labels on one side are pushed apart rather than stacked", () => {
+  const points = {
+    a: { x: 420, y: 300, visible: true },
+    b: { x: 430, y: 310, visible: true },
+    c: { x: 440, y: 305, visible: true },
+  };
+  const spots = layoutCallouts(points, BOX, sizesFor(points), AREA, { spacing: 10 });
+  const list = Object.values(spots).sort((p, q) => p.y - q.y);
+  assert.equal(list.length, 3);
+  for (let i = 1; i < list.length; i++) {
+    assert.ok(!overlaps(list[i - 1], list[i]), `labels ${i - 1} and ${i} overlap`);
+    assert.ok(list[i].y - list[i - 1].y >= SIZE.h + 10 - 1e-9, "kept the spacing");
+  }
+});
+
+test("labels keep to their side's band", () => {
+  const points = {
+    high: { x: 420, y: 60, visible: true },
+    low: { x: 430, y: 690, visible: true },
+    right: { x: 780, y: 20, visible: true },
+  };
+  const spots = layoutCallouts(points, BOX, sizesFor(points), AREA);
+  assert.ok(spots.high.y >= AREA.left[0]);
+  assert.ok(spots.low.y + SIZE.h <= AREA.left[1]);
+  assert.ok(spots.right.y >= AREA.right[0]);
+});
+
+test("a crowded band still keeps every label inside it and in order", () => {
+  const points = Object.fromEntries(
+    Array.from({ length: 5 }, (_, i) => [`p${i}`, { x: 410, y: 560 + i, visible: true }])
+  );
+  const spots = layoutCallouts(points, BOX, sizesFor(points), AREA, { spacing: 10 });
+  const list = Object.keys(points).map((name) => spots[name]);
+  for (const spot of list) assert.ok(spot.y + SIZE.h <= AREA.left[1] + 1e-9, "inside the band");
+  for (let i = 1; i < list.length; i++) assert.ok(list[i].y > list[i - 1].y, "order kept");
+});
+
+test("a label with no room on its side crosses to the side that has room", () => {
+  const box = { left: 60, top: 180, right: 700, bottom: 520 };
+  const points = { battery: { x: 100, y: 400, visible: true } };
+  const { battery } = layoutCallouts(points, box, sizesFor(points), AREA);
+  assert.equal(battery.side, "right");
+  assert.ok(battery.x >= box.right);
+});
+
+test("parts turned away, or with no size, get no label", () => {
+  const points = {
+    shown: { x: 450, y: 400, visible: true },
+    turned: { x: 460, y: 300, visible: false },
+    unsized: { x: 470, y: 350, visible: true },
+    broken: { x: NaN, y: 350, visible: true },
+  };
+  const spots = layoutCallouts(points, BOX, { shown: SIZE, turned: SIZE, broken: SIZE }, AREA);
+  assert.deepEqual(Object.keys(spots), ["shown"]);
+});
+
+test("nothing to lay out lays out nothing", () => {
+  assert.deepEqual(layoutCallouts(null, BOX, {}, AREA), {});
+  assert.deepEqual(layoutCallouts({}, null, {}, AREA), {});
+  assert.deepEqual(layoutCallouts({ a: { x: 1, y: 1, visible: true } }, BOX, { a: SIZE }, { w: 0, h: 0 }), {});
 });

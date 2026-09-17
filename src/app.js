@@ -141,16 +141,30 @@ function matchTime() {
 /* A synthetic robot, for looking at the dashboard without one. It is off by default and the dock
  * button stays lit while it runs, because a dashboard that quietly makes up telemetry is a hazard. */
 const demo = { on: false, t0: performance.now(), timer: null };
+/* The demo match and the whole cycle it repeats on, in seconds. */
+const DEMO_MATCH_S = 160;
+const DEMO_CYCLE_S = 200;
 
 function demoTick() {
   const t = (performance.now() - demo.t0) / 1000;
-  /* A REBUILT match on repeat: 20 s auto, then teleop counting 140 down to 0. */
-  const cycle = t % 175;
+  /* A REBUILT match on repeat: 20 s auto, then teleop counting 140 down to 0, then forty seconds
+   * disabled on the field before the next one, which is long enough to watch the board park and the
+   * drive be written up. */
+  const cycle = t % DEMO_CYCLE_S;
   const auto = cycle < 20;
-  const matchT = auto ? 20 - cycle : Math.max(0, 160 - cycle);
+  const enabled = cycle < DEMO_MATCH_S;
+  const matchT = auto ? 20 - cycle : Math.max(0, DEMO_MATCH_S - cycle);
+  /* The clock anything that moves runs on. It stops where the match left the robot. */
+  const tm = enabled ? t : t - (cycle - DEMO_MATCH_S);
+  const moving = enabled ? 1 : 0;
+  /* The battery sags under load and drains through the match, recovers a little once the robot is
+   * disabled, and is swapped for a charged one before the next match. */
+  const volts = enabled
+    ? 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - cycle * 0.002
+    : 12.64 - DEMO_MATCH_S * 0.002 + 0.1 * (1 - Math.exp(-(cycle - DEMO_MATCH_S) / 10));
   const set = (k, tag, v) => { nt.v[k] = { t: tag, v }; };
 
-  set("/FMSInfo/FMSControlData", "num", BIT.enabled | BIT.ds | BIT.fms | (auto ? BIT.auto : 0));
+  set("/FMSInfo/FMSControlData", "num", (enabled ? BIT.enabled : 0) | BIT.ds | BIT.fms | (auto ? BIT.auto : 0));
   set("/FMSInfo/IsRedAlliance", "bool", true);
   set("/FMSInfo/EventName", "str", "Demo");
   set("/FMSInfo/MatchNumber", "num", 7);
@@ -162,25 +176,25 @@ function demoTick() {
   set("/FMSInfo/GameSpecificMessage", "str", auto || cycle < 23 ? "" : "R");
 
   const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
-  set("/Catalyst/Drive/FrontLeft/Velocity", "num", drive / 60);
-  set("/Catalyst/Drive/FrontRight/Velocity", "num", (drive + 120) / 60);
-  set("/Catalyst/Drive/BackLeft/Velocity", "num", (drive - 90) / 60);
-  set("/Catalyst/Drive/BackRight/Velocity", "num", (drive + 40) / 60);
-  set("/Catalyst/Shooter/Velocity", "num", (4900 + 700 * Math.sin(t * 0.6)) / 60);
+  set("/Catalyst/Drive/FrontLeft/Velocity", "num", moving * drive / 60);
+  set("/Catalyst/Drive/FrontRight/Velocity", "num", moving * (drive + 120) / 60);
+  set("/Catalyst/Drive/BackLeft/Velocity", "num", moving * (drive - 90) / 60);
+  set("/Catalyst/Drive/BackRight/Velocity", "num", moving * (drive + 40) / 60);
+  set("/Catalyst/Shooter/Velocity", "num", moving * (4900 + 700 * Math.sin(t * 0.6)) / 60);
   set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
   set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
-  set("/Catalyst/Brownout/MeasuredVoltage", "num", 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - t * 0.002);
+  set("/Catalyst/Brownout/MeasuredVoltage", "num", volts);
 
-  set("/Catalyst/Physics/Slip/Factor", "num", Math.max(0, 0.42 * Math.sin(t * 2.1)));
-  set("/Catalyst/Physics/TippingUsage", "num", 0.29 + 0.16 * Math.sin(t * 0.8));
-  set("/Catalyst/Physics/TractionUsage", "num", 0.5 + 0.35 * Math.abs(Math.sin(t * 1.9)));
+  set("/Catalyst/Physics/Slip/Factor", "num", moving * Math.max(0, 0.42 * Math.sin(t * 2.1)));
+  set("/Catalyst/Physics/TippingUsage", "num", moving * (0.29 + 0.16 * Math.sin(t * 0.8)));
+  set("/Catalyst/Physics/TractionUsage", "num", moving * (0.5 + 0.35 * Math.abs(Math.sin(t * 1.9))));
   set("/Catalyst/Physics/Quality/Confidence", "num", 0.86 + 0.09 * Math.sin(t * 0.4));
 
   const radius = 2.4;
   set("/Catalyst/Physics/PoseArray", "nums", [
-    8.2 + radius * Math.cos(t * 0.42),
-    4.1 + radius * Math.sin(t * 0.42) * 0.7,
-    (t * 0.42 + Math.PI / 2) % (Math.PI * 2),
+    8.2 + radius * Math.cos(tm * 0.42),
+    4.1 + radius * Math.sin(tm * 0.42) * 0.7,
+    (tm * 0.42 + Math.PI / 2) % (Math.PI * 2),
   ]);
 
   /* Systemcore, as a machine in good order under load.
@@ -190,7 +204,7 @@ function demoTick() {
    * and can_s0 carries the drivetrain while can_s2 carries the mechanisms - a plan the CAN page
    * approves of, so the demo shows the layout worth copying rather than the one worth warning
    * about. Nobody should have to connect a robot to find out whether this page works. */
-  const load = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7));
+  const load = enabled ? 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7)) : 0.2;
   set("/Catalyst/Systemcore/CpuPercent", "num", 22 + 34 * load);
   set("/Catalyst/Systemcore/TempCelsius", "num", 46 + 12 * load);
   set("/Catalyst/Systemcore/RamFraction", "num", 0.31 + 0.05 * Math.sin(t * 0.3));
@@ -199,7 +213,7 @@ function demoTick() {
   set("/Catalyst/Systemcore/StorageFraction", "num", 0.47);
   set("/Catalyst/Systemcore/StorageUsedBytes", "num", 15.0e9);
   set("/Catalyst/Systemcore/StorageTotalBytes", "num", 32.0e9);
-  set("/Catalyst/Systemcore/BatteryVolts", "num", 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - t * 0.002);
+  set("/Catalyst/Systemcore/BatteryVolts", "num", volts);
   set("/Catalyst/Systemcore/BrownedOut", "bool", false);
   set("/Catalyst/Systemcore/BrownoutVolts", "num", 6.75);
   set("/Catalyst/Systemcore/RecoveryVolts", "num", 7.5);
@@ -340,8 +354,8 @@ function demoTick() {
              : "limelight-left|OK|97% accepted|55.0|68.0|true",
     "limelight-right|NO_TARGETS|no usable target|57.0|66.0|true",
     "limelight-ground|OK|91% accepted|54.0|71.0|true"]);
-  const demoX = 8.2 + radius * Math.cos(t * 0.42);
-  const demoY = 4.1 + radius * Math.sin(t * 0.42) * 0.7;
+  const demoX = 8.2 + radius * Math.cos(tm * 0.42);
+  const demoY = 4.1 + radius * Math.sin(tm * 0.42) * 0.7;
   const fromStart = Math.hypot(demoX - 10.6, demoY - 4.1);
   set("/Catalyst/Auto/StartCheck/Available", "bool", true);
   set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart < 0.3);
@@ -3704,11 +3718,74 @@ const parkState = {
   since: null,          // when the robot was last seen disabled, for the delay above
   dismissed: false,     // "Dashboard" was pressed: stay on the board until the next enable
   scene: null,
+  layout: null,         // park3d.js's layoutCallouts, once the module has loaded
   loading: false,
   failed: false,
   offFrame: null,
   hideTimer: null,
 };
+
+/* The battery from the same keys, in the same order, the header's cell and the battery tile read, so
+ * Park never disagrees with either. */
+function batteryVolts() {
+  const key = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"]
+    .find((k) => has(k));
+  return key ? num(key, null) : null;
+}
+
+/* What a disabled robot's battery says about the next match. Disabled, a robot draws only the couple
+ * of amps its controller and radio need, so the reading is close to the battery's resting voltage, and
+ * a 12 V lead-acid battery at rest sits near 12.7 V when full and falls steadily as it empties. The bar
+ * runs from 11.8 V to 12.8 V. */
+function batteryReadiness(volts) {
+  if (volts === null || !Number.isFinite(volts)) return null;
+  const fill = clamp01((volts - 11.8) / (12.8 - 11.8));
+  if (volts >= 12.5) return { level: "ok", fill, text: "Charged" };
+  if (volts >= 12.2) return { level: "low", fill, text: "Partly charged · swap before a match" };
+  return { level: "bad", fill, text: "Low · swap the battery" };
+}
+
+/* ---- the robot Console last saw ----
+ *
+ * Tesla's screen shows the car whether or not it is awake. Park does the same for the robot: the last
+ * real robot Console was connected to is remembered - its name, its number and its size, nothing more -
+ * and drawn when nothing is on the other end, with when it was last seen. Demo data is never
+ * remembered, because the demo robot is nobody's. */
+const LAST_ROBOT_KEY = "catalyst.console.lastRobot.v1";
+let lastRobot = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_ROBOT_KEY) || "null");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+})();
+let lastRobotWritten = -Infinity;
+
+function rememberRobot(now) {
+  if (!nt.status.connected || demo.on) return;
+  const name = str(`${SPEC_ROOT}Identity/Name`, "");
+  const team = parkTeam(true);
+  if (!name && !team) return;
+  const spec = parkRobotSpec();
+  const same = lastRobot && lastRobot.name === name && lastRobot.team === team
+    && JSON.stringify(lastRobot.spec) === JSON.stringify(spec);
+  /* When it was last seen is written every half minute at most; nothing shows it any finer. */
+  if (same && now - lastRobotWritten < 30000) return;
+  lastRobot = { name, team, spec, seen: Date.now() };
+  lastRobotWritten = now;
+  try {
+    localStorage.setItem(LAST_ROBOT_KEY, JSON.stringify(lastRobot));
+  } catch { /* private mode or quota: the robot is simply not remembered */ }
+}
+
+function agoText(ms) {
+  const s = Math.max(0, ms / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 36 * 3600) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+}
 
 /** The robot's size and module layout from its spec sheet, in the shape park3d.js takes. */
 function parkRobotSpec() {
@@ -3726,6 +3803,17 @@ function parkRobotSpec() {
     height: n("Chassis/HeightMeters"),
     modules,
   };
+}
+
+/** The robot to draw: the connected one, or the remembered one when nothing is connected. */
+function parkSpec(linked) {
+  return linked ? parkRobotSpec() : (lastRobot?.spec ?? {});
+}
+
+/** The number on the bumpers, the same way round: the connected robot's, or the remembered one's. */
+function parkTeam(linked) {
+  if (!linked) return lastRobot?.team ?? null;
+  return num("/Catalyst/Systemcore/TeamNumber", null) || num(`${SPEC_ROOT}Identity/TeamNumber`, null) || null;
 }
 
 function parkWanted(now) {
@@ -3752,9 +3840,14 @@ function loadParkScene() {
     .then((mod) => {
       parkState.loading = false;
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const linked = nt.status.connected || demo.on;
+      parkState.layout = mod.layoutCallouts;
       parkState.scene = mod.createPark($("#parkCanvas"), { reducedMotion: reduced });
-      parkState.scene.setRobot(parkRobotSpec());
-      parkState.scene.setAlliance(alliance());
+      parkState.lastSpec = JSON.stringify(parkSpec(linked));
+      parkState.scene.setRobot(JSON.parse(parkState.lastSpec));
+      parkState.lastAlliance = linked ? alliance() : null;
+      parkState.scene.setAlliance(parkState.lastAlliance);
+      parkState.scene.setTeamNumber(parkTeam(linked));
       parkState.offFrame = parkState.scene.onFrame(placeCallouts);
       parkState.scene.setActive(parkState.on);
     })
@@ -3797,62 +3890,161 @@ function hidePark() {
   }, PARK_FADE_MS);
 }
 
-/* The callouts follow the model as it turns: each label sits above its part, and a hairline runs down
- * from the label to a dot on the part. Anchors come from the renderer in canvas pixels, recomputed from
- * its camera every frame it draws. */
+/* The callouts follow the model as it turns. park3d.js's layoutCallouts sets each label beside the
+ * robot on its part's side and level with the part, never over the model, where white words on the
+ * silver frame could not be read, and a hairline runs from the label to a dot on the part. The bands
+ * keep the labels clear of the name at the top left, the cards along the bottom, and the Dashboard
+ * button and the hint on the right. With no robot connected there is nothing to say about its parts,
+ * so the model stands alone. */
 function placeCallouts() {
-  if (!parkState.scene || !parkState.on) return;
-  const anchors = parkState.scene.anchors();
+  const scene = parkState.scene;
+  if (!scene || !parkState.on || !parkState.layout) return;
   const canvas = $("#parkCanvas");
-  const w = canvas.clientWidth, h = canvas.clientHeight;
   const svg = $("#parkLines");
-  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  let lines = "";
-  const rise = Math.max(56, Math.min(120, h * 0.12));
-  for (const label of document.querySelectorAll("#parkCallouts .callout")) {
-    const a = anchors?.[label.dataset.anchor];
-    if (!a || !a.visible) { label.hidden = true; continue; }
-    label.hidden = false;
-    const lx = Math.max(70, Math.min(w - 70, a.x));
-    const ly = Math.max(72, a.y - rise);
-    label.style.transform = `translate(${lx.toFixed(1)}px, ${ly.toFixed(1)}px) translate(-50%, -100%)`;
-    lines += `<line x1="${lx.toFixed(1)}" y1="${(ly + 6).toFixed(1)}" x2="${a.x.toFixed(1)}" y2="${a.y.toFixed(1)}"/>`
-      + `<circle cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="3"/>`;
+  const labels = [...document.querySelectorAll("#parkCallouts .callout")];
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const linked = nt.status.connected || demo.on;
+  if (!w || !h || !linked) {
+    for (const label of labels) if (label.dataset.on !== "false") label.dataset.on = "false";
+    if (svg.innerHTML) svg.innerHTML = "";
+    return;
   }
+
+  /* Every read before any write, so a frame costs one layout however many labels there are. */
+  const origin = canvas.getBoundingClientRect();
+  const edge = (el, side) => {
+    const r = el?.getBoundingClientRect();
+    return r && r.height > 0 ? r[side] - origin.top : null;
+  };
+  const head = edge($(".park-head"), "bottom") ?? 0;
+  const cards = edge($(".park-cards"), "top") ?? h;
+  const dash = edge($("#parkDash"), "bottom") ?? 0;
+  const hint = edge($("#parkHint"), "top") ?? h;
+  const sizes = {};
+  for (const label of labels) sizes[label.dataset.anchor] = { w: label.offsetWidth, h: label.offsetHeight };
+  const spots = parkState.layout(scene.anchors(), scene.bounds(), sizes, {
+    w, h, top: 16, left: [head + 24, cards - 24], right: [dash + 24, Math.min(cards, hint) - 24],
+  });
+
+  let lines = "";
+  for (const label of labels) {
+    const spot = spots[label.dataset.anchor];
+    const on = spot ? "true" : "false";
+    if (label.dataset.on !== on) label.dataset.on = on;
+    if (!spot) continue;
+    if (label.dataset.side !== spot.side) label.dataset.side = spot.side;
+    label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px)`;
+    const [x1, y1, x2, y2] = spot.line.map((v) => v.toFixed(1));
+    lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><circle cx="${x2}" cy="${y2}" r="3"/>`;
+  }
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.innerHTML = lines;
 }
 
+/* ---- the last drive ----
+ *
+ * Tesla writes up every drive; Console writes up every stretch the robot was enabled: how long, how
+ * far, how fast, and how low the battery went. It is kept for the session and shown on Park, which is
+ * where the driver is looking once the robot is disabled again. Distance comes from the robot's pose,
+ * so a robot that publishes none still gets its time and its battery. */
+const DRIVE_POSE_KEY = "/Catalyst/Physics/PoseArray";
+const driveLog = { current: null, last: null };
+
+function trackDrive(now) {
+  const linked = nt.status.connected || demo.on;
+  const d = driveLog.current;
+  if (!(linked && ds.enabled)) {
+    /* An enable shorter than a second is a slip of the finger, not a drive. */
+    if (d && now - d.start >= 1000) driveLog.last = { ...d, seconds: (now - d.start) / 1000 };
+    driveLog.current = null;
+    return;
+  }
+  const drive = d ?? (driveLog.current = {
+    start: now, metres: 0, top: 0, speed: 0, lowest: null, pose: null, at: now, posed: false,
+  });
+  const volts = batteryVolts();
+  if (volts !== null) drive.lowest = drive.lowest === null ? volts : Math.min(drive.lowest, volts);
+
+  const pose = arr(DRIVE_POSE_KEY);
+  if (!Array.isArray(pose) || !Number.isFinite(pose[0]) || !Number.isFinite(pose[1])) return;
+  drive.posed = true;
+  if (drive.pose) {
+    const step = Math.hypot(pose[0] - drive.pose[0], pose[1] - drive.pose[1]);
+    const dt = (now - drive.at) / 1000;
+    /* Waits for the pose to move, so a pose published more slowly than the board paints is not read
+       as a robot stopping between samples. */
+    if (step === 0 && dt < 0.5) return;
+    /* A pose reset jumps metres at once, faster than any FRC robot drives; it is not distance. */
+    if (dt > 0 && step / dt <= 8) {
+      drive.metres += step;
+      drive.speed += (step / dt - drive.speed) * 0.35;
+      drive.top = Math.max(drive.top, drive.speed);
+    }
+  }
+  drive.pose = [pose[0], pose[1]];
+  drive.at = now;
+}
+
 /* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
- * three cards. Written only when they change; Park repaints with the rest of the board at 10 Hz. */
+ * four cards. Written only when they change; Park repaints with the rest of the board at 10 Hz. */
 function paintParkInfo() {
   const linked = nt.status.connected || demo.on;
-  const setText = (sel, text) => { const el = $(sel); if (el && el.textContent !== text) el.textContent = text; };
+  let changed = false;
+  const setText = (sel, text) => {
+    const el = $(sel);
+    if (el && el.textContent !== text) {
+      el.textContent = text;
+      changed = true;
+    }
+  };
+  const remembered = linked ? null : lastRobot;
 
-  const name = linked ? (str(`${SPEC_ROOT}Identity/Name`, "") || "Robot") : "Robot";
-  const team = linked ? num(`${SPEC_ROOT}Identity/TeamNumber`, null) : null;
+  const name = linked ? (str(`${SPEC_ROOT}Identity/Name`, "") || "Robot") : (remembered?.name || "Robot");
+  const team = parkTeam(linked);
   setText("#parkName", team ? `${name} · ${team}` : name);
-  const side = alliance();
-  setText("#parkSub", !linked
-    ? (nt.status.address ? `Looking for ${nt.status.address}…` : "No robot")
-    : [ds.estop ? "Emergency stopped" : "Disabled", side && `${side === "red" ? "Red" : "Blue"} alliance`, demo.on && "demo data"]
-        .filter(Boolean).join(" · "));
+  const side = linked ? alliance() : null;
+  const looking = nt.status.address ? `Looking for ${nt.status.address}…` : null;
+  setText("#parkSub", linked
+    ? [ds.estop ? "Emergency stopped" : "Disabled", side && `${side === "red" ? "Red" : "Blue"} alliance`, demo.on && "demo data"]
+        .filter(Boolean).join(" · ")
+    : remembered?.seen
+      ? `${looking || "Not connected"} · last seen ${agoText(Date.now() - remembered.seen)}`
+      : (looking || "No robot"));
 
-  const voltKey = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"].find((k) => has(k));
-  const volts = linked && voltKey ? num(voltKey, null) : null;
+  const volts = linked ? batteryVolts() : null;
   setText("#parkVolts", volts === null ? "—" : volts.toFixed(1));
   $("#parkVolts").dataset.empty = String(volts === null);
+  const ready = batteryReadiness(volts);
+  const charge = $("#parkCharge");
+  if (charge.hidden !== !ready) {
+    charge.hidden = !ready;
+    changed = true;
+  }
+  if (ready) {
+    if (charge.dataset.level !== ready.level) charge.dataset.level = ready.level;
+    const width = `${(ready.fill * 100).toFixed(0)}%`;
+    const fill = $("#parkChargeFill");
+    if (fill.style.width !== width) fill.style.width = width;
+    setText("#parkChargeText", ready.text);
+  }
 
   const summary = linked ? deviceSummary(ntView) : null;
-  const count = (c) => (!c || !c.expected ? "—" : `${c.connected ?? 0}/${c.expected}`);
-  setText('[data-c="vision"]', summary ? `${count(summary.cameras)} cameras` : "—");
-  setText('[data-c="motors"]', summary ? `${count(summary.motors)} motors` : "—");
+  const count = (c) => `${c.connected ?? 0}/${c.expected}`;
+  setText('[data-c="vision"]', summary?.cameras?.expected ? `${count(summary.cameras)} cameras` : "—");
   setText('[data-c="battery"]', volts === null ? "—" : `${volts.toFixed(1)} V`);
   const modules = linked ? num(`${SPEC_ROOT}Drivetrain/Modules`, null) : null;
   const drive = linked ? str(`${SPEC_ROOT}Drivetrain/Type`, "") : "";
   setText('[data-c="drivetrain"]', modules ? `${drive || "Drive"} · ${modules} modules` : (drive || "—"));
+  const kind = linked ? (str("/Catalyst/Devices/Controller/Kind", "") || str(`${SPEC_ROOT}Identity/Controller`, "")) : "";
+  setText('[data-c="controllerName"]', kind || "Controller");
+  const temp = linked ? num("/Catalyst/Systemcore/TempCelsius", null) : null;
+  const cpu = linked ? num("/Catalyst/Systemcore/CpuPercent", null) : null;
+  setText('[data-c="controller"]',
+    [temp !== null && `${temp.toFixed(0)} °C`, cpu !== null && `CPU ${cpu.toFixed(0)}%`].filter(Boolean).join(" · ") || "—");
 
-  const event = str("/FMSInfo/EventName", "");
-  const match = num("/FMSInfo/MatchNumber", null);
+  const event = linked ? str("/FMSInfo/EventName", "") : "";
+  const match = linked ? num("/FMSInfo/MatchNumber", null) : null;
   setText("#parkMatch", match ? `Match ${match}` : linked ? "Practice" : "—");
   setText("#parkMatchSub", [event, side && `${side === "red" ? "Red" : "Blue"} alliance`].filter(Boolean).join(" · ") || "No event");
 
@@ -3864,13 +4056,37 @@ function paintParkInfo() {
   const loop = linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null;
   const active = noticeSeen.size;
   setText("#parkHealth", !linked ? "—" : active ? `${active} alert${active === 1 ? "" : "s"}` : "All clear");
-  setText("#parkHealthSub", loop === null ? "Loop time unknown" : `Loop ${loop.toFixed(1)} ms`);
+  setText("#parkHealthSub",
+    [summary?.motors?.expected && `${count(summary.motors)} motors`, loop !== null && `loop ${loop.toFixed(1)} ms`]
+      .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Loop time unknown");
+
+  const last = driveLog.last;
+  if (!last) {
+    setText("#parkDrive", "—");
+    setText("#parkDriveSub", "No drive yet this session");
+  } else {
+    const time = `${Math.floor(last.seconds / 60)}:${String(Math.floor(last.seconds % 60)).padStart(2, "0")}`;
+    const far = last.metres < 100 ? last.metres.toFixed(1) : last.metres.toFixed(0);
+    setText("#parkDrive", last.posed ? `${far} m · ${time}` : time);
+    setText("#parkDriveSub",
+      [last.posed && `top ${last.top.toFixed(1)} m/s`, last.lowest !== null && `lowest ${last.lowest.toFixed(1)} V`]
+        .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Nothing published to measure");
+  }
 
   if (parkState.scene) {
-    if (parkState.lastAlliance !== side) { parkState.lastAlliance = side; parkState.scene.setAlliance(side); }
-    const spec = JSON.stringify(parkRobotSpec());
-    if (parkState.lastSpec !== spec) { parkState.lastSpec = spec; parkState.scene.setRobot(JSON.parse(spec)); }
+    if (parkState.lastAlliance !== side) {
+      parkState.lastAlliance = side;
+      parkState.scene.setAlliance(side);
+    }
+    const spec = JSON.stringify(parkSpec(linked));
+    if (parkState.lastSpec !== spec) {
+      parkState.lastSpec = spec;
+      parkState.scene.setRobot(JSON.parse(spec));
+    }
+    parkState.scene.setTeamNumber(team);
   }
+  /* A label that changed width has to move, even while the model is still and drawing nothing. */
+  if (changed) placeCallouts();
 }
 
 function paintPark() {
@@ -5730,6 +5946,8 @@ function paint() {
   paintHeader();
   paintNotices();
   paintDockAuto();
+  trackDrive(performance.now());
+  rememberRobot(performance.now());
   paintPark();
 
   for (const entry of live.values()) {

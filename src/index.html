@@ -51,9 +51,9 @@
              each, no pills. -->
         <div class="statgroup" role="group" aria-label="Link">
           <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
-          <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
+          <span class="chip" title="Driver Station"><i class="d" id="dDs"></i><span class="long">Driver Station</span><span class="short">DS</span></span>
           <span class="chip"><i class="d" id="dFms"></i>FMS</span>
-          <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
+          <span class="chip loop"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
         </div>
         <div class="grow"></div>
         <!-- What the robot is made of and how much of it is answering: cameras, motors, controller.
@@ -88,17 +88,22 @@
           <div class="park-name" id="parkName">Robot</div>
           <div class="park-sub" id="parkSub">No robot</div>
           <div class="park-batt"><span class="n" id="parkVolts">—</span><span class="u">V</span></div>
+          <div class="park-charge" id="parkCharge" hidden>
+            <span class="park-charge-bar" aria-hidden="true"><i id="parkChargeFill"></i></span>
+            <span id="parkChargeText"></span>
+          </div>
         </div>
         <div class="park-callouts" id="parkCallouts">
-          <div class="callout" hidden data-anchor="top"><small>Vision</small><b data-c="vision">—</b></div>
-          <div class="callout" hidden data-anchor="battery"><small>Battery</small><b data-c="battery">—</b></div>
-          <div class="callout" hidden data-anchor="drivetrain"><small>Drivetrain</small><b data-c="drivetrain">—</b></div>
-          <div class="callout" hidden data-anchor="bumper"><small>Motors</small><b data-c="motors">—</b></div>
+          <div class="callout" data-on="false" data-anchor="top"><small>Vision</small><b data-c="vision">—</b></div>
+          <div class="callout" data-on="false" data-anchor="battery"><small>Battery</small><b data-c="battery">—</b></div>
+          <div class="callout" data-on="false" data-anchor="drivetrain"><small>Drivetrain</small><b data-c="drivetrain">—</b></div>
+          <div class="callout" data-on="false" data-anchor="controller"><small data-c="controllerName">Controller</small><b data-c="controller">—</b></div>
         </div>
         <div class="park-cards">
           <div class="pcard"><small>Match</small><b id="parkMatch">—</b><span id="parkMatchSub"></span></div>
           <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
           <div class="pcard"><small>Health</small><b id="parkHealth">—</b><span id="parkHealthSub"></span></div>
+          <div class="pcard"><small>Last drive</small><b id="parkDrive">—</b><span id="parkDriveSub"></span></div>
         </div>
         <button class="park-dash" id="parkDash" title="Show the dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1.6"/><rect x="13" y="4" width="7" height="5" rx="1.6"/><rect x="13" y="11" width="7" height="9" rx="1.6"/><rect x="4" y="15" width="7" height="5" rx="1.6"/></svg>
