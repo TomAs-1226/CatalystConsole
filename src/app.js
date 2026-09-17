@@ -2691,14 +2691,16 @@ function paintTune() {
   for (const [group, entries] of groups) {
     sheet.appendChild(el("div", "sh", group));
     for (const t of entries) {
-      const row = el("div", "tr");
+      const current = num(t.key, null);
+      const isBool = raw(t.key)?.t === "bool";
+
+      /* An on-or-off tunable is a shorter row, name left and switch at the right edge where the other
+       * rows keep their values; a slider needs the middle of the row to itself. */
+      const row = el("div", isBool ? "tr bool" : "tr");
       const name = el("div", "nm");
       name.appendChild(el("span", null, t.name || leaf(t.key)));
       name.appendChild(el("small", null, t.key));
       row.appendChild(name);
-
-      const current = num(t.key, null);
-      const isBool = raw(t.key)?.t === "bool";
 
       if (isBool) {
         // A switch, the control Settings already uses for an on-or-off setting, and the one Tesla's
@@ -2710,8 +2712,9 @@ function paintTune() {
         tog.setAttribute("aria-label", t.name || leaf(t.key));
         tog.appendChild(el("i"));
         tog.onclick = () => ntSet(t.key, !bool(t.key));
-        row.appendChild(tog);
-        row.appendChild(el("div", "v", bool(t.key) ? "On" : "Off"));
+        const control = el("div", "tswitch");
+        control.append(el("div", "v", bool(t.key) ? "On" : "Off"), tog);
+        row.appendChild(control);
       } else {
         const slider = el("input");
         slider.type = "range";
@@ -2759,7 +2762,6 @@ function paintLogs() {
 
   const host = el("div");
   host.id = "dsLogs";
-  host.style.marginTop = "26px";
   sheet.appendChild(host);
   refreshSessions(host);
 }
@@ -2876,16 +2878,18 @@ async function openSession(session) {
   if (samples.parsed && samples.battery.length) {
     const w = 900, h = 90;
     const stat = (v) => `${Math.min(...v).toFixed(2)} – ${Math.max(...v).toFixed(2)}`;
+    /* Three readings, all white, the way a graph on the board is: packet loss used to be drawn amber
+     * whatever it measured, which put a warning colour on a session that lost nothing. */
     host.insertAdjacentHTML(
       "beforeend",
-      `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
-       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      `<div class="sh">Link quality · ${samples.battery.length} samples</div>
+       <div class="lq">
          <div><div class="ml">Battery ${stat(samples.battery)} V</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, TOK.warn)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.loss_pct, w, h, TOK.data)}</svg></div>
        </div>`
     );
   } else if (!samples.parsed) {
@@ -2895,7 +2899,7 @@ async function openSession(session) {
     );
   }
 
-  host.insertAdjacentHTML("beforeend", `<div class="sh" style="margin-top:20px">Events</div>`);
+  host.insertAdjacentHTML("beforeend", `<div class="sh">Events</div>`);
   if (!events.length) {
     host.insertAdjacentHTML("beforeend", `<div class="empty">No events recorded.</div>`);
     return;
@@ -2919,9 +2923,16 @@ function paintTopics() {
   const sheet = $("#topicSheet");
   if (!sheet.dataset.built) {
     sheet.dataset.built = "1";
+    /* The filter sits beside the title as a capsule with a magnifier, the way Settings' search does. A
+     * label rather than a div, so a press on the magnifier lands in the field. */
     sheet.innerHTML = `
-      <div class="sh">NetworkTables</div>
-      <div class="pickrow"><input type="text" id="topicSearch" placeholder="filter topics…" style="min-width:280px"></div>
+      <div class="sheethead">
+        <div class="sh">NetworkTables</div>
+        <label class="sfilter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="topicSearch" placeholder="Filter topics" aria-label="Filter topics" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
       <div id="topicList"></div>`;
     $("#topicSearch").oninput = (e) => { topicFilter = e.target.value.toLowerCase(); paintTopics(); };
   }
@@ -2939,7 +2950,7 @@ function paintTopics() {
         : v.t === "bool" ? (v.v ? "true" : "false")
         : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
         : String(v.v).slice(0, 90);
-      return `<div class="tr" style="grid-template-columns:1fr 70px 200px"><div class="nm"><small style="font-size:11.5px">${escapeHtml(k)}</small></div><div class="cap">${v.t}</div><div class="v" style="font-size:12px">${escapeHtml(shown)}</div></div>`;
+      return `<div class="topic"><div class="tk">${escapeHtml(k)}</div><div class="tt"><span>${v.t}</span></div><div class="tv">${escapeHtml(shown)}</div></div>`;
     })
     .join("");
   if (keys.length > 400) {
