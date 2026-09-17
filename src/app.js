@@ -3070,14 +3070,17 @@ function paintTopics() {
     list.innerHTML = `<div class="empty">${Object.keys(nt.v).length ? "Nothing matches that filter." : "No topics — the console is not connected to a robot."}</div>`;
     return;
   }
+  /* Long values are cut at 90 characters, and say so with an ellipsis: cut bare, an array of device
+   * rows ended "CANco]", which reads as a value rather than as the start of one. */
+  const cut = (s) => (s.length > 90 ? `${s.slice(0, 89).trimEnd()}…` : s);
   list.innerHTML = keys
     .slice(0, 400)
     .map((k) => {
       const v = nt.v[k];
       const shown = v.t === "num" ? v.v.toFixed(4)
         : v.t === "bool" ? (v.v ? "true" : "false")
-        : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
-        : String(v.v).slice(0, 90);
+        : Array.isArray(v.v) ? `[${cut(v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", "))}]`
+        : cut(String(v.v));
       return `<div class="topic"><div class="tk">${escapeHtml(k)}</div><div class="tt"><span>${v.t}</span></div><div class="tv">${escapeHtml(shown)}</div></div>`;
     })
     .join("");
@@ -3352,6 +3355,9 @@ function writeCanPair(node, c) {
      both its buses were measured, so half a reading shows as no reading — and the one thing this
      page cannot afford is for a missing number to look like a low one in one place and not another. */
   setFlag(node.el, "absent", c.utilization === null);
+  /* A pair whose buses are both idle is dimmed with them, rather than printing its 0% in white between
+     two dimmed ones. */
+  setFlag(node.el, "idle", c.utilization !== null && c.buses.every((b) => b.idle));
 }
 
 /* What the console worked out, from what is on the wire right now. */
