@@ -48,7 +48,7 @@ const LINE = T("--draw-line");
 const RED = T("--red-alliance");
 const BLUE = T("--blue-alliance");
 const FLOOR = T("--draw-floor");
-const SIGNAL = T("--cat-signal");       /* the trail behind the robot */
+const SIGNAL = T("--cat-signal");       /* the path ahead of the robot */
 const TRIM = T("--cat-ink-strong");     /* the key light, the centre line */
 const SKY = T("--draw-sky");
 const BOUNCE = T("--draw-bounce");
@@ -75,8 +75,8 @@ const PARKED_EYE = [
   Math.cos(PARKED_BEARING) * Math.cos(0.46) * 3.3,
 ];
 const PARKED_LOOK = [0, 0.24, 0];
-const CHASE_EYE = [-5.0, 3.5, 0];
-const CHASE_LOOK = [2.2, 0, 0];
+const CHASE_EYE = [-4.4, 2.9, 0];
+const CHASE_LOOK = [3.0, 0, 0];
 
 /* How the displayed robot follows reported poses. Poses arrive about ten times a second; between them
    the robot is carried forward along its last velocity for up to one reporting interval, then eased
@@ -148,6 +148,138 @@ const CARVE_FRAGMENT = /* glsl */ `
     if (keep < 0.999 && keep <= grain) discard;
   }
 `;
+
+/* ---- the path ahead ----
+ *
+ * Tesla draws the route its car is about to take as a band on the road ahead of it. The robot gets the
+ * same, kept quiet: a band narrower than half the robot, in the one blue the console allows for a path,
+ * soft at the edges, rising out from under the front bumper and fading away toward its end.
+ *
+ *   * A planned path - PathPlanner's, or a team planner's - is a solid band.
+ *   * An improvised one - an Autopilot finding its own way - is the same band broken into faint
+ *     chevrons that drift slowly toward the goal, so a glance tells a plan being followed from a plan
+ *     being made up.
+ *   * Where the robot is actually heading, from its own motion, is a thin white line a second and a
+ *     bit long, so a gap between plan and motion is visible at once.
+ *
+ * All three lie flat just above the carpet and are drawn as one strip of triangles each. */
+
+const PATH_VERTEX = /* glsl */ `
+  attribute float along;
+  attribute float across;
+  varying float vAlong;
+  varying float vAcross;
+  void main() {
+    vAlong = along;
+    vAcross = across;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const PATH_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  uniform float uLength;
+  uniform float uEmerge;
+  uniform float uChevrons;
+  uniform float uTime;
+  varying float vAlong;
+  varying float vAcross;
+  void main() {
+    float side = abs(vAcross);
+    float body = 1.0 - smoothstep(0.55, 1.0, side);
+    float core = 1.0 - smoothstep(0.0, 0.35, side);
+    float emerge = smoothstep(uEmerge * 0.4, uEmerge, vAlong);
+    float reach = 1.0 - smoothstep(uLength * 0.55, uLength, vAlong);
+    float alpha = (body * 0.62 + core * 0.38) * emerge * reach;
+    if (uChevrons > 0.5) {
+      // Chevrons 0.18 m long every 0.42 m, bent back at the edges so they point the way the robot is
+      // going, drifting forward at 0.4 m a second: close enough together to read as one broken band.
+      float phase = fract((vAlong + side * 0.1 - uTime * 0.4) / 0.42);
+      alpha *= smoothstep(0.0, 0.06, phase) * (1.0 - smoothstep(0.38, 0.46, phase)) * 1.3;
+    }
+    gl_FragColor = vec4(uColor, alpha * uOpacity);
+    #include <colorspace_fragment>
+  }
+`;
+
+/* Most points one band holds. A PathPlanner path is dense; beyond this it is thinned. */
+const PATH_POINTS = 240;
+
+/** A band of `width` along world points [[x, z], ...] at height `y`, into `ribbon`'s geometry. */
+function layRibbon(ribbon, points, width, y) {
+  const geometry = ribbon.geometry;
+  const count = Math.min(points.length, PATH_POINTS);
+  if (count < 2) {
+    ribbon.visible = false;
+    return 0;
+  }
+  const position = geometry.getAttribute("position");
+  const along = geometry.getAttribute("along");
+  let travelled = 0;
+  for (let i = 0; i < count; i++) {
+    const [x, z] = points[i];
+    if (i > 0) travelled += Math.hypot(x - points[i - 1][0], z - points[i - 1][1]);
+    const [ax, az] = points[Math.max(0, i - 1)];
+    const [bx, bz] = points[Math.min(count - 1, i + 1)];
+    const tx = bx - ax;
+    const tz = bz - az;
+    const len = Math.hypot(tx, tz) || 1;
+    const nx = (-tz / len) * (width / 2);
+    const nz = (tx / len) * (width / 2);
+    position.setXYZ(i * 2, x + nx, y, z + nz);
+    position.setXYZ(i * 2 + 1, x - nx, y, z - nz);
+    along.setX(i * 2, travelled);
+    along.setX(i * 2 + 1, travelled);
+  }
+  position.needsUpdate = true;
+  along.needsUpdate = true;
+  geometry.setDrawRange(0, (count - 1) * 6);
+  geometry.computeBoundingSphere();
+  ribbon.material.uniforms.uLength.value = travelled;
+  ribbon.visible = travelled > 0.05;
+  return travelled;
+}
+
+function makeRibbon(colour, opacity, emerge) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PATH_POINTS * 2 * 3), 3));
+  geometry.setAttribute("along", new THREE.BufferAttribute(new Float32Array(PATH_POINTS * 2), 1));
+  const across = new Float32Array(PATH_POINTS * 2);
+  const index = [];
+  for (let i = 0; i < PATH_POINTS; i++) {
+    across[i * 2] = -1;
+    across[i * 2 + 1] = 1;
+    if (i < PATH_POINTS - 1) {
+      const a = i * 2;
+      index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  geometry.setAttribute("across", new THREE.BufferAttribute(across, 1));
+  geometry.setIndex(index);
+  geometry.setDrawRange(0, 0);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colour) },
+      uOpacity: { value: opacity },
+      uLength: { value: 1 },
+      uEmerge: { value: emerge },
+      uChevrons: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: PATH_VERTEX,
+    fragmentShader: PATH_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  mesh.renderOrder = 2;
+  return mesh;
+}
 
 /** Teach a field material to dissolve round the robot (see the clearing, above). */
 function carve(material, uniforms) {
@@ -559,7 +691,9 @@ export function createField(canvas, opts) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailLen * 3), 3));
     geo.setDrawRange(0, 0);
-    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0.6, toneMapped: false }));
+    /* Grey and faint: where the robot has been matters less than where it is going, and blue is kept
+       for the plan ahead. */
+    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: TRIM, transparent: true, opacity: 0.2, toneMapped: false }));
     trail.frustumCulled = false;
     scene.add(trail);
   }
@@ -581,6 +715,86 @@ export function createField(canvas, opts) {
     }
     trail.geometry.setDrawRange(0, trailPoints);
     attr.needsUpdate = true;
+  }
+
+  /* ---- the path ahead (see above) ---- */
+
+  const plannedBand = makeRibbon(SIGNAL, 0.9, 0.7);
+  const motionLine = makeRibbon(TRIM, 0.8, 0.3);
+  scene.add(plannedBand, motionLine);
+  let plan = null;          // { points: [[x, z], ...] in the scene, improvised }
+  let travelTurn = 0;       // how fast the direction of travel is turning, rad/s
+  const PREDICT_S = 1.6;
+  const PREDICT_MIN_SPEED = 0.25;
+
+  /* The part of the plan still ahead of the robot, starting from the robot itself. A plan the robot is
+     nowhere near is drawn from its own start instead, rather than with a line to wherever it is. */
+  function planAhead(points) {
+    const rx = robot.position.x;
+    const rz = robot.position.z;
+    let nearest = 0;
+    let nearestDistance = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = (points[i][0] - rx) ** 2 + (points[i][1] - rz) ** 2;
+      if (d < nearestDistance) {
+        nearestDistance = d;
+        nearest = i;
+      }
+    }
+    const onIt = nearestDistance < 1.2 * 1.2;
+    let start = nearest;
+    if (onIt && nearest < points.length - 1) {
+      const [ax, az] = points[nearest];
+      const [bx, bz] = points[nearest + 1];
+      const t = ((rx - ax) * (bx - ax) + (rz - az) * (bz - az)) / ((bx - ax) ** 2 + (bz - az) ** 2 || 1);
+      if (t > 0) start = nearest + 1;
+    }
+    const out = onIt ? [[rx, rz]] : [];
+    const remaining = points.length - start;
+    const step = Math.max(1, Math.ceil(remaining / (PATH_POINTS - 1)));
+    for (let i = start; i < points.length; i += step) out.push(points[i]);
+    if ((points.length - 1 - start) % step !== 0) out.push(points[points.length - 1]);
+    return out;
+  }
+
+  /* Where the robot's own motion takes it over the next moment: its direction of travel, turning at
+     the rate it has been turning. */
+  function motionAhead() {
+    const out = [[robot.position.x, robot.position.z]];
+    let x = robot.position.x;
+    let z = robot.position.z;
+    let direction = Math.atan2(reported.vz, reported.vx);
+    const speed = Math.hypot(reported.vx, reported.vz);
+    const steps = 26;
+    const dt = PREDICT_S / steps;
+    for (let i = 0; i < steps; i++) {
+      direction += travelTurn * dt;
+      x += Math.cos(direction) * speed * dt;
+      z += Math.sin(direction) * speed * dt;
+      out.push([x, z]);
+    }
+    return out;
+  }
+
+  /** Lay the bands for this frame. Returns true while the chevrons are drifting. */
+  function placePaths(dt) {
+    const driving = robot.visible && !unplaced && !parked && model.root.visible;
+    let drifting = false;
+    if (driving && plan) {
+      layRibbon(plannedBand, planAhead(plan.points), 0.32, 0.012);
+      const uniforms = plannedBand.material.uniforms;
+      uniforms.uChevrons.value = plan.improvised ? 1 : 0;
+      if (plan.improvised && plannedBand.visible && !reduced) {
+        uniforms.uTime.value = (uniforms.uTime.value + dt) % 1200;
+        drifting = true;
+      }
+    } else {
+      plannedBand.visible = false;
+    }
+    const speed = reported ? Math.hypot(reported.vx, reported.vz) : 0;
+    if (driving && speed > PREDICT_MIN_SPEED) layRibbon(motionLine, motionAhead(), 0.05, 0.016);
+    else motionLine.visible = false;
+    return drifting;
   }
 
   /* ---- camera ---- */
@@ -807,6 +1021,7 @@ export function createField(canvas, opts) {
     carveUniforms.uCarveRobot.value.copy(robot.position);
     carveUniforms.uCarveEye.value.copy(camera.position);
     const clearingMoving = amount.value !== clearing;
+    const pathsMoving = placePaths(dt);
     if (!environment) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
@@ -814,7 +1029,7 @@ export function createField(canvas, opts) {
     }
     placeFog();
     renderer.render(scene, camera);
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving;
     dirty = false;
   }
 
@@ -852,6 +1067,17 @@ export function createField(canvas, opts) {
       if (model.setAlliance(state.alliance, !reduced && robot.visible)) dirty = true;
       if (typeof state.enabled === "boolean" && parked === state.enabled) {
         parked = !state.enabled;
+        dirty = true;
+      }
+      if (state.path !== undefined) {
+        /* The plan in field metres, into the scene's frame once here rather than every frame. */
+        const points = state.path && Array.isArray(state.path.points) ? state.path.points : null;
+        plan = points && points.length >= 2
+          ? {
+              points: points.map(([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)]),
+              improvised: state.path.style === "improvised",
+            }
+          : null;
         dirty = true;
       }
 
@@ -915,12 +1141,22 @@ export function createField(canvas, opts) {
         const gap = (now - reported.at) / 1000;
         const fresh = gap > 0.01 && gap < 0.5;
         const blend = (old, measured) => (fresh ? old * 0.4 + measured * 0.6 : 0);
+        const vx = blend(reported.vx, (x - reported.x) / gap);
+        const vz = blend(reported.vz, (z - reported.z) / gap);
+        /* How fast the direction of travel is turning, for the motion line. Not the heading's rate: a
+           swerve robot can spin while it drives straight. */
+        if (fresh && Math.hypot(vx, vz) > PREDICT_MIN_SPEED && Math.hypot(reported.vx, reported.vz) > PREDICT_MIN_SPEED) {
+          const rate = angleTo(Math.atan2(reported.vz, reported.vx), Math.atan2(vz, vx)) / gap;
+          travelTurn = travelTurn * 0.6 + Math.max(-3, Math.min(3, rate)) * 0.4;
+        } else {
+          travelTurn = 0;
+        }
         reported = {
           x,
           z,
           heading,
-          vx: blend(reported.vx, (x - reported.x) / gap),
-          vz: blend(reported.vz, (z - reported.z) / gap),
+          vx,
+          vz,
           vh: blend(reported.vh, angleTo(reported.heading, heading) / gap),
           at: now,
         };

@@ -17,7 +17,7 @@
 
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
-import { clampToField, countState, deviceSummary, notices as computeNotices, robotPlacement } from "./devices.js";
+import { clampToField, countState, deviceSummary, drivePath, notices as computeNotices, robotPlacement } from "./devices.js";
 /* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
@@ -354,6 +354,21 @@ function demoTick() {
              : "limelight-left|OK|97% accepted|55.0|68.0|true",
     "limelight-right|NO_TARGETS|no usable target|57.0|66.0|true",
     "limelight-ground|OK|91% accepted|54.0|71.0|true"]);
+  /* PathPlanner's path while the demo robot follows one: the next few seconds of the loop it drives, in
+   * auto as a planned path, and for a stretch of teleop with an Autopilot engaged, so both ways of
+   * drawing a plan can be seen. Empty otherwise, as PathPlanner leaves it between paths. */
+  const autopiloting = enabled && cycle >= 70 && cycle < 105;
+  const pathAhead = [];
+  if (enabled && (auto || autopiloting)) {
+    const ahead = auto ? 4.5 : 3.2;
+    for (let s = 0; s <= ahead + 1e-9; s += 0.1) {
+      const u = (tm + s) * 0.42;
+      pathAhead.push(8.2 + radius * Math.cos(u), 4.1 + radius * Math.sin(u) * 0.7, (u + Math.PI / 2) % (Math.PI * 2));
+    }
+  }
+  set("/PathPlanner/activePath", "nums", pathAhead);
+  set("/Catalyst/Behavior/Cycle/Phase", "str", autopiloting ? (Math.floor(cycle / 12) % 2 ? "Score" : "Acquire") : "DriverControl");
+
   const demoX = 8.2 + radius * Math.cos(tm * 0.42);
   const demoY = 4.1 + radius * Math.sin(tm * 0.42) * 0.7;
   const fromStart = Math.hypot(demoX - 10.6, demoY - 4.1);
@@ -1944,6 +1959,9 @@ define("field", {
       heading: place.heading,
       alliance: alliance(),
       enabled: linked && ds.enabled,
+      /* The path ahead while the robot drives: PathPlanner's or a team planner's, improvised while an
+         Autopilot has the robot (see drivePath). The field view adds where its motion is heading. */
+      path: linked && ds.enabled ? drivePath(ntView, { length: cfg.length, width: cfg.width }) : null,
       /* The same robot the Park stage draws: its size from the spec sheet, its number on the bumpers. */
       spec: linked ? parkRobotSpec() : {},
       team: parkTeam(linked),
