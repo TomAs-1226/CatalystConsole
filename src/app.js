@@ -17,7 +17,7 @@
 
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
-import { clampToField, countState, deviceSummary, drivePath, notices as computeNotices, robotPlacement, startGuide } from "./devices.js";
+import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide } from "./devices.js";
 /* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
@@ -3989,6 +3989,8 @@ function paintNotices() {
  * wrong - so it is not counted with the alerts and does not wait in the triangle. The schedule is hub.js's,
  * the same one the Hub activation tile reads, so the two never disagree. */
 const CUE_LEAD_S = 5;
+/* REBUILT's endgame, the last thirty seconds of teleop. */
+const ENDGAME_S = 30;
 const CUE_HOLD_MS = 2200;
 const cueState = { active: null, changedAt: -Infinity, sig: "" };
 
@@ -4018,6 +4020,9 @@ function paintMatchCue() {
   } else if (active !== null && now - cueState.changedAt < CUE_HOLD_MS) {
     on = active;
     text = active ? "HUB active" : "HUB inactive";
+  } else if (plan && plan.period === "teleop" && Number.isFinite(matchTime()) && matchTime() <= ENDGAME_S && matchTime() > ENDGAME_S - 3) {
+    /* The last thirty seconds: said once, as they start. */
+    text = "Endgame · 30 s left";
   }
   const sig = `${text}|${count}|${on}`;
   if (sig === cueState.sig) return;
@@ -4859,6 +4864,28 @@ function paintParkInfo() {
   }
 
   const summary = linked ? deviceSummary(ntView) : null;
+  /* Ready for the match: a green word when every check passes, otherwise the ones that do not, in the
+     order a drive team would see to them. */
+  const readiness = linked
+    ? matchReadiness({
+        volts,
+        summary,
+        guide: startGuide(ntView),
+        auto: has("/Auto Selector/options") ? (str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", "")) : null,
+        errors: (arr("/Catalyst/Alerts/Errors") || []).length,
+      })
+    : null;
+  const readyEl = $("#parkReady");
+  if (readyEl.hidden !== !readiness) {
+    readyEl.hidden = !readiness;
+    changed = true;
+  }
+  if (readiness) {
+    if (readyEl.dataset.ready !== String(readiness.ready)) readyEl.dataset.ready = String(readiness.ready);
+    const failing = readiness.checks.filter((c) => !c.ok).map((c) => c.text);
+    setText("#parkReadyText", readiness.ready ? "Ready for the match"
+      : `Before the match: ${failing.slice(0, 3).join(" · ")}${failing.length > 3 ? ` · ${failing.length - 3} more` : ""}`);
+  }
   const count = (c) => `${c.connected ?? 0}/${c.expected}`;
   const place = linked ? robotPlacement(ntView, { age: poseAge }) : null;
   const cameras = summary?.cameras?.expected ? `${count(summary.cameras)} cameras` : "";

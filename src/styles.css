@@ -2652,6 +2652,13 @@ kbd {
 .park-charge-bar { position: relative; flex: none; width: 72px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .park-charge-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: inherit; background: var(--cat-white); transition: width 0.4s var(--cat-ease-smooth), background-color 0.4s var(--cat-ease-smooth); }
 .park-charge[data-level="low"] .park-charge-bar i { background: var(--cat-warn); }
+/* Ready for the match, under the charge: a green lamp and the words when every check passes, an amber lamp
+   and what is left to see to when one does not. */
+.park-ready { display: flex; align-items: center; gap: 9px; margin-top: 10px; font-size: var(--fs-13); color: var(--cat-body); }
+.park-ready[hidden] { display: none; }
+.park-ready i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cat-warn); }
+.park-ready[data-ready="true"] { color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.park-ready[data-ready="true"] i { background: var(--cat-ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-ok) 28%, transparent); }
 .park-charge[data-level="bad"] .park-charge-bar i { background: var(--cat-bad); }
 
 /* A callout: a small grey name over a white value, set beside the robot and joined to its part by a

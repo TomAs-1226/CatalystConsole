@@ -11,6 +11,7 @@ import {
   notices,
   ROBOT_HALF_METERS,
   robotPlacement,
+  matchReadiness,
   START_NEAR_M,
   startGuide,
   VISION_FRESH_MS,
@@ -376,4 +377,35 @@ test("no start is shown without an expected pose, and a far robot is not being p
   assert.ok(far.distance > START_NEAR_M, "distance from the poses when the check does not say");
   assert.equal(far.near, false);
   assert.equal(far.headingErrorDeg, null);
+});
+
+/* ---- match readiness ---- */
+
+test("a robot is ready for its match only when every check it can be judged by passes", () => {
+  const good = matchReadiness({
+    volts: 12.9,
+    summary: { cameras: { expected: 4, connected: 4 }, motors: { expected: 20, connected: 20 } },
+    guide: { ready: true },
+    auto: "Two piece centre",
+    errors: 0,
+  });
+  assert.equal(good.ready, true);
+  assert.deepEqual(good.checks.map((c) => c.key), ["battery", "cameras", "motors", "auto", "start", "errors"]);
+
+  const bad = matchReadiness({
+    volts: 12.1,
+    summary: { cameras: { expected: 4, connected: 3 }, motors: { expected: 0 } },
+    guide: { ready: false },
+    auto: "",
+    errors: 2,
+  });
+  assert.equal(bad.ready, false);
+  assert.deepEqual(bad.checks.filter((c) => !c.ok).map((c) => c.text),
+    ["Battery at 12.1 V", "3 of 4 cameras", "No auto chosen", "Not on the auto's start", "2 errors"]);
+});
+
+test("checks with nothing to judge by are left out rather than failed", () => {
+  const bare = matchReadiness({});
+  assert.deepEqual(bare.checks.map((c) => c.key), ["errors"]);
+  assert.equal(bare.ready, true);
 });

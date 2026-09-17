@@ -405,6 +405,32 @@ export function startGuide(read, { enabled = false } = {}) {
   };
 }
 
+/**
+ * Whether the robot is ready for a match, the way Tesla lists what wants attention before a drive: each
+ * check there is something to judge by, and whether it passes. `volts` is the battery, `summary`
+ * deviceSummary's counts, `guide` startGuide's answer, `auto` the chosen routine's name (null when the robot
+ * publishes no chooser, "" when nothing is chosen), `errors` how many errors are active. Returns
+ * `{ ready, checks: [{ key, ok, text }] }`, the checks in the order a drive team would see to them.
+ */
+export function matchReadiness({ volts = null, summary = null, guide = null, auto = null, errors = 0 } = {}) {
+  const checks = [];
+  if (Number.isFinite(volts)) {
+    const ok = volts >= 12.5;
+    checks.push({ key: "battery", ok, text: ok ? "Battery charged" : `Battery at ${volts.toFixed(1)} V` });
+  }
+  const counted = (key, count, noun) => {
+    if (!count?.expected) return;
+    const ok = count.connected === count.expected;
+    checks.push({ key, ok, text: ok ? `All ${count.expected} ${noun}` : `${count.connected ?? 0} of ${count.expected} ${noun}` });
+  };
+  counted("cameras", summary?.cameras, "cameras");
+  counted("motors", summary?.motors, "motors");
+  if (auto !== null) checks.push({ key: "auto", ok: Boolean(auto), text: auto ? `Auto: ${auto}` : "No auto chosen" });
+  if (guide) checks.push({ key: "start", ok: guide.ready, text: guide.ready ? "On the auto's start" : "Not on the auto's start" });
+  checks.push({ key: "errors", ok: !(errors > 0), text: errors > 0 ? `${errors} error${errors === 1 ? "" : "s"}` : "No errors" });
+  return { ready: checks.every((c) => c.ok), checks };
+}
+
 /** Everything that deserves the bar above the board, most severe first.
  *
  *  Vision faults come from the robot's per-camera health rows rather than from the alert list, so the
