@@ -22,6 +22,9 @@ import { clampToField, countState, deviceSummary, notices as computeNotices } fr
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
 import { stateLayer } from "./motion.js";
+/* How the board words a large figure and a topic path's segment; its own module so the rules can be
+   tested without a DOM. */
+import { compactFigure, spacedLabel } from "./board-format.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -520,21 +523,6 @@ function distinctLabels(keys) {
   return keys.map((k) => leaf(k));
 }
 
-/* A path segment as a person would write it on a label, in the sentence case the rest of the board is
- * set in: FrontLeft and frontLeft read "Front left", CANBus reads "CAN bus". Display only - the key is
- * never touched, and a gauge carries it in its tooltip. A segment that is not plain letters and digits
- * (shooter_rpm, LL-3) is left exactly as the robot published it, since there is no telling what its
- * author meant by the punctuation. */
-function spacedLabel(segment) {
-  const s = String(segment);
-  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(s)) return s;
-  const words = s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").split(" ");
-  return words
-    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1)
-      : /^[A-Z][a-z0-9]*$/.test(w) ? w.toLowerCase() : w))
-    .join(" ");
-}
-
 /**
  * The path a set of topics share, whole segments only: `/Catalyst/Drive` for the four module
  * velocities. Empty when they share nothing but the root, which the caller words around.
@@ -997,6 +985,9 @@ define("gauge", {
     { key: "redline", label: "Redline", type: "number", def: 5500,
       hint: "Value at which the gauge turns red. Set above the maximum to disable." },
     { key: "decimals", label: "Decimals", type: "number", def: 0 },
+    { key: "figures", label: "Large figures", type: "select", def: "short",
+      options: [["short", "Short, as 2.4k"], ["full", "In full, as 2400"]],
+      hint: "Short writes a figure of a thousand or more with one decimal and a k. The whole value is in the gauge's tooltip either way." },
   ],
   render(body, cfg) {
     body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div><div class="cap gauge-cap" data-x="cap" hidden></div>`;
@@ -1013,7 +1004,6 @@ define("gauge", {
       for (const k of keys) {
         const g = el("div", "gauge");
         g.dataset.key = k;
-        g.title = k;
         wrap.appendChild(g);
       }
     }
@@ -1043,7 +1033,12 @@ define("gauge", {
       // that turns it red.
       const color = hot ? "var(--crit)" : "var(--cat-data)";
       const label = labels[i];
-      const text = value === null ? "—" : value.toFixed(Math.max(0, cfg.decimals | 0));
+      /* A motor speed reads 2.4k rather than 2400, the way Tesla writes a large figure, unless the tile
+       * is set to write figures in full. The whole value, its unit and the topic are in the tooltip. */
+      const places = Math.max(0, cfg.decimals | 0);
+      const text = value === null ? "—" : cfg.figures === "full" ? value.toFixed(places) : compactFigure(value, places);
+      const tip = `${value === null ? "no reading" : `${value.toFixed(places)}${cfg.unit ? ` ${cfg.unit}` : ""}`} · ${key}`;
+      if (g.title !== tip) g.title = tip;
 
       if (cfg.style === "number") {
         g.innerHTML =

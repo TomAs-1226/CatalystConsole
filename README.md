@@ -475,6 +475,10 @@ shortest path suffix that actually distinguishes them — four keys ending in `/
 Front left / Front right / Back left / Back right rather than "Velocity" four times. A CamelCase
 segment is spaced into words for the label; the key itself is left alone.
 
+A figure of a thousand or more is written short, 2.4k for 2400 and 2k for 2000, with the whole value,
+its unit and the topic in the gauge's tooltip. `Large figures` sets a tile back to writing them in
+full.
+
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM. Set it to 1 for a
 raw value.
 
@@ -620,16 +624,17 @@ src/app.js                NT store, component registry, layout, every component
 src/field3d.js            the procedural 3D field
 src/can-model.js          CAN topology: which buses share an SPI controller, and what counts as trouble
 src/core-format.js        the Systemcore page's rules: what is trouble, and how a reading is worded
+src/board-format.js       how the board words a large figure (2.4k) and a topic path's segment (Front left)
 src/devices.js            the roster, the notices worth showing a driver, and holding a pose on the field
 src/motion.js             the springs the identity moves with, where CSS cannot carry a gesture
 ```
 
-`can-model.js`, `core-format.js` and `devices.js` are split out of `app.js` so they can be tested.
-`app.js` touches the DOM at import time; none of those rules need a DOM to be wrong, and they decide
-things nobody can reproduce on a robot without breaking it — a bus past its controller's budget, a
-pose off the carpet, a storage sensor that stopped answering. Each has a `.test.js` beside it and
-`npm test` runs them under `node --test`. `motion.js` is split out for a different reason: it is
-copied verbatim into Catalyst App, so both move the identity the same way.
+`can-model.js`, `core-format.js`, `board-format.js` and `devices.js` are split out of `app.js` so
+they can be tested. `app.js` touches the DOM at import time; none of those rules need a DOM to be
+wrong, and they decide things nobody can reproduce on a robot without breaking it — a bus past its
+controller's budget, a pose off the carpet, a storage sensor that stopped answering. Each has a
+`.test.js` beside it and `npm test` runs them under `node --test`. `motion.js` is split out for a
+different reason: it is copied verbatim into Catalyst App, so both move the identity the same way.
 
 `nt4.rs` batches values into a map and flushes on a fixed cadence rather than emitting at wire rate.
 The robot publishes at 50 Hz across hundreds of topics; pushing each change straight into the webview
