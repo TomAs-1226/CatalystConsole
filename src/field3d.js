@@ -353,9 +353,9 @@ export function createField(canvas, opts) {
     powerPreference: "low-power",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-  /* The robot is lit and tone-mapped exactly as on the Park stage, so it looks the same machine when it
-     is handed over. The field is not: every field material opts out of the curve below, because its
-     greys were chosen as they land on screen and the curve's toe would crush them. */
+  /* The robot is tone-mapped exactly as on the Park stage, so it looks the same machine when it is handed
+     over. The field is not: every field material opts out of the curve below, because its greys were
+     chosen as they land on screen and the curve's toe would crush them. */
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -609,11 +609,20 @@ export function createField(canvas, opts) {
   /* ---- the robot ---- */
 
   /* `robot` is where the robot is on the field and which way it faces; the model inside it is the same
-     one the Park stage draws. */
+     one the Park stage draws.
+
+     It is drawn as a second pass over the field, in a scene of its own with the Park stage's studio
+     lights (see robot3d.js), rather than under the field's. The field's lights are set for grey
+     carpet seen from far off; under them the robot was a different colour from the one the stage had
+     just handed over, and it changed in the frame the handover happened. The field is drawn first, so
+     its depth hides the robot wherever something really stands between it and the camera, and the
+     robot's smoked hood blends over the field behind it. */
+  const robotScene = new THREE.Scene();
   const robot = new THREE.Group();
   robot.visible = false;
-  scene.add(robot);
+  robotScene.add(robot);
   const model = createRobotModel({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
+  robotScene.add(model.lights);
   model.setSpec({});
   robot.add(model.root);
   model.onChange(() => { dirty = true; });
@@ -719,8 +728,12 @@ export function createField(canvas, opts) {
 
   /* ---- the path ahead (see above) ---- */
 
-  const plannedBand = makeRibbon(SIGNAL, 0.9, 0.7);
-  const motionLine = makeRibbon(TRIM, 0.8, 0.3);
+  const PLANNED_OPACITY = 0.9;
+  const MOTION_OPACITY = 0.8;
+  /* The fade's time constant: most of the way in about half a second. */
+  const PATH_FADE_S = 0.16;
+  const plannedBand = makeRibbon(SIGNAL, PLANNED_OPACITY, 0.7);
+  const motionLine = makeRibbon(TRIM, MOTION_OPACITY, 0.3);
   scene.add(plannedBand, motionLine);
   let plan = null;          // { points: [[x, z], ...] in the scene, improvised }
   let travelTurn = 0;       // how fast the direction of travel is turning, rad/s
@@ -776,11 +789,22 @@ export function createField(canvas, opts) {
     return out;
   }
 
-  /** Lay the bands for this frame. Returns true while the chevrons are drifting. */
+  /* How far the paths are faded in. They come up after the robot has landed on this view from the Park
+     stage, as the last thing to arrive, and go as it lifts off again, instead of appearing or vanishing
+     in the very frame the robot changes hands. */
+  let pathFade = 0;
+
+  /** Lay the bands for this frame. Returns true while the chevrons are drifting or the bands fading. */
   function placePaths(dt) {
     const driving = robot.visible && !unplaced && !parked && model.root.visible;
-    let drifting = false;
-    if (driving && plan) {
+    const want = driving ? 1 : 0;
+    pathFade = reduced ? want : want + (pathFade - want) * Math.exp(-dt / PATH_FADE_S);
+    if (Math.abs(want - pathFade) < 0.004) pathFade = want;
+    plannedBand.material.uniforms.uOpacity.value = PLANNED_OPACITY * pathFade;
+    motionLine.material.uniforms.uOpacity.value = MOTION_OPACITY * pathFade;
+    const shown = pathFade > 0 && robot.visible && !unplaced;
+    let drifting = pathFade !== want;
+    if (shown && plan) {
       layRibbon(plannedBand, planAhead(plan.points), 0.32, 0.012);
       const uniforms = plannedBand.material.uniforms;
       uniforms.uChevrons.value = plan.improvised ? 1 : 0;
@@ -792,7 +816,7 @@ export function createField(canvas, opts) {
       plannedBand.visible = false;
     }
     const speed = reported ? Math.hypot(reported.vx, reported.vz) : 0;
-    if (driving && speed > PREDICT_MIN_SPEED) layRibbon(motionLine, motionAhead(), 0.05, 0.016);
+    if (shown && speed > PREDICT_MIN_SPEED) layRibbon(motionLine, motionAhead(), 0.05, 0.016);
     else motionLine.visible = false;
     return drifting;
   }
@@ -989,6 +1013,7 @@ export function createField(canvas, opts) {
 
   let raf = 0;
   let lastFrame = -Infinity;
+  let lockedUntil = -Infinity;
   let disposed = false;
   let dirty = true;
   let moving = false;
@@ -1027,16 +1052,30 @@ export function createField(canvas, opts) {
       environment = studioEnvironment(renderer);
       model.setEnvironment(environment.texture);
     }
-    placeFog();
-    renderer.render(scene, camera);
+    draw();
     moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving;
     dirty = false;
+  }
+
+  /* The field, then the robot over it (see robotScene). */
+  function draw() {
+    placeFog();
+    /* The studio faces the lens, as it does on the Park stage. */
+    model.aim(Math.atan2(camera.position.x - target.x, camera.position.z - target.z));
+    renderer.autoClear = true;
+    renderer.render(scene, camera);
+    renderer.autoClear = false;
+    renderer.render(robotScene, camera);
+    renderer.autoClear = true;
   }
 
   function tick(now) {
     if (disposed) return;
     raf = requestAnimationFrame(tick);
     if (!visible()) return;
+    /* While the Park stage is flying the robot here it draws this view's frames itself (see frame), and
+       this loop stands aside. It takes over again on its own if those frames stop coming. */
+    if (now < lockedUntil) return;
     const elapsed = now - lastFrame;
     /* Two milliseconds of slack, so a 60 Hz display's frames are not dropped for arriving a hair
        early. */
@@ -1220,10 +1259,24 @@ export function createField(canvas, opts) {
       model.settle();
       /* A step long enough for every eased value to land where it is heading. */
       placeCamera(10);
-      placeFog();
-      renderer.render(scene, camera);
+      draw();
       dirty = false;
       moving = false;
+    },
+
+    /**
+     * Draw this view's frame for `now` from someone else's animation frame, and hold the view's own loop
+     * off while they keep doing so. The Park stage calls it at the start of each frame of a flight to or
+     * from this view, so the field under the flying robot and the shot the robot is flying to move in
+     * step, frame for frame, at whatever rate the display runs. If the calls stop the loop resumes by
+     * itself within a few frames.
+     */
+    frame(now = performance.now()) {
+      if (disposed) return;
+      const elapsed = now - lastFrame;
+      lastFrame = now;
+      lockedUntil = now + 60;
+      render(now, Math.min(0.1, Math.max(0, elapsed) / 1000));
     },
 
     /** Show or hide the robot model while leaving everything else as it is, for the instant the Park

@@ -354,16 +354,16 @@ export function cubicBezier(x1, y1, x2, y2) {
   };
 }
 
-/* The flight's timing: a critically damped spring, run over its settling time. It starts from rest,
-   moves most of the way almost at once, and then settles with no overshoot - the console's own
-   --cat-ease-smooth curve, which is the same spring (response 0.55 s, damping 1 settles in 0.84 s).
-   A camera move answers the shift into Drive the instant it happens and lands softly, instead of
-   waiting on a slow ease-in. */
-const SETTLE_K = 9.56;
+/* The flight's timing. It leaves gently, is at full speed a fifth of the way in, and lands softly with
+   the last visible movement arriving at the very end, so the view that takes the robot over does so
+   the moment the robot comes to rest. A critically damped spring was used first and read badly in both
+   ways a spring can: it leaves with a jolt, and it creeps through its last forty percent, so the robot
+   seemed to stop and then, a quarter of a second later, to jump as the other view took over. */
+const FLIGHT_CURVE = cubicBezier(0.3, 0, 0.12, 1);
 export function flightEase(t) {
-  const u = Math.min(1, Math.max(0, t));
-  const shape = (x) => 1 - (1 + SETTLE_K * x) * Math.exp(-SETTLE_K * x);
-  return shape(u) / shape(1);
+  if (!(t > 0)) return 0;
+  if (!(t < 1)) return 1;
+  return FLIGHT_CURVE(t);
 }
 
 /** Hermite smoothstep of `x` from `a` to `b`. */
@@ -409,10 +409,124 @@ export function mixShots(a, b, t) {
   };
 }
 
+/* ---- the glide ----
+ *
+ * mixShots moves the camera sensibly and the robot badly. Swinging the eye round a look point that is
+ * itself travelling - the field view looks three metres ahead of the robot, the stage looks at its
+ * middle - sends the robot's image off on a detour: into Drive it first ran away from the field tile it
+ * was flying to and then hooked back, and into Park it overshot the middle of the screen and drifted
+ * back, with its speed stalling and surging on the way. So a flight is steered by what the eye follows,
+ * the robot's image, and the camera is solved for each frame to produce it. */
+
+const wrapAngle = (x) => {
+  const y = (x + Math.PI) % (2 * Math.PI);
+  return (y < 0 ? y + 2 * Math.PI : y) - Math.PI;
+};
+const direction = (bearing, elevation) => [
+  Math.sin(bearing) * Math.cos(elevation), Math.sin(elevation), Math.cos(bearing) * Math.cos(elevation),
+];
+
+/** Where `point` is seen by a camera at `eye` facing `forward` (unit, no roll) with a focal length of
+ *  `focal` pixels: pixels right of and below the middle of its frame, and how far in front of it. */
+function seenFrom(eye, forward, focal, point) {
+  const rx = -forward[2];
+  const rz = forward[0];
+  const rl = Math.hypot(rx, rz) || 1;
+  const right = [rx / rl, 0, rz / rl];
+  const up = [
+    right[1] * forward[2] - right[2] * forward[1],
+    right[2] * forward[0] - right[0] * forward[2],
+    right[0] * forward[1] - right[1] * forward[0],
+  ];
+  const d = [point[0] - eye[0], point[1] - eye[1], point[2] - eye[2]];
+  const depth = d[0] * forward[0] + d[1] * forward[1] + d[2] * forward[2];
+  return {
+    depth,
+    x: (focal * (d[0] * right[0] + d[2] * right[2])) / depth,
+    y: (-focal * (d[0] * up[0] + d[1] * up[1] + d[2] * up[2])) / depth,
+  };
+}
+
+/** A shot as the glide reads it: where the camera is round `anchor` and where it points, and where the
+ *  anchor lands on the canvas and how large. Null when the anchor is not in front of the camera. */
+function describeShot(shot, anchor) {
+  const fx = shot.look[0] - shot.eye[0];
+  const fy = shot.look[1] - shot.eye[1];
+  const fz = shot.look[2] - shot.eye[2];
+  const fl = Math.hypot(fx, fy, fz);
+  const ex = shot.eye[0] - anchor[0];
+  const ey = shot.eye[1] - anchor[1];
+  const ez = shot.eye[2] - anchor[2];
+  const el = Math.hypot(ex, ey, ez);
+  if (!(fl > 1e-9) || !(el > 1e-9)) return null;
+  const forward = [fx / fl, fy / fl, fz / fl];
+  const focal = shot.rect.h / (2 * Math.tan((shot.fov * Math.PI) / 360));
+  const seen = seenFrom(shot.eye, forward, focal, anchor);
+  if (!(seen.depth > 1e-3)) return null;
+  const bearing = Math.atan2(ex, ez);
+  const elevation = Math.asin(Math.max(-1, Math.min(1, ey / el)));
+  return {
+    bearing,
+    elevation,
+    /* Where the lens points, as an offset from pointing straight at the anchor. */
+    aimBearing: wrapAngle(Math.atan2(forward[0], forward[2]) - (bearing + Math.PI)),
+    aimElevation: Math.asin(Math.max(-1, Math.min(1, forward[1]))) + elevation,
+    scale: focal / seen.depth,
+    x: shot.rect.x + shot.rect.w / 2 + seen.x,
+    y: shot.rect.y + shot.rect.h / 2 + seen.y,
+  };
+}
+
+/**
+ * The shot `t` of the way from `a` to `b`, steered by the image of `anchor` - the middle of the robot,
+ * in the robot's frame - rather than by the camera.
+ *
+ * The anchor's image travels in a straight line across the canvas, and its size changes geometrically,
+ * so the robot shrinks or grows at an even rate as it goes. The camera comes round it the short way,
+ * its elevation changes evenly, and where the lens points relative to the robot eases between the two
+ * shots' framings. Every frame's camera is solved from those, so both ends are reproduced exactly. When
+ * either shot does not have the anchor in front of it the glide has nothing to steer by, and it falls
+ * back to mixShots.
+ */
+export function glideShots(a, b, t, anchor = [0, 0, 0]) {
+  const u = Math.min(1, Math.max(0, t));
+  const from = describeShot(a, anchor);
+  const to = describeShot(b, anchor);
+  if (!from || !to) return mixShots(a, b, u);
+  const mix = (p, q) => p + (q - p) * u;
+  const even = (p, q) => Math.exp(mix(Math.log(p), Math.log(q)));
+
+  const bearing = from.bearing + wrapAngle(to.bearing - from.bearing) * u;
+  const elevation = mix(from.elevation, to.elevation);
+  const out = direction(bearing, elevation);
+  const forward = direction(
+    bearing + Math.PI + mix(from.aimBearing, to.aimBearing),
+    -elevation + mix(from.aimElevation, to.aimElevation)
+  );
+
+  const fov = mix(a.fov, b.fov);
+  const w = even(a.rect.w, b.rect.w);
+  const h = even(a.rect.h, b.rect.h);
+  const focal = h / (2 * Math.tan((fov * Math.PI) / 360));
+  /* The depth that draws the anchor at this frame's size, and the distance out along the sight line
+     that puts it at that depth for where the lens is pointing. */
+  const depth = focal / even(from.scale, to.scale);
+  const along = Math.max(0.05, -(forward[0] * out[0] + forward[1] * out[1] + forward[2] * out[2]));
+  const distance = depth / along;
+  const eye = [anchor[0] + out[0] * distance, anchor[1] + out[1] * distance, anchor[2] + out[2] * distance];
+  /* The frame is then slid so the anchor lands on its point of the line. */
+  const seen = seenFrom(eye, forward, focal, anchor);
+  return {
+    eye,
+    look: [eye[0] + forward[0] * distance, eye[1] + forward[1] * distance, eye[2] + forward[2] * distance],
+    fov,
+    rect: { x: mix(from.x, to.x) - w / 2 - seen.x, y: mix(from.y, to.y) - h / 2 - seen.y, w, h },
+  };
+}
+
 /* ---- the scene ---- */
 
 const FRAME_MS = 1000 / 30;
-const FLIGHT_FRAME_MS = 1000 / 60;
 
 /* A long lens, as a product is photographed. A wide one bulges the near bumper toward the viewer. */
 const STAGE_FOV = 30;
@@ -568,19 +682,10 @@ export function createPark(canvas, opts) {
     return thing;
   };
 
-  /* Lights. Low ambient so the side away from them falls to near black, as a car's does on a showroom
-     stage; a key from above and in front; and a cool rim from behind that draws the robot's outline
-     against the dark. Most of the metal's light comes from the studio reflections, so these are set
-     for the painted and fabric parts. They do not move: the stage turns beneath them. */
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.15));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(-2.2, 5, 3.4);
-  scene.add(key);
-  const rim = new THREE.DirectionalLight(0xdae3f4, 2.2);
-  rim.position.set(2.4, 3.2, -5);
-  scene.add(rim);
-
   const model = createRobotModel({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
+  /* The studio lights come with the model (see robot3d.js), so the field view lights the robot with the
+     same rig. On the stage they face the lens, which never moves: the stage turns beneath them. */
+  scene.add(model.lights);
 
   /* The stage: floor and robot together. Everything the viewer turns is under this one node. */
   const stage = new THREE.Group();
@@ -641,7 +746,7 @@ export function createPark(canvas, opts) {
    * the model from every side instead of ending up behind it half way round.
    *
    * A flight is the exception. It moves the camera itself, through shots described in the robot's own
-   * frame (see mixShots), from the stage to wherever another view is looking at the robot or back, with
+   * frame (see glideShots), from the stage to wherever another view is looking at the robot or back, with
    * the stage's turn frozen for the length of it. */
 
   let yaw = YAW_DEFAULT;
@@ -689,6 +794,9 @@ export function createPark(canvas, opts) {
     camera.position.set(eye[0], eye[1], eye[2]);
     lookAt.set(look[0], look[1], look[2]);
     camera.lookAt(lookAt);
+    /* The studio faces the lens. On the stage that is always the same way; in flight it comes round with
+       the camera, as it does behind the field view's, so the two agree on the frame they hand over. */
+    model.aim(Math.atan2(eye[0] - look[0], eye[2] - look[2]));
     if (sized.w > 0 && sized.h > 0) {
       /* The shot's rectangle becomes the frame the lens is drawn for, and the canvas a window onto it:
          the robot lands inside the rectangle exactly as a camera that size would have drawn it. */
@@ -772,10 +880,9 @@ export function createPark(canvas, opts) {
     if (!active || disposed) return;
     /* 30 fps on the stage, like the field, with two milliseconds of slack: at 60 Hz the second frame
        lands a hair under 33.3 ms often enough that a strict test drops to 20 fps. A flight draws every
-       frame the display offers, because a camera move at 30 fps judders exactly where the eye is
-       following it. */
-    const gap = flight ? FLIGHT_FRAME_MS : FRAME_MS;
-    if (now - lastFrame < gap - 2) {
+       frame the display offers, whatever its rate: a camera move judders exactly where the eye is
+       following it, and capping it at 60 left a 144 Hz display drawing it at an uneven 48. */
+    if (!flight && now - lastFrame < FRAME_MS - 2) {
       raf = requestAnimationFrame(tick);
       return;
     }
@@ -802,9 +909,29 @@ export function createPark(canvas, opts) {
 
     if (flight) {
       if (flight.start === null) flight.start = now;
+      /* The view the robot is flying to draws its frame first, in the same animation frame, so the shot
+         read from it next is the one on its canvas right now. */
+      if (flight.sync) {
+        try {
+          flight.sync(now);
+        } catch (err) {
+          console.error("park flight sync failed", err);
+        }
+      }
+      if (flight.target) {
+        /* A live destination: the field view's camera keeps following a robot that is driving, so the
+           shot to land on is read again every frame rather than once at take-off. */
+        let next = null;
+        try {
+          next = normalizeShot(flight.target());
+        } catch (err) {
+          console.error("park flight target failed", err);
+        }
+        if (next) flight.to = next;
+      }
       const raw = flight.duration > 0 ? Math.min(1, Math.max(0, (now - flight.start) / flight.duration)) : 1;
       const eased = flightEase(raw);
-      flight.shot = mixShots(flight.from, flight.to, eased);
+      flight.shot = glideShots(flight.from, flight.to, eased, [0, lookY, 0]);
       const [from, to] = flight.floor;
       /* The floor goes early on the way out, so the field shows round the robot for most of the move,
          and comes late on the way back, once the robot is clear of the tile. */
@@ -923,7 +1050,13 @@ export function createPark(canvas, opts) {
       const turns = Math.round((yawAt - YAW_DEFAULT) / (2 * Math.PI));
       yawAt = YAW_DEFAULT + turns * 2 * Math.PI;
     }
-    const toShot = toStage ? stageShot(yawAt, ELEVATION_DEFAULT, 1) : normalizeShot(options.to);
+    const target = typeof options.to === "function" ? options.to : null;
+    let toShot = null;
+    try {
+      toShot = toStage ? stageShot(yawAt, ELEVATION_DEFAULT, 1) : normalizeShot(target ? target() : options.to);
+    } catch (err) {
+      console.error("park flight target failed", err);
+    }
     if (!toShot) return Promise.resolve(false);
 
     if (flight) finishFlight(false);
@@ -952,6 +1085,8 @@ export function createPark(canvas, opts) {
         start: null,
         duration,
         onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
+        sync: typeof options.sync === "function" ? options.sync : null,
+        target,
         resolve,
         shot: null,
       };
@@ -1187,8 +1322,13 @@ export function createPark(canvas, opts) {
      * pixels, the shot fills. A shot taken from another canvas lands the robot exactly where that
      * canvas draws it when `rect` is that canvas's rectangle measured from this one's top-left corner.
      *
-     * `duration` is milliseconds (0, or reduced motion, lands at once). `onProgress(eased, raw, shot)`
-     * runs on every frame of the flight, before it is drawn, for anything that has to move with it.
+     * `to` may also be a function returning such a shot, read again on every frame: a destination that
+     * keeps moving, like a field view whose camera follows a robot that is driving.
+     *
+     * `duration` is milliseconds (0, or reduced motion, lands at once). `sync(now)` runs first on every
+     * frame of the flight, so the view being flown to can draw its own frame before its shot is read.
+     * `onProgress(eased, raw, shot)` runs next, before the frame is drawn, for anything that has to move
+     * with the flight.
      *
      * The floor fades out on the way to a shot and back in on the way to the stage. A landed shot is
      * held, with the stage out of the viewer's hands, until the next flight or setActive(false).
@@ -1205,6 +1345,21 @@ export function createPark(canvas, opts) {
       step(0, now);
       draw();
       lastFrame = now;
+    },
+
+    /**
+     * Do the stage's one-off GPU work now, while nothing is watching: render the studio reflections and
+     * compile every shader the stage uses. Otherwise both happen on the first frame Park is shown, which
+     * is the first frame of a flight, and the robot hitches as it takes off. Safe to call more than once.
+     */
+    prepare() {
+      if (disposed) return;
+      if (!environment) {
+        environment = studioEnvironment(renderer);
+        model.setEnvironment(environment.texture);
+      }
+      placeCamera();
+      renderer.compile(scene, camera);
     },
 
     /** True while a flight is under way or a landed shot is being held. */

@@ -4069,6 +4069,11 @@ function loadParkScene() {
       parkState.scene.setAlliance(parkState.lastAlliance);
       parkState.scene.setTeamNumber(parkTeam(linked));
       parkState.offFrame = parkState.scene.onFrame(placeCallouts);
+      /* The studio reflections and every shader the stage needs, done while nothing is watching, so the
+         first move into Park does not stall on its first frame doing them. */
+      const warm = () => parkState.scene?.prepare?.();
+      if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 2000 });
+      else setTimeout(warm, 300);
       if (parkState.on) {
         /* Park was asked for before the stage existed, and faded in empty. It can draw now. */
         parkState.scene.setActive(true);
@@ -4102,8 +4107,8 @@ function loadParkScene() {
  * changes again. With nothing to hand over - no field tile, no robot on it, reduced motion - Park
  * simply fades. */
 
-const DRIVE_MOVE_MS = 840;     // into Drive: the spring's settling time at a 0.55 s response
-const PARK_MOVE_MS = 1070;     // into Park: 0.7 s response, a slower, more deliberate lift
+const DRIVE_MOVE_MS = 900;     // into Drive
+const PARK_MOVE_MS = 1000;     // into Park: a touch longer, a more deliberate lift
 
 function reducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -4149,9 +4154,12 @@ function fieldHandover() {
   }
 }
 
-/* The board's own fade and scale during a move, written straight to its style every frame. */
+/* The board's own fade and scale during a move, written straight to its style every frame. It is its
+   own compositor layer for the length of the move, so a frame of the move is the GPU moving one texture
+   rather than the browser repainting every tile on the board. */
 function styleBoard(opacity, scale, origin) {
   const board = $("#board");
+  if (board.style.willChange !== "opacity, transform") board.style.willChange = "opacity, transform";
   board.style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
   board.style.transform = Math.abs(scale - 1) < 1e-4 ? "" : `scale(${scale.toFixed(4)})`;
   if (origin !== undefined) board.style.transformOrigin = origin;
@@ -4162,6 +4170,14 @@ function restBoard() {
   board.style.opacity = "";
   board.style.transform = "";
   board.style.transformOrigin = "";
+  board.style.willChange = "";
+}
+
+/* The stage's black ground, a layer of its own under the robot. A move fades it by opacity, which the
+   compositor does alone; fading the stage's background colour instead repainted the whole screen on
+   every frame of the move. */
+function styleGround(opacity) {
+  $("#parkGround").style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
 }
 
 /* Where a move cut short left things, so the next move starts from what is on screen. */
@@ -4175,10 +4191,9 @@ function boardScaleNow() {
   return match ? Number(match[1]) : 1;
 }
 function groundNow(el) {
-  const match = /rgba?\([^)]*?,\s*([\d.]+)\)$/.exec(el.style.backgroundColor);
-  if (match) return Number(match[1]);
-  if (el.style.backgroundColor) return 1;
-  return el.hidden ? 0 : 1;
+  if (el.hidden) return 0;
+  const set = $("#parkGround").style.opacity;
+  return set === "" ? 1 : Number(set);
 }
 
 function showPark() {
@@ -4195,13 +4210,13 @@ function showPark() {
   /* Laid out so it can be measured, and see-through until the move has decided how it starts: every
      style written before this function returns lands in the same frame. */
   el.hidden = false;
-  if (!cutShort) el.style.backgroundColor = "rgba(0, 0, 0, 0)";
+  if (!cutShort) styleGround(0);
   const hand = scene && onBoard && !reducedMotion() ? fieldHandover() : null;
   const shot = hand && !cutShort ? hand.scene.shot() : null;
 
   if (!hand || (!cutShort && !shot)) {
     /* Nothing to lift off the field: fade in. */
-    el.style.backgroundColor = "";
+    styleGround(1);
     restBoard();
     el.dataset.ui = "on";
     el.dataset.state = "in";
@@ -4223,12 +4238,14 @@ function showPark() {
     from: cutShort ? "current" : { ...shot, rect: hand.rect },
     to: "stage",
     duration: PARK_MOVE_MS,
+    /* The field view under the rising robot draws in step with it. */
+    sync: (now) => hand.scene.frame(now),
     onProgress(eased, raw) {
       /* The board recedes first, into the car panel it came out of; the dark comes up behind the robot
          as it lifts; the stage's words come back once it is nearly home. */
       const away = ramp(0, 0.45, eased);
       styleBoard(boardFrom * (1 - away), scaleFrom + (0.965 - scaleFrom) * ramp(0, 0.7, eased), hand.origin);
-      el.style.backgroundColor = `rgba(0, 0, 0, ${(ground + (1 - ground) * ramp(0.1, 0.6, eased)).toFixed(3)})`;
+      styleGround(ground + (1 - ground) * ramp(0.1, 0.6, eased));
       if (raw > 0.7 && el.dataset.ui !== "on") el.dataset.ui = "on";
     },
   });
@@ -4243,7 +4260,7 @@ function showPark() {
     app.dataset.park = "on";
     delete el.dataset.state;
     el.dataset.ui = "on";
-    el.style.backgroundColor = "";
+    styleGround(1);
     restBoard();
     hand.scene.setRobotShown(true);
     delete hand.entry.tile.dataset.handover;
@@ -4276,7 +4293,7 @@ function hidePark() {
     /* Nothing to land on: fade out over the board, whose field view swings in from above. */
     restBoard();
     el.dataset.state = "out";
-    el.style.backgroundColor = "";
+    styleGround(1);
     for (const entry of live.values()) entry.state.scene?.arrive?.();
     parkState.hideTimer = setTimeout(() => {
       if (parkState.on || move !== parkState.move) return;
@@ -4294,23 +4311,31 @@ function hidePark() {
   scene
     .fly({
       from: "current",
-      to: { ...shot, rect: hand.rect },
+      /* Read again every frame: the robot is enabled and may already be driving, and the field view's
+         camera follows it, so the shot to land on at the end is not the one there was at take-off. */
+      to: () => {
+        const now = hand.scene.shot();
+        return now ? { ...now, rect: hand.rect } : null;
+      },
       duration: DRIVE_MOVE_MS,
+      /* The field view draws each frame first, so the shot read from it is the one on its canvas. */
+      sync: (now) => hand.scene.frame(now),
       onProgress(eased) {
         /* The dark lifts as the robot starts to move, and the board comes up behind it and settles to
            its size as the robot lands. */
-        el.style.backgroundColor = `rgba(0, 0, 0, ${(ground * (1 - ramp(0.02, 0.42, eased))).toFixed(3)})`;
+        styleGround(ground * (1 - ramp(0.02, 0.42, eased)));
         styleBoard(boardFrom + (1 - boardFrom) * ramp(0.05, 0.5, eased), scaleFrom + (1 - scaleFrom) * eased, hand.origin);
       },
     })
     .then((landed) => {
       if (!landed || move !== parkState.move) return;
-      /* Landed: the field view takes the robot over in the same frame the stage goes. */
+      /* Landed: the field view takes the robot over in the same animation frame as the stage's last,
+         from the same shot, under the same lights. */
       hand.scene.setRobotShown(true);
-      hand.scene.redraw();
+      hand.scene.frame(performance.now());
       el.hidden = true;
       delete el.dataset.state;
-      el.style.backgroundColor = "";
+      styleGround(1);
       restBoard();
       app.dataset.park = "off";
       scene.setActive(false);

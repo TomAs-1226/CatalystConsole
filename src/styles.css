@@ -2505,8 +2505,9 @@ kbd {
    board stops drawing (below), so the two 3D scenes are never rendered at the same time. */
 .park {
   position: absolute; inset: 0; z-index: 10; overflow: hidden;
-  background: #000000;
 }
+/* The stage's black ground, as a layer of its own so a move fades it without repainting the screen. */
+.park-ground { position: absolute; inset: 0; background: #000000; will-change: opacity; }
 .park[hidden] { display: none; }
 .park[data-state="in"] { animation: parkIn 0.52s var(--cat-ease-smooth) both; }
 .park[data-state="out"] { animation: parkOut 0.52s var(--cat-ease-smooth) both; pointer-events: none; }

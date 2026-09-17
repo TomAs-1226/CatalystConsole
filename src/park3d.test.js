@@ -17,6 +17,7 @@ import {
   dampVelocity,
   fitDistance,
   flightEase,
+  glideShots,
   idleSpin,
   layoutCallouts,
   mixShots,
@@ -543,4 +544,74 @@ test("halfway, the distance is the geometric mean, so the robot grows evenly on 
   const a = { eye: [0, 0, 1], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
   const b = { eye: [0, 0, 16], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
   near(mixShots(a, b, 0.5).eye[2], 4, 1e-9);
+});
+
+/* ---- the glide ---- */
+
+/** Where a shot draws a point: canvas pixels, and pixels per metre there. The same camera three.js builds
+ *  from eye, look, a vertical field of view and a view offset of the shot rectangle. */
+function drawn(shot, point) {
+  const f = [shot.look[0] - shot.eye[0], shot.look[1] - shot.eye[1], shot.look[2] - shot.eye[2]];
+  const fl = Math.hypot(...f);
+  const forward = f.map((v) => v / fl);
+  const rl = Math.hypot(forward[2], forward[0]);
+  const right = [-forward[2] / rl, 0, forward[0] / rl];
+  const up = [
+    right[1] * forward[2] - right[2] * forward[1],
+    right[2] * forward[0] - right[0] * forward[2],
+    right[0] * forward[1] - right[1] * forward[0],
+  ];
+  const d = [point[0] - shot.eye[0], point[1] - shot.eye[1], point[2] - shot.eye[2]];
+  const depth = d[0] * forward[0] + d[1] * forward[1] + d[2] * forward[2];
+  const focal = shot.rect.h / (2 * Math.tan((shot.fov * Math.PI) / 360));
+  return {
+    x: shot.rect.x + shot.rect.w / 2 + (focal * (d[0] * right[0] + d[2] * right[2])) / depth,
+    y: shot.rect.y + shot.rect.h / 2 - (focal * (d[0] * up[0] + d[1] * up[1] + d[2] * up[2])) / depth,
+    scale: focal / depth,
+  };
+}
+
+const middle = [0, 0.3, 0];
+
+test("a glide starts exactly on its first shot and lands exactly on its last", () => {
+  for (const [t, want] of [[0, shotA], [1, shotB]]) {
+    const got = glideShots(shotA, shotB, t, middle);
+    for (let i = 0; i < 3; i++) near(got.eye[i], want.eye[i], 1e-9, `eye ${i} at ${t}`);
+    const aim = (s) => {
+      const v = [s.look[0] - s.eye[0], s.look[1] - s.eye[1], s.look[2] - s.eye[2]];
+      const l = Math.hypot(...v);
+      return v.map((c) => c / l);
+    };
+    for (let i = 0; i < 3; i++) near(aim(got)[i], aim(want)[i], 1e-9, `aim ${i} at ${t}`);
+    near(got.fov, want.fov, 1e-9, "fov");
+    for (const k of ["x", "y", "w", "h"]) near(got.rect[k], want.rect[k], 1e-7, `rect ${k} at ${t}`);
+  }
+});
+
+test("the robot glides straight to where it lands, shrinking at an even rate", () => {
+  // shotB looks well ahead of the robot, as the field view does: the case where swinging round the look
+  // point sent the robot on a detour.
+  const from = drawn(shotA, middle);
+  const to = drawn(shotB, middle);
+  for (const t of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+    const at = drawn(glideShots(shotA, shotB, t, middle), middle);
+    near(at.x, from.x + (to.x - from.x) * t, 1e-6, `x at ${t}`);
+    near(at.y, from.y + (to.y - from.y) * t, 1e-6, `y at ${t}`);
+    near(Math.log(at.scale), Math.log(from.scale) + (Math.log(to.scale) - Math.log(from.scale)) * t, 1e-9, `scale at ${t}`);
+  }
+});
+
+test("a glide comes round the robot the short way", () => {
+  const round = (degrees) => {
+    const r = (degrees * Math.PI) / 180;
+    return { eye: [Math.sin(r) * 4, 0.3, Math.cos(r) * 4], look: [0, 0.3, 0], fov: 40, rect: { x: 0, y: 0, w: 800, h: 600 } };
+  };
+  const mid = glideShots(round(170), round(-170), 0.5, middle);
+  near(mid.eye[0], 0, 1e-9, "x through the far side");
+  near(mid.eye[2], -4, 1e-9, "z at the far side");
+});
+
+test("a shot with the robot behind the camera falls back to swinging round the look point", () => {
+  const behind = { eye: [0, 0.3, -2], look: [0, 0.3, -5], fov: 40, rect: { x: 0, y: 0, w: 800, h: 600 } };
+  assert.deepEqual(glideShots(shotA, behind, 0.5, middle), mixShots(shotA, behind, 0.5));
 });

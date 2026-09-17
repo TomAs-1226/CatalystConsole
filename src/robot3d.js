@@ -744,6 +744,23 @@ export function createRobotModel(opts = {}) {
   const sheenFrom = (colour) => mat.bumper.sheenColor.copy(colour).lerp(new THREE.Color(1, 1, 1), 0.3);
   sheenFrom(NEUTRAL);
 
+  /* The studio's lights, which travel with the model into whichever scene draws it. Both views light
+     the robot with this one rig and turn it with their camera's heading (see aim), so the robot is lit
+     the same way however it is seen, and the frame the field view takes it over from the Park stage is
+     the same picture in both. Two rigs - a showroom's on the stage, a field's on the tile - made the
+     robot change colour at the handover. A low ambient, so the side away from the lights falls toward
+     black the way a car's does on a stage; a key from above the camera's left shoulder; a cool rim from
+     behind that draws the outline. Most of the metal's light is the studio reflections. */
+  const lights = new THREE.Group();
+  lights.name = "studio";
+  lights.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.15));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  keyLight.position.set(-2.2, 5, 3.4);
+  const rimLight = new THREE.DirectionalLight(0xdae3f4, 2.2);
+  rimLight.position.set(2.4, 3.2, -5);
+  lights.add(keyLight, rimLight);
+  let aimed = 0;
+
   const root = new THREE.Group();
   root.name = "robot";
   let built = null;
@@ -784,6 +801,7 @@ export function createRobotModel(opts = {}) {
       const made = bumperNumbers(text, spec, FONT);
       if (!made) return;
       numbers = made;
+      made.material.envMapRotation.set(0, aimed, 0);
       if (envTexture) {
         made.material.envMap = envTexture;
         made.material.needsUpdate = true;
@@ -806,6 +824,8 @@ export function createRobotModel(opts = {}) {
 
   return {
     root,
+    /** The studio lights for the scene that draws this model. Add them to that scene once; see aim. */
+    lights,
     /** The normalised description the model is built from, or null before setSpec. */
     get spec() { return spec; },
     /** Callout anchors in the robot's frame: `{ name: { point, normal } }`. */
@@ -883,6 +903,24 @@ export function createRobotModel(opts = {}) {
         numbers.material.envMap = texture;
         numbers.material.needsUpdate = true;
       }
+    },
+
+    /**
+     * Turn the studio - its lights and its reflections - to face a camera whose compass heading is
+     * `yaw`: atan2(dx, dz) of the camera's position less the point it looks at, in the scene's own
+     * frame. At 0 the camera is on the scene's +z side, where the Park stage keeps its lens. Call it
+     * whenever the camera moves; it costs nothing when the heading has not changed.
+     */
+    aim(yaw) {
+      if (disposed || !Number.isFinite(yaw) || yaw === aimed) return;
+      aimed = yaw;
+      lights.rotation.y = yaw;
+      /* three.js turns a material's reflections by the inverse of envMapRotation when it samples them,
+         so the same angle turns the studio's softboxes the way the lights have just turned. */
+      for (const thing of owned) {
+        if (thing.isMeshStandardMaterial) thing.envMapRotation.set(0, yaw, 0);
+      }
+      if (numbers) numbers.material.envMapRotation.set(0, yaw, 0);
     },
 
     /** Advance anything the model animates by itself. Returns true while something is still moving. */
