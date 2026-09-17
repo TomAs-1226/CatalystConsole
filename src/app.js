@@ -22,6 +22,9 @@ import { clampToField, countState, deviceSummary, drivePath, notices as computeN
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
 import { stateLayer } from "./motion.js";
+/* How the board words a large figure and a topic path's segment; its own module so the rules can be
+   tested without a DOM. */
+import { compactFigure, spacedLabel } from "./board-format.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -641,14 +644,15 @@ const TOK = readTokens({
   data: "--cat-data",
 });
 
-/* The robot plan's materials. A drawing, not interface: see the `drawn marks` block in styles.css
-   for why these are their own group rather than the surface scale. `light` and `shade` arrive as
-   bare channels so a ramp can set its own alpha without a token per stop. */
+/* The robot plan's materials: the machine Park draws, seen from above, so its shell, deck and tyres
+   are named under the garage in styles.css (`--plan-*`) rather than taken from the drawn marks the
+   field scene lights its own robot with. `light` and `shade` arrive as bare channels so a ramp can set
+   its own alpha without a token per stop. */
 const PLAN = readTokens({
-  shell: "--draw-shell",
-  shellLit: "--draw-shell-lit",
-  deck: "--draw-body",
-  deckDark: "--draw-body-dark",
+  shell: "--plan-shell",
+  shellLit: "--plan-shell-lit",
+  deck: "--plan-deck",
+  deckDark: "--plan-deck-dark",
   tyre: "--draw-tyre",
   tyreLit: "--draw-tyre-lit",
   light: "--draw-light",
@@ -657,24 +661,40 @@ const PLAN = readTokens({
 const lightAt = (alpha) => `rgb(${PLAN.light} / ${alpha})`;
 const shadeAt = (alpha) => `rgb(${PLAN.shade} / ${alpha})`;
 
-function sparkline(values, w, h, color) {
+/* A rolling trace, drawn the way Tesla draws its energy graph: a thin line, a wash under it that is
+ * gone well before the floor, and a light on the newest sample so the eye lands where the reading is.
+ *
+ * The trace keeps clear of the box's edges - a peak drawn against the top edge had half its stroke cut
+ * off, and a graph filled from edge to edge read as the heaviest thing on the board. The stroke does
+ * not scale with the box, so a trace stretched across a wide panel is as fine as one in a tile.
+ * `dot` is for a box drawn at its own pixel size; stretched, a circle would become an ellipse. */
+function sparkline(values, w, h, color, { dot = false } = {}) {
   if (values.length < 2) return "";
   let lo = Infinity, hi = -Infinity;
   for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
   if (hi - lo < 1e-9) { hi = lo + 1; }
-  const step = w / (values.length - 1);
-  const y = (v) => h - ((v - lo) / (hi - lo)) * h;
+  const top = Math.max(4, h * 0.14);
+  const bottom = Math.max(2, h * 0.06);
+  const right = dot ? 6 : 0;
+  const step = (w - right) / (values.length - 1);
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * Math.max(1, h - top - bottom);
   let d = `M0 ${y(values[0]).toFixed(1)}`;
   for (let i = 1; i < values.length; i++) d += `L${(i * step).toFixed(1)} ${y(values[i]).toFixed(1)}`;
-  const fill = `${d}L${w} ${h}L0 ${h}Z`;
-  // The area fades toward the floor, so the trace is the brightest thing and the fill only says which
-  // side of it is "under". One gradient per colour, named by the colour: every sparkline of the same
-  // colour draws the same one, and a duplicate definition is harmless.
+  const endX = (w - right).toFixed(1);
+  const endY = y(values[values.length - 1]).toFixed(1);
+  const fill = `${d}L${endX} ${h}L0 ${h}Z`;
+  // The wash only says which side of the line is "under". One gradient per colour, named by the
+  // colour: it is in the fill's own box, so every sparkline of that colour can share the definition,
+  // and a duplicate one is harmless.
   const id = `spark-${String(color).replace(/[^a-z0-9]/gi, "")}`;
   return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`
-    + `<stop offset="0" stop-color="${color}" stop-opacity="0.2"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>`
+    + `<stop offset="0" stop-color="${color}" stop-opacity="0.08"/><stop offset="0.75" stop-color="${color}" stop-opacity="0"/>`
     + `</linearGradient></defs>`
-    + `<path d="${fill}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    + `<path d="${fill}" fill="url(#${id})"/>`
+    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`
+    + (dot
+      ? `<circle cx="${endX}" cy="${endY}" r="5.5" fill="${color}" fill-opacity="0.16"/><circle cx="${endX}" cy="${endY}" r="2.75" fill="${color}"/>`
+      : "");
 }
 
 function arcPath(cx, cy, r, a0, a1) {
@@ -870,20 +890,19 @@ define("tower", {
     { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
       hint: "Optional override: seconds until the state flips." },
     { key: "warn", label: "Warn at", type: "number", def: 5,
-      hint: "Seconds before a change when the tile turns amber." },
+      hint: "Seconds before a change when the tile starts to say Check." },
   ],
   render(body) {
     body.innerHTML = `
       <div class="fill">
-        <div>
+        <div class="tw-state">
           <div class="who" data-x="who">Alliance unknown</div>
           <div class="status" data-x="status">No data</div>
         </div>
-        <div>
-          <span class="n" data-x="count">—</span>
-          <span class="u" data-x="unit">s</span>
+        <div class="tw-count" data-x="countRow" hidden>
+          <span class="n" data-x="count"></span><span class="u" data-x="unit">s</span>
         </div>
-        <div>
+        <div class="tw-meter">
           <div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="cap" data-x="src" style="margin-top:6px">waiting for robot</div>
         </div>
@@ -934,11 +953,17 @@ define("tower", {
     const soon = active !== null && left !== null && left <= cfg.warn;
     tile.dataset.active = active === true && !soon ? "true" : "false";
     tile.dataset.soon = soon ? "true" : "false";
+    /* Whether the hub is scoring at all, closing seconds included, which is what the bars draw. */
+    setFlag(tile, "hub", active === true ? "on" : "off");
+
+    /* No countdown - auto, where both hubs score throughout, or no match at all - is not drawn, rather
+     * than drawn as a dash on a line of its own. The pill already says which of those it is. Compared
+     * before it is written, because assigning `hidden` rewrites the attribute ten times a second. */
+    if (x.countRow.hidden !== (left === null)) x.countRow.hidden = left === null;
+    if (left !== null) setText(x.count, left.toFixed(1));
 
     if (active === null) {
       x.status.textContent = segment ? segment.name : "No data";
-      x.count.textContent = left === null ? "—" : left.toFixed(1);
-      x.unit.textContent = left === null ? "" : "s";
       x.src.textContent = source || "no match in progress";
       return;
     }
@@ -948,8 +973,6 @@ define("tower", {
     x.status.textContent = soon
       ? (active ? "Closing" : "Opening")
       : (active ? "Hub active" : "Hub inactive");
-    x.count.textContent = left === null ? "—" : left.toFixed(1);
-    x.unit.textContent = left === null ? "" : "s";
     x.src.textContent = source || "robot";
   },
 });
@@ -977,6 +1000,9 @@ define("gauge", {
     { key: "redline", label: "Redline", type: "number", def: 5500,
       hint: "Value at which the gauge turns red. Set above the maximum to disable." },
     { key: "decimals", label: "Decimals", type: "number", def: 0 },
+    { key: "figures", label: "Large figures", type: "select", def: "short",
+      options: [["short", "Short, as 2.4k"], ["full", "In full, as 2400"]],
+      hint: "Short writes a figure of a thousand or more with one decimal and a k. The whole value is in the gauge's tooltip either way." },
   ],
   render(body, cfg) {
     body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div><div class="cap gauge-cap" data-x="cap" hidden></div>`;
@@ -988,6 +1014,8 @@ define("gauge", {
 
     if (wrap.childElementCount !== keys.length) {
       wrap.innerHTML = "";
+      /* How many rings share the row, which the stylesheet sizes each one by. */
+      wrap.style.setProperty("--n", String(Math.max(1, keys.length)));
       for (const k of keys) {
         const g = el("div", "gauge");
         g.dataset.key = k;
@@ -997,7 +1025,7 @@ define("gauge", {
 
     const span = Math.max(1e-6, cfg.max - cfg.min);
     const single = keys.length === 1;
-    const labels = single ? [cfg.unit || ""] : distinctLabels(keys);
+    const labels = single ? [cfg.unit || ""] : distinctLabels(keys).map(spacedLabel);
 
     // Rings of dashes say nothing about why. When not one of the topics has a value, the tile says
     // what it is waiting for; as soon as any arrives the caption goes, because a gauge showing three
@@ -1020,7 +1048,12 @@ define("gauge", {
       // that turns it red.
       const color = hot ? "var(--crit)" : "var(--cat-data)";
       const label = labels[i];
-      const text = value === null ? "—" : value.toFixed(Math.max(0, cfg.decimals | 0));
+      /* A motor speed reads 2.4k rather than 2400, the way Tesla writes a large figure, unless the tile
+       * is set to write figures in full. The whole value, its unit and the topic are in the tooltip. */
+      const places = Math.max(0, cfg.decimals | 0);
+      const text = value === null ? "—" : cfg.figures === "full" ? value.toFixed(places) : compactFigure(value, places);
+      const tip = `${value === null ? "no reading" : `${value.toFixed(places)}${cfg.unit ? ` ${cfg.unit}` : ""}`} · ${key}`;
+      if (g.title !== tip) g.title = tip;
 
       if (cfg.style === "number") {
         g.innerHTML =
@@ -1037,8 +1070,12 @@ define("gauge", {
         return;
       }
 
+      /* Drawn in its own units and sized by the stylesheet to the room the tile has (`.gaugewrap
+       * .gauge svg`), so everything in it - the ring, the needle, the figure - grows with the tile
+       * together. The ring is a little finer than it was at a fixed 92 px, since it is drawn larger. */
       const size = single ? 128 : 92;
-      const r = size / 2 - 10;
+      const ring = single ? 8 : 6.5;
+      const r = size / 2 - 8;
       const a0 = 135, sweep = 270;
       const a1 = a0 + sweep * frac;
       const cx = size / 2, cy = size / 2;
@@ -1050,10 +1087,10 @@ define("gauge", {
         : "";
 
       g.innerHTML =
-        `<svg width="${size}" height="${size * 0.82}" viewBox="0 0 ${size} ${size * 0.82}">` +
-        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="8" stroke-linecap="round"/>` +
+        `<svg viewBox="0 0 ${size} ${size * 0.82}">` +
+        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="${ring}" stroke-linecap="round"/>` +
         (frac > 0.002 && cfg.style === "arc"
-          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
+          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="${ring}" stroke-linecap="round"/>`
           : "") +
         needle +
         // Styled by class rather than by attributes: a presentation attribute cannot take var(), so
@@ -1098,13 +1135,17 @@ define("battery", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    const color = v !== null && v < cfg.crit ? TOK.bad : v !== null && v < cfg.low ? TOK.warn : TOK.data;
-    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
+    // A reading is white, as every graph on the board is. A low pack is the figure's and the header's
+    // to say; a trace that turned amber with it was a second, much larger patch of the same colour.
+    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, TOK.data, { dot: true });
 
     if (h.length > 3) {
       const recent = h.slice(-160);
       const lo = Math.min(...recent), hi = Math.max(...recent);
-      x.cap.innerHTML = `sag <b>${(hi - lo).toFixed(2)} V</b> · low <b>${lo.toFixed(2)} V</b>`;
+      // Each figure keeps its unit, and in a narrow tile the two halves take a line each rather than
+      // breaking inside one (see `.capgrp` in styles.css).
+      x.cap.innerHTML = `<span class="capgrp">sag <b>${(hi - lo).toFixed(2)} V</b></span>`
+        + `<span class="capsep"> · </span><span class="capgrp">low <b>${lo.toFixed(2)} V</b></span>`;
     }
   },
 });
@@ -1338,7 +1379,7 @@ define("health", {
     x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--cat-data)";
     x.cap.innerHTML = loop === null
       ? "waiting for the robot to publish loop time"
-      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
+      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
   },
 });
 
@@ -1389,11 +1430,13 @@ define("physics", {
     x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--cat-data)";
     // With nothing at all from Physics Core, "advisory only" under three dashes reads as a tile that
     // is working and quiet. It is waiting, and it says for what.
+    // "Advisory only" is the part a narrow tile lets go of (`.capopt`): it is true of every reading
+    // here and said again in the palette, where the confidence is only said here.
     x.cap.innerHTML = slip === null && tip === null && trac === null && conf === null
-      ? "waiting for Physics Core on the robot · advisory only"
+      ? "waiting for Physics Core on the robot<span class=\"capopt\"> · advisory only</span>"
       : conf === null
         ? "advisory only — never gates control"
-        : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
+        : `<span class="capgrp">estimator confidence <b>${(conf * 100).toFixed(0)}%</b></span><span class="capopt"> · advisory only</span>`;
   },
 });
 
@@ -1716,9 +1759,12 @@ define("graph", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    x.spark.innerHTML = sparkline(h, w, ht, TOK.data);
+    x.spark.innerHTML = sparkline(h, w, ht, TOK.data, { dot: true });
     if (h.length > 2) {
-      x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
+      // The sample count is the first thing a narrow tile lets go of (`.capopt`).
+      x.cap.innerHTML = `<span class="capgrp">min <b>${Math.min(...h).toFixed(2)}</b></span> · `
+        + `<span class="capgrp">max <b>${Math.max(...h).toFixed(2)}</b></span>`
+        + `<span class="capopt"> · ${h.length} samples</span>`;
     } else if (v === null) {
       // An empty plot under a dash is the tile that most looks broken, so it is the one that most
       // needs to say it is only waiting, and for which topic.
@@ -2009,6 +2055,12 @@ let layout = [];
 const live = new Map(); // id -> {spec, tile, body, cfg, refs, state}
 let nextId = 1;
 
+/* The two controls a tile shows in edit mode: two sliders for Configure, a cross for Remove. */
+const TILE_TOOL_ICONS = {
+  configure: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h9M18 7.5h2M4 16.5h2M11 16.5h9"/><circle cx="15.5" cy="7.5" r="2.5"/><circle cx="8.5" cy="16.5" r="2.5"/></svg>`,
+  remove: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>`,
+};
+
 function defaults(spec) {
   const cfg = {};
   for (const field of spec.config) cfg[field.key] = field.def;
@@ -2108,12 +2160,18 @@ function buildBoard() {
     head.appendChild(sub);
     if (!spec.tileClass?.includes("pad0")) tile.appendChild(head);
 
+    /* Drawn glyphs rather than the ⚙ and × characters, which came from whichever fallback font had
+     * them and sat off-centre in their circles. */
     const tools = el("div", "tools");
-    const cfgBtn = el("button", "tbtn cfg", "⚙");
+    const cfgBtn = el("button", "tbtn cfg");
+    cfgBtn.innerHTML = TILE_TOOL_ICONS.configure;
     cfgBtn.title = "Configure";
+    cfgBtn.setAttribute("aria-label", "Configure");
     cfgBtn.onclick = (e) => { e.stopPropagation(); openConfig(item); };
-    const delBtn = el("button", "tbtn del", "×");
+    const delBtn = el("button", "tbtn del");
+    delBtn.innerHTML = TILE_TOOL_ICONS.remove;
     delBtn.title = "Remove";
+    delBtn.setAttribute("aria-label", "Remove");
     delBtn.onclick = (e) => {
       e.stopPropagation();
       layout = layout.filter((i) => i !== item);
@@ -3061,14 +3119,17 @@ function paintTopics() {
     list.innerHTML = `<div class="empty">${Object.keys(nt.v).length ? "Nothing matches that filter." : "No topics — the console is not connected to a robot."}</div>`;
     return;
   }
+  /* Long values are cut at 90 characters, and say so with an ellipsis: cut bare, an array of device
+   * rows ended "CANco]", which reads as a value rather than as the start of one. */
+  const cut = (s) => (s.length > 90 ? `${s.slice(0, 89).trimEnd()}…` : s);
   list.innerHTML = keys
     .slice(0, 400)
     .map((k) => {
       const v = nt.v[k];
       const shown = v.t === "num" ? v.v.toFixed(4)
         : v.t === "bool" ? (v.v ? "true" : "false")
-        : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
-        : String(v.v).slice(0, 90);
+        : Array.isArray(v.v) ? `[${cut(v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", "))}]`
+        : cut(String(v.v));
       return `<div class="topic"><div class="tk">${escapeHtml(k)}</div><div class="tt"><span>${v.t}</span></div><div class="tv">${escapeHtml(shown)}</div></div>`;
     })
     .join("");
@@ -3343,6 +3404,9 @@ function writeCanPair(node, c) {
      both its buses were measured, so half a reading shows as no reading — and the one thing this
      page cannot afford is for a missing number to look like a low one in one place and not another. */
   setFlag(node.el, "absent", c.utilization === null);
+  /* A pair whose buses are both idle is dimmed with them, rather than printing its 0% in white between
+     two dimmed ones. */
+  setFlag(node.el, "idle", c.utilization !== null && c.buses.every((b) => b.idle));
 }
 
 /* What the console worked out, from what is on the wire right now. */
@@ -3443,11 +3507,19 @@ function paintHeader() {
   const side = alliance();
   const event = str("/FMSInfo/EventName", "");
   const match = num("/FMSInfo/MatchNumber", null);
-  const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
+  const sideText = `${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance`;
+  const matchText = event ? (match ? `Match ${match}` : "") : "no match";
   /* The status line carries the match, not the product: Tesla's bar has no wordmark on it, and the mark
-   * beside the drive-mode letters already says whose screen this is. */
-  $("#ident").innerHTML =
-    `<span class="idstate">${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance · ${escapeHtml(where)}</span>`;
+   * beside the drive-mode letters already says whose screen this is. The event and the match are their
+   * own spans because they are what the line gives up first on a narrow window (`fitStatusBar`), and the
+   * whole line stays in the tooltip once they have gone. */
+  const ident = $("#ident");
+  setHtml(ident, `<span class="idstate">${sideText}`
+    + (event ? `<span class="id-event"> · ${escapeHtml(event)}</span>` : "")
+    + (matchText ? `<span class="id-match"> · ${matchText}</span>` : "")
+    + `</span>`);
+  const identTitle = [sideText, event, matchText].filter(Boolean).join(" · ");
+  if (ident.title !== identTitle) ident.title = identTitle;
 
   /* The drive-mode letters. Unlinked lights none of them: with nothing on the other end the robot is
    * in no mode, and a lit D would say it had been disabled. */
@@ -3487,6 +3559,9 @@ function paintHeader() {
 
   $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
   $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";
+  /* Said in the tooltip as well, for when a narrow line has left the chip only its light. */
+  const linkTitle = `${$("#linkText").textContent} · Robot settings`;
+  if ($("#linkChip").title !== linkTitle) $("#linkChip").title = linkTitle;
   $("#dDs").className = `d ${ds.dsAttached ? "ok" : ""}`;
   $("#dFms").className = `d ${ds.fms ? "ok" : ""}`;
 
@@ -3512,6 +3587,54 @@ function paintHeader() {
   if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
 
   paintDeviceStrip();
+}
+
+/* The status line gives way a word at a time.
+ *
+ * At a laptop-width window, with an alert up, the line holds more than it has room for, and a word cut
+ * off partway - "De…" for Demo, "1/" for a device count - says nothing at all. So it gives up whole
+ * words instead, in the order `BAR_STEPS` lists and the stylesheet hides them (`.top[data-fit]`), and
+ * only as many as what is on it right now needs: a short event name keeps its match number where a
+ * long one does not, and a second alert costs a word that one alert did not.
+ *
+ * Measuring costs a layout, so it happens only when something that can change the line's width has
+ * changed - the window, the fonts arriving, the words on it, the alert count, the device counts - and
+ * not on every paint. Readings are tabular, so a figure that changes without changing length does not
+ * count as a change. */
+const BAR_STEPS = ["event", "match", "words", "ident", "team"];
+let barSig = "";
+
+function barOverflows(line) {
+  if (line.scrollWidth > line.clientWidth + 1) return true;
+  for (const node of line.querySelectorAll(".idt, .chip > span, .devstrip")) {
+    if (node.offsetWidth && node.scrollWidth > node.clientWidth + 1) return true;
+  }
+  return false;
+}
+
+function fitStatusBar() {
+  const sig = [
+    window.innerWidth, document.fonts?.status,
+    $("#ident").textContent, $("#profile").hidden, $("#profileName").textContent,
+    $("#linkText").textContent, $("#loopText").textContent.length,
+    $("#devStrip").hidden, $("#devStrip").dataset.sig,
+    $("#alertInd").hidden, $("#alertCount").textContent.length, $("#clock").textContent.length,
+  ].join("|");
+  if (sig === barSig) return;
+  barSig = sig;
+
+  const top = $(".top");
+  const line = $(".sb-map");
+  let steps = 0;
+  const apply = () => {
+    const fit = BAR_STEPS.slice(0, steps).join(" ");
+    if (top.dataset.fit !== fit) top.dataset.fit = fit;
+  };
+  apply();
+  while (steps < BAR_STEPS.length && barOverflows(line)) {
+    steps++;
+    apply();
+  }
 }
 
 /* ----------------------------------------------------------------- device strip */
@@ -5213,23 +5336,16 @@ function drawPlan(canvas) {
   /* Deliberately not the alliance colour. Alliance is match state — it flips between matches and a
    * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
    * colour depending on when you happened to open it. This card describes the machine, and the
-   * machine is the same robot on either side. */
+   * machine is the same robot on either side: the dark shell Park draws it in before it knows. */
   const bumper = PLAN.shell;
   const bumperLit = PLAN.shellLit;
-
-  /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
-  const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
-  pool.addColorStop(0, lightAt(0.055));
-  pool.addColorStop(1, lightAt(0));
-  g.fillStyle = pool;
-  g.fillRect(0, 0, cw, ch);
 
   const outer = box(outerL, outerW);
   const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
 
   g.save();
-  g.shadowColor = shadeAt(0.55);
-  g.shadowBlur = 26;
+  g.shadowColor = shadeAt(0.6);
+  g.shadowBlur = 24;
   g.shadowOffsetY = 10;
 
   if (bumpL && bumpW) {
@@ -5248,16 +5364,42 @@ function drawPlan(canvas) {
   }
   g.restore();
 
+  if (bumpL && bumpW) {
+    /* A dark shell on a dark card is found by its edge, the way Park's is: a hairline of light round
+     * the rim, brightest along the top where the light lands and all but gone at the bottom. */
+    const rim = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
+    rim.addColorStop(0, lightAt(0.26));
+    rim.addColorStop(0.5, lightAt(0.08));
+    rim.addColorStop(1, lightAt(0.04));
+    g.strokeStyle = rim; g.lineWidth = 1;
+    g.beginPath(); g.roundRect(outer[0] + 0.5, outer[1] + 0.5, outer[2] - 1, outer[3] - 1, radius); g.stroke();
+  }
+
   if (frameL && frameW) {
     const inner = box(frameL, frameW);
     const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
-    const deck = g.createLinearGradient(0, inner[1], 0, inner[1] + inner[3]);
+    /* The frame deck, as brushed plate: lit from the top left and falling to a darker grey, sitting a
+     * little into the shell rather than on top of it. */
+    g.save();
+    g.shadowColor = shadeAt(0.55); g.shadowBlur = 8;
+    const deck = g.createLinearGradient(inner[0], inner[1], inner[0] + inner[2], inner[1] + inner[3]);
     deck.addColorStop(0, PLAN.deck);
     deck.addColorStop(1, PLAN.deckDark);
     g.fillStyle = deck;
     g.beginPath(); g.roundRect(...inner, ir); g.fill();
-    g.strokeStyle = lightAt(0.1); g.lineWidth = 1;
-    g.beginPath(); g.roundRect(...inner, ir); g.stroke();
+    g.restore();
+    /* The grain runs along the robot's length. Fixed, not random: this repaints ten times a second
+     * while the page is open, and a random grain would crawl. */
+    g.save();
+    g.beginPath(); g.roundRect(...inner, ir); g.clip();
+    for (let i = 0, x = inner[0]; x < inner[0] + inner[2]; i++, x += 1.5) {
+      const n = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
+      g.fillStyle = n > 0.5 ? lightAt(0.035 * (n - 0.5)) : shadeAt(0.07 * (0.5 - n));
+      g.fillRect(x, inner[1], 1, inner[3]);
+    }
+    g.restore();
+    g.strokeStyle = lightAt(0.14); g.lineWidth = 1;
+    g.beginPath(); g.roundRect(inner[0] + 0.5, inner[1] + 0.5, inner[2] - 1, inner[3] - 1, ir); g.stroke();
   }
 
   if (mods && mods.length >= 2) {
@@ -5279,11 +5421,11 @@ function drawPlan(canvas) {
   }
 
   /* Which way is forward. A brighter band across the front bumper rather than a floating arrow —
-   * it reads at a glance and it is where a team paints their number. */
+   * it reads at a glance and it is where a team paints their number. Soft, on a dark shell. */
   g.save();
   g.beginPath(); g.roundRect(...outer, radius); g.clip();
   const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
-  nose.addColorStop(0, lightAt(0.3));
+  nose.addColorStop(0, lightAt(0.16));
   nose.addColorStop(1, lightAt(0));
   g.fillStyle = nose;
   g.fillRect(outer[0], outer[1], outer[2], 16);
@@ -6249,6 +6391,7 @@ function paint() {
   standDownOverlaysOnEnable();
   paintHeader();
   paintNotices();
+  fitStatusBar();
   paintDockAuto();
   trackDrive(performance.now());
   rememberRobot(performance.now());

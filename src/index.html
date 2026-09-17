@@ -52,7 +52,7 @@
         <div class="statgroup" role="group" aria-label="Link">
           <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
           <span class="chip" title="Driver Station"><i class="d" id="dDs"></i><span class="long">Driver Station</span><span class="short">DS</span></span>
-          <span class="chip"><i class="d" id="dFms"></i>FMS</span>
+          <span class="chip" title="FMS"><i class="d" id="dFms"></i><span>FMS</span></span>
           <span class="chip loop"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
         </div>
         <div class="grow"></div>
@@ -794,10 +794,11 @@
           </div>
 
           <p class="sprose">
-            Demo data is a match on repeat: twenty seconds of auto, then teleop counting down, with a
-            drivetrain, a battery under load and a pose driving a circle. It exists for setting a board
-            up in the hotel the night before, and for showing someone what a tile does without a robot
-            on the cart.
+            Demo data is a match on repeat: twenty seconds of auto, then teleop counting down to the end
+            of a 160-second match, then forty seconds standing disabled before the next one starts, which
+            is long enough to watch the board hand over to Park. There is a drivetrain, a battery under
+            load and a pose driving a circle. It exists for setting a board up in the hotel the night
+            before, and for showing someone what a tile does without a robot on the cart.
           </p>
           <p class="sprose">
             <b>It is off by default and it is never remembered.</b> A dashboard that quietly invents

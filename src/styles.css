@@ -301,11 +301,13 @@ button, input, select, textarea { font-variant-numeric: inherit; }
 }
 
 /* Focus is visible everywhere or it is visible nowhere. Listed rather than wrapped in `:where()`,
-   so the ring keeps a specificity a later class rule cannot quietly outrank. */
+   so the ring keeps a specificity a later class rule cannot quietly outrank. White, as it is in
+   Settings and the sheets: the blue is a switch that is on, and a blue ring round a dock button read
+   as a second thing switched on. */
 button:focus-visible, input:focus-visible, select:focus-visible,
 textarea:focus-visible, summary:focus-visible,
 [href]:focus-visible, [tabindex]:focus-visible {
-  outline: 2px solid var(--cat-coral);
+  outline: 2px solid var(--cat-white);
   outline-offset: 2px;
 }
 
@@ -396,6 +398,19 @@ textarea:focus-visible, summary:focus-visible,
   .chip .short { display: inline; }
   .chip.loop { display: none; }
 }
+/* Past that, the line gives up whole words rather than cutting one off partway, in this order, and
+   app.js (`fitStatusBar`) takes only as many of the steps as what is on the line right now needs:
+     event  the event's name, which everyone in the building already knows;
+     match  the match number;
+     words  the link chips' words, leaving their lights, each still named in its tooltip;
+     ident  the alliance, which the field view's bumpers show as well;
+     team   the team number.
+   The whole ident stays in its tooltip once any of it has gone. */
+.top[data-fit~="event"] .id-event,
+.top[data-fit~="match"] .id-match,
+.top[data-fit~="words"] .statgroup .chip > span,
+.top[data-fit~="ident"] .idt,
+.top[data-fit~="team"] .profile { display: none; }
 
 .chip {
   display: inline-flex; align-items: center; gap: 7px; min-width: 0;
@@ -403,8 +418,10 @@ textarea:focus-visible, summary:focus-visible,
   white-space: nowrap;
 }
 .chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The line height is the status line's, not the platform's `normal`, so the word in a chip that is a
+   button sits on the same baseline as the words in the chips beside it. */
 button.chip {
-  border: 0; background: transparent; font-family: var(--sans);
+  border: 0; background: transparent; font-family: var(--sans); line-height: inherit;
   padding: 4px 8px; margin: 0 -8px; border-radius: 999px; cursor: pointer;
 }
 button.chip:hover { background: var(--cat-surface-2); color: var(--cat-white); }
@@ -441,7 +458,9 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 /* ---- device strip ----
    Clips rather than pushes. Counts are a glance, not a reading, and the first one is the one that
    matters most — so losing the tail of the strip costs less than losing the gear behind it. */
-.devstrip { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+/* The padding gives back what each count's hover capsule borrows with its negative margin, so the
+   strip's own box holds the capsules and only a count that genuinely does not fit is clipped. */
+.devstrip { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 0 6px; margin: 0 -6px; }
 .devstrip[hidden] { display: none; }
 .dev {
   display: inline-flex; align-items: center; gap: 6px;
@@ -517,39 +536,29 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---- the severity channel -------------------------------------------------
-   This is the whole point of the redesign. app.js marks a bad value by putting `crit` or `warn` on
-   the element holding it, and nothing above that value ever said anything — so a red digit in the
-   corner of a 3x2 tile was competing for attention with every other digit on the board.
-   `:has()` lifts that mark to the tile, twice over:
+   app.js marks a bad value by putting `crit` or `warn` on the element holding it, and nothing above
+   that value ever said anything — so a red digit in the corner of a 3x2 tile was competing for
+   attention with every other digit on the board. `:has()` lifts that mark to the tile as a word in
+   its header, Check or Fault, on a small pill of the level's tint, because a word is read faster than
+   a colour is decoded and it survives greyscale. Summary before detail: you learn that this tile is
+   the problem before you read which number in it is.
 
-     a stripe down the left edge, solid for a fault and hatched for a degradation, which is a
-     texture difference and therefore survives greyscale; and
+   Tesla says a state with a lamp and a word rather than by marking up the card, and so does this.
+   There used to be a stripe down the tile's left edge as well, solid for a fault and hatched for a
+   degradation; a hatched amber line on a dark card read as a rendering fault rather than as a state.
+   All that is left of it is the faintest wash of the level over the tile's ground, enough to find the
+   tile from across a pit and too little to compete with the word.
 
-     a word in the tile header, because "FAULT" is read faster than a colour is decoded.
-
-   Summary before detail: you learn that this tile is the problem before you read which number in
-   it is the problem.
-
-   The stripe is always in the layout with a transparent fill, so a state change repaints and never
-   reflows — these selectors are re-evaluated every time app.js rewrites a className, ten times a
-   second. */
-.t::before {
-  content: "";
-  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: transparent;
-  pointer-events: none;
-}
-.t:has(.warn)::before,
-.t.tower[data-soon="true"]::before {
-  background: repeating-linear-gradient(
-    180deg, var(--cat-warn) 0 6px, transparent 6px 11px);
-}
+   Paint only: these selectors are re-evaluated every time app.js rewrites a className, ten times a
+   second, and a background never reflows. */
+.t:has(.warn),
+.t.tower[data-soon="true"] { background-color: color-mix(in srgb, var(--cat-warn) 2.5%, var(--cat-surface-1)); }
 /* `.al.error` is the alert manager's word for the same thing `.crit` means everywhere else in
    app.js — a raised error is a fault, and a tile holding one must not rank below a tile holding a
    warning. Listed rather than folded in, because the two names come from two different publishers
    and neither is going to change. */
-.t:has(.crit)::before,
-.t:has(.al.error)::before { background: var(--cat-bad); }
+.t:has(.crit),
+.t:has(.al.error) { background-color: color-mix(in srgb, var(--cat-bad) 3%, var(--cat-surface-1)); }
 
 /* The label is the launch material's eyebrow: mono, small, tracked, quiet. It names the tile and says
    nothing else, so the value under it is the first thing read. */
@@ -572,19 +581,18 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi); letter-spacing: 0;
   line-height: 1.25;
 }
+/* The two pills are one shape in two levels: a tint and a word, no ring. */
 .t:has(.warn) > .h::after,
 .t.tower[data-soon="true"] > .h::after {
   display: block; content: "Check";
-  background: color-mix(in srgb, var(--cat-warn) 20%, transparent);
+  background: var(--cat-warn-tint);
   color: var(--cat-warn);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-warn) 45%, transparent);
 }
 .t:has(.crit) > .h::after,
 .t:has(.al.error) > .h::after {
   display: block; content: "Fault";
   background: var(--cat-bad-tint);
   color: var(--cat-bad);
-  box-shadow: none;
 }
 
 .t .fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -619,6 +627,19 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 .cap { font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.45; }
 .cap b { color: var(--cat-text); font-weight: var(--cat-w-medium); }
+/* A caption's parts, written by app.js. A group - a word, its figure and its unit - never breaks
+   inside itself, so a narrow tile never ends a line on a number with its unit alone on the next. An
+   optional part is the first thing a narrow tile lets go of. And in the narrowest tiles a caption of
+   two halves (joined by `.capsep`) gives each half a line, rather than leaving the separator hanging
+   at the end of the first. */
+.capgrp { white-space: nowrap; }
+@container tile (max-width: 240px) {
+  .capopt { display: none; }
+}
+@container tile (max-width: 200px) {
+  .capsep { display: none; }
+  .cap:has(> .capsep) > .capgrp { display: block; }
+}
 
 .ok { color: var(--cat-ok); }
 .warn { color: var(--cat-warn); }
@@ -628,25 +649,23 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .brand { color: var(--cat-coral); }
 .dim { color: var(--cat-muted); }
 
-/* A reading that is fine is ink, not green.
+/* A reading is ink, whatever state it is in.
  *
  * Every numeric widget sets `ok` on its own value while the robot is healthy, so a good match put a
  * green battery beside a green loop time beside a green sparkline beside the hub's green pill — and
  * a board where the normal state is coloured is a board where colour has stopped meaning anything.
- * Colour is reserved for a reading that is NOT fine; those keep `warn` and `crit`, and they keep
- * the rule under the digits as their second channel. The state chips are unaffected: a chip exists
- * to say which state a thing is in. */
-.n.ok, .gv.ok, .mv.ok { color: var(--cat-white); }
-
-/* Second channel on the number itself, for the tile that holds several and where the header badge
-   cannot say which one. A rule under the digits, not a colour on them — text-decoration paints and
-   never reflows, which matters on an element rewritten ten times a second. */
-.n.crit, .n.warn, .gauge .gv.crit {
-  text-decoration: underline;
-  text-decoration-thickness: 3px;
-  text-underline-offset: 6px;
-  text-decoration-skip-ink: none;
-}
+ * A reading that is NOT fine keeps `warn` or `crit` on it, but its digits stay white too: an endgame
+ * clock or a low battery set in 50px amber was the largest patch of colour on the board, and Tesla
+ * keeps colour to its lamps and its words. The state is said by the word in the tile's header - Check
+ * or Fault - on its small tinted pill. The state chips are unaffected: a chip exists to say which
+ * state a thing is in.
+ *
+ * A tile that holds several readings cannot say with its header which one it means, so the label
+ * under or beside the flagged reading says it too: a triangle for a check, a square for a fault,
+ * in the level's colour - Tesla's telltale, set in words. That replaced a thick rule drawn under the
+ * digits, which read as a bar graph rather than as a warning. */
+.n.ok, .gv.ok, .mv.ok,
+.n.warn, .n.crit { color: var(--cat-white); }
 
 /* ---- bars ----
    No transition on `width`. app.js writes .style.width straight from NetworkTables at 10 Hz, and a
@@ -667,29 +686,41 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .app[data-linked="false"] .t .mv { opacity: 0.38; }
 
 /* ---- edit mode ----
-   A dashed outline rather than a coloured one. Editing is a mode, not a state, and the four
-   semantic colours are spoken for. */
-.app[data-edit="true"] .t { outline: 1px dashed var(--cat-hair-str); outline-offset: -2px; cursor: grab; }
+   No outline, dashed or otherwise: a board being arranged is said by the two round controls that come
+   up in each tile's corner and the hand the pointer becomes over it. The tile a dragged one would land
+   on steps up a grey, the way Tesla raises what is under a finger. Editing is a mode, not a state, so
+   none of it is coloured - the four semantic colours and the one blue are spoken for. */
+.app[data-edit="true"] .t { cursor: grab; }
 .app[data-edit="true"] .t.dragging { opacity: 0.45; cursor: grabbing; }
-.app[data-edit="true"] .t.dropTarget { outline: 2px solid var(--cat-coral); outline-offset: -2px; }
-.t .tools { display: none; position: absolute; top: 8px; right: 8px; gap: 4px; z-index: 2; }
+.app[data-edit="true"] .t.dropTarget { background-color: var(--cat-surface-2); }
+/* Level with the label row: its top padding plus half its height, less half a control. */
+.t .tools {
+  display: none; position: absolute; right: 8px; gap: 6px; z-index: 2;
+  top: calc(clamp(10px, 2vh, 18px) + clamp(14px, 2.2vh, 20px) / 2 - 14px);
+}
 .app[data-edit="true"] .t .tools { display: flex; }
 .app[data-edit="true"] .t .h .s { opacity: 0; }
-/* The two edit buttons sit in the corner where the label row ends, over the CHECK or FAULT badge. The
-   row gives up their width while editing rather than hiding the badge: a board being rearranged mid-
-   practice is still reporting a fault. */
-.app[data-edit="true"] .t > .h { padding-right: 46px; }
+/* The two edit controls sit in the corner where the label row ends, beside the Check or Fault word.
+   The row gives up their width while editing rather than hiding the word: a board being rearranged
+   mid-practice is still reporting a fault. */
+.app[data-edit="true"] .t > .h { padding-right: calc(76px - clamp(14px, 1.4vw, 20px)); }
+/* A one-row tile is a row: the controls are centred on it and the row itself makes room for them, so
+   they never sit on top of the dropdown or the reading at its right edge. */
+.t[data-h="1"] .tools { top: 50%; transform: translateY(-50%); }
+.app[data-edit="true"] .t[data-h="1"] { padding-right: 78px; }
+.app[data-edit="true"] .t[data-h="1"] > .h { padding-right: 0; }
 .tbtn {
-  width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--cat-hair-str);
-  cursor: pointer; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  line-height: 1; display: grid; place-items: center;
-  background: var(--cat-ink-700); color: var(--cat-text);
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--cat-surface-3); color: var(--cat-body);
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect), color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.tbtn.cfg:hover { color: var(--cat-white); }
-/* Ink, never a fill: a destructive control should be findable without becoming the loudest red on
-   a board where red already means a fault. */
+.tbtn svg { width: 14px; height: 14px; display: block; }
+.tbtn:hover { background: var(--ctl-raised); color: var(--cat-white); }
+/* Said in the glyph, not a fill: a destructive control should be findable without becoming the
+   loudest red on a board where red already means a fault. */
 .tbtn.del { color: var(--cat-bad); }
-.tbtn.del:hover { background: var(--cat-bad); color: var(--cat-ink-900); border-color: var(--cat-bad); }
+.tbtn.del:hover { background: var(--cat-bad-tint); color: var(--cat-bad); }
 
 /* ---- match timer ---- */
 .phase {
@@ -732,10 +763,15 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower[data-active="true"] .status::before { background: var(--cat-ok); }
 .tower[data-soon="true"] .status::before { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
 .tower[data-active="false"] .status { color: var(--cat-dim); }
+/* The countdown keeps its unit beside it whatever width the tile is, and with no countdown to show
+   - auto, or no match - it is not drawn at all rather than leaving a dash on a line of its own. */
+.tower .tw-count { white-space: nowrap; }
+.tower .tw-count[hidden] { display: none; }
+/* The bars are the hub itself: white while it scores, including the seconds it has left, and empty
+   while it does not. The amber in those last seconds is the lamp's and the header's to say. */
 .tower .bars { display: flex; gap: 4px; margin-top: 8px; }
 .tower .bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); }
-.tower[data-active="true"] .bars i { background: var(--cat-data); }
-.tower[data-soon="true"] .bars i { background: var(--cat-warn); }
+.tower[data-hub="on"] .bars i { background: var(--cat-data); }
 .tower .who {
   font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   letter-spacing: 0; text-transform: none; color: var(--cat-dim);
@@ -754,13 +790,21 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .gauge-cap[hidden] { display: none; }
 .gauge { text-align: center; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge svg { display: block; overflow: visible; }
+/* The rings are sized to the tile, not drawn at a fixed size: as wide as their share of the row allows
+   and as tall as the tile leaves under the label, whichever is less, so a large tile is filled by its
+   gauges and a small one keeps them as large as they will go. The figures and the ring are inside the
+   drawing and grow with it. `--n` is how many rings share the row, set by app.js. */
+.gaugewrap .gauge svg {
+  width: min(calc((100cqw - (var(--n, 1) - 1) * 8px) / var(--n, 1) * 0.96), calc((100cqh - 30px) / 0.82), 300px);
+  height: auto; aspect-ratio: 100 / 82;
+}
 .gauge .gv {
   font-family: var(--readout); font-weight: 400;
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
   color: var(--cat-white);
 }
 .gauge .gl {
-  font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-dim);
+  font-family: var(--sans); font-size: clamp(var(--fs-12), 4.6cqh, 14px); color: var(--cat-dim);
   letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium); margin-top: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
@@ -788,12 +832,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-family: var(--readout); font-size: min(var(--fs-32), 34cqh); font-weight: 400;
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.05;
   color: var(--cat-white);
-  /* The severity rule under a flagged cell. Inset shadow, so switching it on is a repaint and the
-     three cells beside it never move. */
-  box-shadow: none;
 }
-.mv.warn { box-shadow: inset 0 -3px 0 var(--cat-warn); }
-.mv.crit { box-shadow: inset 0 -3px 0 var(--cat-bad); }
 .ml {
   font-family: var(--sans); font-size: var(--fs-13); color: var(--cat-dim); margin-top: 6px;
   letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium);
@@ -805,6 +844,14 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mv.warn + .ml::before { content: "\25B2  "; }
 .mv.crit + .ml { color: var(--cat-bad); }
 .mv.crit + .ml::before { content: "\25A0  "; }
+/* The same telltale on the Systemcore tile's rows, where the label sits beside its reading, and on
+   the one ring of several on a gauge tile that has passed its redline. */
+.t .row:has(> .n.warn) > .k { color: var(--cat-warn); }
+.t .row:has(> .n.warn) > .k::before { content: "\25B2  "; }
+.t .row:has(> .n.crit) > .k { color: var(--cat-bad); }
+.t .row:has(> .n.crit) > .k::before { content: "\25A0  "; }
+.gauge:has(.gv.crit) > .gl { color: var(--cat-bad); }
+.gauge:has(.gv.crit) > .gl::before { content: "\25A0  "; }
 
 /* ---- short tiles ----
    What gives when a tile has less room than the anatomy was drawn for. Gaps close before anything is
@@ -819,10 +866,10 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
   /* Hub activation keeps its three facts - which hub, whether it is live, how long it has - but the
      countdown moves up beside the pill instead of taking a row of its own. */
-  .tower .fill { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
-  .tower .fill > div:nth-child(1) { grid-column: 1; grid-row: 1; }
-  .tower .fill > div:nth-child(2) { grid-column: 2; grid-row: 1; align-self: end; }
-  .tower .fill > div:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .tower .fill { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
+  .tower .tw-state { grid-column: 1; grid-row: 1; min-width: 0; }
+  .tower .tw-count { grid-column: 2; grid-row: 1; align-self: end; }
+  .tower .tw-meter { grid-column: 1 / -1; grid-row: 3; }
   .tower .bars { margin-top: 4px; }
 }
 
@@ -833,6 +880,17 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   .tower .n { font-size: min(var(--fs-24), 26cqh); }
   /* The rule in force, on one line; the whole sentence is in the tooltip-free wide tile. */
   .tower .cap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Short and narrower still, where the pill and a two-digit countdown do not fit side by side: the
+   countdown goes up to the hub's name, and the pill takes the row under both. */
+@container tile (max-height: 120px) and (max-width: 200px) {
+  .tower .fill { grid-template-rows: auto auto 1fr auto; }
+  .tower .tw-state { display: contents; }
+  .tower .who { grid-column: 1; grid-row: 1; align-self: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tower .status { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .tower .tw-count { grid-row: 1; align-self: center; }
+  .tower .tw-meter { grid-row: 4; }
 }
 
 /* The shortest tiles, on a window that has given most of its height to something else. Explanations
@@ -847,21 +905,27 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 
 /* ---- alert rows ----
-   Ground tint as well as a stripe: a hairline of colour on the left of a 12px row is not enough
-   area to register from a driver's station, and the tint is what makes an error row read as a
-   block before any of its words are read. Texture separates the two levels in greyscale. */
+   A row of Tesla's alert list: a small light at the start and the words in white after it. The
+   light carries the level twice, in colour and in the shape the status dots use - a circle for a
+   note, a diamond for a check, a square for a fault - so the list reads in greyscale. The words are
+   never coloured and the row is never tinted: a list of amber sentences on amber ground was the
+   loudest thing on the board, and the tile's own Check or Fault already says it from across a pit. */
 .al {
-  display: flex; gap: 8px; align-items: flex-start;
-  font-size: var(--fs-13); line-height: 1.45;
-  padding: 8px; border-radius: var(--r-sm);
+  display: flex; gap: 12px; align-items: flex-start;
+  font-size: var(--fs-13); line-height: 1.45; color: var(--cat-body);
+  padding: 7px 0;
 }
+/* `.warn` and `.crit` colour anything they sit on; on a row they only name the level. */
+.al.warn, .al.error { color: var(--cat-body); }
 .al + .al { border-top: 1px solid var(--hair-dense); }
-.al .b { width: 3px; align-self: stretch; border-radius: 999px; flex: none; background: var(--cat-muted); }
+/* Centred on the first line, however many lines the words take. */
+.al .b {
+  flex: none; width: 7px; height: 7px; margin: calc(0.725em - 3.5px) 1px 0;
+  border-radius: 50%; background: var(--cat-faint);
+}
 .al.info .b { background: var(--cat-info); }
-.al.warn .b { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 5px, transparent 5px 9px); }
-.al.error .b { background: var(--cat-bad); }
-.al.warn { background: color-mix(in srgb, var(--cat-warn) 9%, transparent); }
-.al.error { background: color-mix(in srgb, var(--cat-bad) 12%, transparent); }
+.al.warn .b { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
+.al.error .b { background: var(--cat-bad); border-radius: 1px; }
 .al .s { display: block; color: var(--cat-muted); font-family: var(--mono); font-size: var(--fs-12); margin-top: 4px; }
 
 /* ---- auto chooser ---- */
@@ -917,9 +981,11 @@ table.mh td .dim { color: var(--cat-muted); font-weight: 500; }
 table.mh td.mh-bar { min-width: 130px; }
 table.mh td.mh-bar .track { display: inline-block; width: 64px; height: 6px; margin: 0 8px 0 0; vertical-align: middle; }
 table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--cat-data); border-radius: 999px; }
+/* How many identities a motor has had before this one. History, not a warning, so it is a grey chip
+   on the board as it is in Settings. */
 .mh-past {
   display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--cat-warn) 16%, transparent); color: var(--cat-warn);
+  background: var(--cat-surface-2); color: var(--cat-dim);
   font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium);
 }
 
@@ -1282,7 +1348,10 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .tswitch { display: flex; align-items: center; gap: 14px; }
 .tswitch .v { color: var(--cat-dim); }
 
-.empty { color: var(--cat-dim); font-size: 14px; padding: 28px 0; text-align: center; line-height: 1.6; }
+/* What a section says when it has nothing to list, set under its title where the list would start, the
+   way Tesla writes "No devices" in place of a list. Centred, on a sheet as wide as the window, it
+   floated off by itself in the middle of the screen, a long way from the title it belongs to. */
+.empty { color: var(--cat-dim); font-size: 14px; padding: 12px 0 20px; text-align: left; line-height: 1.6; max-width: 72ch; }
 .empty code { font-family: var(--mono); font-size: 13px; color: var(--cat-body); }
 
 /* A note on a sheet is a grey panel, not a tinted callout: it explains, and nothing about it is urgent. */
@@ -1358,7 +1427,9 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    two boxes do not - so each is a grey panel of its own on the sheet. */
 .canhead { display: flex; align-items: flex-start; gap: 44px; flex-wrap: wrap; margin: 14px 0 24px; }
 .canstat { display: flex; flex-direction: column; gap: 2px; }
-.canstat b { font-size: 28px; font-weight: 400; line-height: 1.15; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+/* The readout face, so a count with no answer shows the short dash a board reading does rather than a
+   28 px hairline that reads as an underline waiting to be filled in. */
+.canstat b { font-family: var(--readout); font-size: 28px; font-weight: 400; line-height: 1.15; color: var(--cat-white); font-variant-numeric: tabular-nums; }
 .canstat small { font-size: var(--fs-13); color: var(--cat-dim); font-weight: 400; }
 /* The no-robot note is the same grey as the controller panels under it, so it keeps the gap they keep
    between each other rather than running into the first of them. */
@@ -1386,15 +1457,17 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 
 /* Idle and absent must not look alike. An idle bus measured at zero is dimmed — it is real, it is
    just carrying nothing, and dimming keeps the eye on the buses under load. A bus nobody measured
-   keeps its name at full strength and shows a dash, because it is not a low reading, it is the
-   absence of one, and the reader is meant to notice that rather than skim past it. */
+   keeps its name at full strength and shows a dash over a track drawn at a third of its strength,
+   because it is not a low reading, it is the absence of one, and the reader is meant to notice that
+   rather than skim past it. The track was hatched for this once, and a hatched track read as a dashed
+   line; the dash, the faded track and the words "not measured" under it say it without one. */
 .canbus[data-idle="true"] .canline > span,
-.canbus[data-idle="true"] .canline > b { color: var(--cat-dim); }
+.canbus[data-idle="true"] .canline > b,
+.canpair[data-idle="true"] > b { color: var(--cat-dim); }
 .canbus[data-absent="true"] .canline > b,
 .canpair[data-absent="true"] > b { color: var(--cat-dim); font-weight: var(--cat-w-medium); }
 .canbus[data-absent="true"] .ctrack,
-.canpair[data-absent="true"] .ctrack { background: repeating-linear-gradient(
-  135deg, var(--ctl-raised) 0 3px, transparent 3px 6px); }
+.canpair[data-absent="true"] .ctrack { opacity: 0.35; }
 
 .candevs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0 104px; }
 .candev {
@@ -1427,6 +1500,8 @@ select, input[type="text"], input[type="number"] {
    reset the identity's background image, which is the chevron: with the platform's arrow switched
    off and the drawn one wiped, every dropdown in Console looked like a text box. */
 select { padding-right: var(--cat-space-6); }
+/* A choice longer than its box ends in an ellipsis rather than being cut through a word. */
+select { text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
 /* WebView2 draws spin arrows over the right edge of a right-aligned mono field, on top of the
    digits — and every number in this program is set by typing or by the row above it, never by
    nudging a two-pixel arrow at arm's length in a pit. */
@@ -1619,7 +1694,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   width: 18px; height: 18px; color: var(--cat-dim); pointer-events: none;
 }
 :is(.settings, .sheet) :is(.ssearch, .sfilter) input {
-  width: 100%; height: var(--ctl-h); min-width: 0; padding: 0 18px 0 44px; border: 0; border-radius: 999px;
+  width: 100%; height: var(--ctl-h); min-width: 0; padding: 0 14px 0 42px; border: 0; border-radius: 999px;
   background-color: var(--cat-surface-1);
   color: var(--cat-white); font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
 }
@@ -1747,7 +1822,9 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    here and nowhere else, because a version string and a link are worth copying. */
 .settings {
   position: fixed; inset: 0; z-index: 80; display: none;
-  grid-template-columns: clamp(248px, 22vw, 320px) minmax(0, 1fr);
+  /* 256 px at the least, so the search field beside the close button still has room for the whole of
+     "Search settings" on the narrowest window. */
+  grid-template-columns: clamp(256px, 22vw, 320px) minmax(0, 1fr);
   background: var(--cat-ground);
   color: var(--cat-body);
   user-select: text;
@@ -1810,6 +1887,11 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 /* No entrance animation while filtering: the sections are being narrowed, not arrived at, and
    seven of them sliding up on every keystroke is a strobe. */
 .settings[data-search="true"] .ssec[data-active="true"] { animation: none; }
+/* Results come from every section at once, so no one section is open while they are up: the row the
+   list had selected before the search stops looking selected, rather than naming a section the
+   results may not even include. */
+.settings[data-search="true"] .snav[aria-selected="true"] { background: transparent; color: var(--cat-dim); }
+.settings[data-search="true"] .snav[aria-selected="true"]:hover { background: var(--cat-surface-1); color: var(--cat-white); }
 .snohits { margin: 8px 0 0; font-size: var(--fs-15); color: var(--cat-dim); }
 .snohits b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 
@@ -1933,14 +2015,23 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   margin-top: 28px; border-radius: 18px; padding: 8px 32px 28px;
   display: grid; justify-items: center;
   border: 0;
-  /* Lit from above rather than a flat card, so the robot reads as sitting on a surface. The stop at
-     58% is where the plan ends and the sheet begins. */
-  background:
-    radial-gradient(120% 62% at 50% 0%, rgb(var(--draw-light) / 0.05), rgb(var(--draw-light) / 0) 58%),
-    var(--cat-surface-1);
+  /* A flat card, as every card is. It used to be lit from above to seat a white robot on it; the robot
+     is drawn dark now, found by the light along its own edge, and a pool of light behind it only
+     greyed the ground it is read against. */
+  background: var(--cat-surface-1);
 }
-/* No drawing, so no stage light and no hero spacing — it becomes an ordinary card of facts. */
-.garage[data-plan="false"] { padding-top: 28px; background: var(--cat-surface-1); }
+/* The plan's materials: the machine Park draws, seen from above - a dark shell with light along its
+   edge, a brushed grey deck inside it. Aliases of colours the sheet already holds, read once by
+   app.js (PLAN), and named here rather than in the drawn marks, which the 3-D scenes light their own
+   robots with. The tyres are the drawn marks' own. */
+:root {
+  --plan-shell: var(--cat-surface-2);
+  --plan-shell-lit: var(--cat-surface-3);
+  --plan-deck: var(--draw-line);
+  --plan-deck-dark: var(--draw-tower);
+}
+/* No drawing, so no hero spacing — it becomes an ordinary card of facts. */
+.garage[data-plan="false"] { padding-top: 28px; }
 .garage[data-plan="false"] .ghead { margin-top: 0; }
 .garage[data-known="false"] .gplan,
 .garage[data-known="false"] .ghead,
@@ -2121,7 +2212,7 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .diag { margin-top: 44px; }
 .dgrid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .dcell { background: var(--cat-surface-1); border-radius: 14px; padding: 16px 18px; min-width: 0; }
-.dcell b { display: block; font-family: var(--sans); font-size: 22px; font-weight: 400; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: 0; color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcell b { display: block; font-family: var(--readout); font-size: 22px; font-weight: 400; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: 0; color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dcell small { display: block; margin-top: 4px; font-size: var(--fs-13); letter-spacing: 0; text-transform: none; color: var(--cat-dim); font-weight: 400; }
 .assets { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; font-size: 14px; color: var(--cat-dim); font-weight: 400; }
 .asset { display: inline-flex; align-items: center; gap: 8px; }
@@ -2129,7 +2220,9 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 
 .acols { display: grid; grid-template-columns: 1fr; gap: 44px; margin-top: 44px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 14px 0 0; font-size: 14px; }
-.keys dt { display: flex; gap: 4px; align-items: center; }
+/* The keys stand against their descriptions, so a single key is not left a combination's width away
+   from the words it goes with. */
+.keys dt { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
 .keys dd { margin: 0; color: var(--cat-body); align-self: center; }
 /* A filled cap rather than an outlined one, for the same reason the fields lost their borders: this
    panel is built out of fills and hairlines. A key is typed, so it is the mono face. */
@@ -2191,14 +2284,18 @@ kbd {
   background: var(--cat-surface-1); border: 0; border-radius: 16px;
   padding: 18px 20px 20px;
 }
-/* Same severity vocabulary as the board: an edge stripe, solid for a fault and hatched for a
-   degradation, so the four vitals can be ranked without reading any of the numbers. */
-.cvital::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: transparent;
+/* Same severity vocabulary as the board: the word on a small pill beside the name, Check or Fault,
+   so the four vitals can be ranked without reading any of the numbers and without colour alone. */
+.cvk {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px;
+  font-size: 14px; font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
-.cvital[data-level="warn"]::before { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 6px, transparent 6px 11px); }
-.cvital[data-level="crit"]::before { background: var(--cat-bad); }
-.cvk { font-size: 14px; font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none; color: var(--cat-dim); }
+.cvital[data-level] .cvk::after {
+  flex: none; padding: 2px 10px; border-radius: 999px;
+  font-size: var(--fs-12); font-weight: var(--cat-w-semi); line-height: 1.35;
+}
+.cvital[data-level="warn"] .cvk::after { content: "Check"; background: var(--cat-warn-tint); color: var(--cat-warn); }
+.cvital[data-level="crit"] .cvk::after { content: "Fault"; background: var(--cat-bad-tint); color: var(--cat-bad); }
 .cvn { display: flex; align-items: baseline; gap: 4px; margin: 10px 0 14px; }
 .cvn b {
   font-size: 34px; font-weight: 400; letter-spacing: 0; line-height: 1;
@@ -2218,8 +2315,6 @@ kbd {
 }
 .ctrack > i[data-level="warn"] { background: var(--cat-warn); }
 .ctrack > i[data-level="crit"] { background: var(--cat-bad); }
-.cvital[data-level="warn"] .cvn b { color: var(--cat-warn); }
-.cvital[data-level="crit"] .cvn b { color: var(--cat-bad); }
 
 .ccard {
   background: var(--cat-surface-1); border: 0; border-radius: 16px;
@@ -2333,7 +2428,6 @@ kbd {
 .settings table.mh th { padding: 0 10px 10px 0; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim); }
 .settings table.mh td { padding: 11px 10px 11px 0; border-top-color: var(--cat-hair); }
 .settings table.mh td.mh-name small { margin-top: 2px; font-size: var(--fs-12); font-weight: 400; color: var(--cat-dim); }
-.settings .mh-past { background: var(--cat-surface-2); color: var(--cat-dim); }
 .settings .ccard .cap { margin-top: 12px; font-size: var(--fs-13); color: var(--cat-dim); line-height: 1.6; }
 .settings .ccard .cap code { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-body); }
 
@@ -2368,10 +2462,15 @@ kbd {
   .rulelist { grid-template-columns: repeat(3, 1fr); }
   .rulelist li { grid-template-columns: 1fr; gap: 12px; align-content: start; }
   .rulelist li p { max-width: none; }
-  /* The shortcut list is itself two columns and the link buttons are one, so an even split leaves
-     the keys cramped beside a column of half-empty buttons. */
-  .acols { grid-template-columns: 1.7fr 1fr; }
   .keys { grid-template-columns: auto 1fr auto 1fr; gap: 8px 16px; }
+}
+
+/* The shortcuts beside the links only once there is room for both. The shortcut list is itself two
+   columns and the link buttons are one, so an even split leaves the keys cramped beside a column of
+   half-empty buttons; and below this width even an uneven one wrapped every description onto two or
+   three lines, so the links go under the keys instead. */
+@media (min-width: 1360px) {
+  .acols { grid-template-columns: 1.7fr 1fr; }
 }
 
 /* Below this the control no longer fits beside its explanation, so it goes under it rather than

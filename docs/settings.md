@@ -122,14 +122,15 @@ says what a control does; what happened when you used it is the section speaking
 
 ## Data
 
-One switch, **Demo data**, which feeds every tile from a synthetic robot: twenty seconds of auto then
-teleop counting down, with a drivetrain, a battery under load, a pose driving a circle, and a spec
-sheet for a robot called *Demo robot*.
+One switch, **Demo data**, which feeds every tile from a synthetic robot: twenty seconds of auto, then
+teleop counting down to the end of a 160-second match, then forty seconds standing disabled before
+the next one, long enough to watch the board hand over to Park. There is a drivetrain, a battery
+under load, a pose driving a circle, and a spec sheet for a robot called *Demo robot*.
 
-It is amber rather than blue, alone among the switches here. It is off by default and never
-remembered, the dock button stays lit the whole time it runs, and switching it on stands this panel
-down exactly as a robot enabling does. A dashboard that quietly invents telemetry is a hazard, so
-every part of that is deliberate.
+It is an ordinary switch, with a small amber mark beside its name while it is on. It is off by
+default and never remembered, the dock button's play mark stays lit the whole time it runs, and
+switching it on stands this panel down exactly as a robot enabling does. A dashboard that quietly
+invents telemetry is a hazard, so every part of that is deliberate.
 
 The same switch is in the dock, and that duplication is on purpose: while demo runs, the fact that
 the numbers are invented has to be visible on the dashboard itself rather than filed away behind a
