@@ -26,6 +26,7 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
+import { createHopper, hasMechanisms, readMechanisms } from "./mechanisms.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -2056,6 +2057,10 @@ define("field", {
       /* The same robot the Park stage draws: its size from the spec sheet, its number on the bumpers. */
       spec: linked ? parkRobotSpec() : {},
       team: parkTeam(linked),
+      /* Its mechanisms, and how many balls have left the shooter (see trackMechanisms). */
+      mechanisms: linked ? mechanismState.now : null,
+      fired: mechanismState.fired,
+      hopper: mechanismState.hopper.fill,
     });
   },
   onShow(state) {
@@ -4444,6 +4449,26 @@ function placeCallouts() {
 const DRIVE_POSE_KEY = "/Catalyst/Physics/PoseArray";
 const driveLog = { current: null, last: null };
 
+/* ---- the robot's mechanisms ----
+ *
+ * Read once per paint for both 3D views (see mechanisms.js). The hopper estimate lives here rather than
+ * in either view, so the field view's volley and the balls in the hopper agree, and it starts each match
+ * from the preload the moment autonomous begins. `fired` only ever counts up; the field view launches a
+ * ball for each one it has not seen. */
+const mechanismState = { now: null, at: null, fired: 0, wasEnabled: false, hopper: createHopper() };
+
+function trackMechanisms(now) {
+  const linked = nt.status.connected || demo.on;
+  const m = linked ? readMechanisms(ntView) : null;
+  mechanismState.now = m && hasMechanisms(m) ? m : null;
+  const enabled = linked && ds.enabled;
+  if (enabled && !mechanismState.wasEnabled && ds.auto) mechanismState.hopper.reset();
+  mechanismState.wasEnabled = enabled;
+  const dt = mechanismState.at === null ? 0 : (now - mechanismState.at) / 1000;
+  mechanismState.at = now;
+  if (mechanismState.now && enabled) mechanismState.fired += mechanismState.hopper.step(dt, mechanismState.now);
+}
+
 function trackDrive(now) {
   const linked = nt.status.connected || demo.on;
   const d = driveLog.current;
@@ -6464,6 +6489,7 @@ function paint() {
   fitStatusBar();
   paintDockAuto();
   trackDrive(performance.now());
+  trackMechanisms(performance.now());
   rememberRobot(performance.now());
   paintPark();
 

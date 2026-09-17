@@ -458,6 +458,7 @@ function buildRobot(spec, mat, keep) {
   const baseTop = Math.max(BUMPER_BOTTOM + BUMPER_HEIGHT, motorTop, batteryTop + 0.012);
   let crown = new THREE.Vector3(0, baseTop, 0);
   let reach = 0;
+  let muzzle = null;
   if (plateH > 0.08 && postZ > 0.06) {
     put(roundedBox(0.0254, RAIL_HEIGHT, W - 2 * rail - 0.002, 0.004, 0.0015), mat.body, postX, FRAME_BOTTOM + RAIL_HEIGHT / 2, 0);
     const plate = sidePlate(plateW, plateH, Math.min(0.1, plateW * 0.4), 0.008, 0.002);
@@ -473,6 +474,8 @@ function buildRobot(spec, mat, keep) {
     for (const k of [-1, 1]) put(flywheel, mat.flywheel, postX, shaftY, k * hoodWidth * 0.22);
     crown = new THREE.Vector3(postX, H, 0);
     reach = Math.hypot(Math.abs(postX) + Math.max(hoodR, plateW / 2), postZ + 0.005);
+    /* Balls leave over the crown of the hood, toward the front: a generic shooter, like the rest. */
+    muzzle = { point: new THREE.Vector3(postX + hoodR * 0.5, H - 0.01, 0), forward: new THREE.Vector3(1, 0, 0), wheelRadius: Math.max(0.03, hoodR - 0.05) };
   }
 
   /* Anchors for the callouts, in the robot's frame, each with the direction its surface faces so the
@@ -498,7 +501,7 @@ function buildRobot(spec, mat, keep) {
   /* The model's own box, which bounds() projects to find the robot on screen, and whether it has
      bumpers to print a number on. */
   const box = new THREE.Box3().setFromObject(group);
-  return { group, anchors, parts, corner, box, bumpered: thin > 0.004 };
+  return { group, anchors, parts, corner, box, muzzle, bumpered: thin > 0.004 };
 }
 
 /**
@@ -830,6 +833,18 @@ export function createRobotModel(opts = {}) {
     get spec() { return spec; },
     /** Callout anchors in the robot's frame: `{ name: { point, normal } }`. */
     get anchors() { return built ? built.anchors : null; },
+    /**
+     * Where a ball leaves the shooter with the hood at `hoodDeg` (as Hood.java reports it), in the robot's
+     * frame: `{ point, direction, wheelRadius }`, the direction a unit vector at the launch angle. Null for
+     * a robot with no shooter.
+     */
+    muzzle(hoodDeg) {
+      const m = built?.muzzle;
+      if (!m) return null;
+      const launch = ((90 - (Number.isFinite(hoodDeg) ? hoodDeg : 30)) * Math.PI) / 180;
+      const direction = m.forward.clone().multiplyScalar(Math.cos(launch)).setY(Math.sin(launch)).normalize();
+      return { point: m.point.clone(), direction, wheelRadius: m.wheelRadius };
+    },
     /** The upright cylinders that frame the robot for a camera (see park3d.js's silhouette). */
     get parts() { return built ? built.parts : []; },
     /** The model's bounding box in the robot's frame. */

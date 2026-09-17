@@ -25,6 +25,14 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import { createRobotModel, studioEnvironment } from "./robot3d.js";
+import { createShots } from "./shots3d.js";
+import {
+  HUB_CENTRES_M,
+  HUB_OPENING_HEIGHT_M,
+  HUB_OPENING_RADIUS_M,
+  LAUNCH_KEEP,
+  launchSpeed,
+} from "./mechanisms.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -539,6 +547,7 @@ export function createField(canvas, opts) {
       );
       poseLength = meta.lengthMeters;
       poseWidth = meta.widthMeters;
+      placeHubs();
     } else {
       /* No baked map, or an axis order this quarter turn does not handle. Centring the bounding box is
          off by however much structure stands outside one wall and not the other — 0.835 m on the 2026
@@ -625,6 +634,37 @@ export function createField(canvas, opts) {
   robotScene.add(model.lights);
   model.setSpec({});
   robot.add(model.root);
+
+  /* FUEL the robot shoots (see shots3d.js), in the robot's scene and under its lights. The app counts the
+     balls that leave (see mechanisms.js createHopper); each one it reports is launched here from the
+     shooter's exit, spread over the tenth of a second the count covers so a volley reads as a stream. */
+  const shots = createShots({ openingHeight: HUB_OPENING_HEIGHT_M, openingRadius: HUB_OPENING_RADIUS_M });
+  robotScene.add(shots.root);
+  function placeHubs() {
+    shots.setHubs(HUB_CENTRES_M.map(([fx, fy]) => ({ x: fx - poseLength / 2, z: -(fy - poseWidth / 2) })));
+  }
+  placeHubs();
+  let mechanisms = null;
+  let firedSeen = null;
+  const launches = [];
+
+  function launchBall(now) {
+    if (!mechanisms || !robot.visible || unplaced || !model.root.visible) return;
+    const muzzle = model.muzzle(mechanisms.hoodDeg);
+    if (!muzzle) return;
+    model.root.updateMatrixWorld();
+    const from = muzzle.point.applyMatrix4(model.root.matrixWorld);
+    const direction = muzzle.direction.transformDirection(model.root.matrixWorld);
+    const speed = launchSpeed(mechanisms.shooterRps ?? 0, muzzle.wheelRadius, LAUNCH_KEEP);
+    if (!(speed > 1)) return;
+    const vx = reported ? reported.vx : 0;
+    const vz = reported ? reported.vz : 0;
+    shots.launch(
+      [from.x, from.y, from.z],
+      [direction.x * speed + vx, direction.y * speed, direction.z * speed + vz],
+      now
+    );
+  }
   model.onChange(() => { dirty = true; });
   let environment = null;
 
@@ -1051,9 +1091,15 @@ export function createField(canvas, opts) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
       model.setEnvironment(environment.texture);
+      shots.setEnvironment(environment.texture);
     }
+    while (launches.length && launches[0] <= now) {
+      launches.shift();
+      launchBall(now);
+    }
+    const shotsMoving = shots.step(now);
     draw();
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0;
     dirty = false;
   }
 
@@ -1061,7 +1107,9 @@ export function createField(canvas, opts) {
   function draw() {
     placeFog();
     /* The studio faces the lens, as it does on the Park stage. */
-    model.aim(Math.atan2(camera.position.x - target.x, camera.position.z - target.z));
+    const yaw = Math.atan2(camera.position.x - target.x, camera.position.z - target.z);
+    model.aim(yaw);
+    shots.aim(yaw);
     renderer.autoClear = true;
     renderer.render(scene, camera);
     renderer.autoClear = false;
@@ -1118,6 +1166,21 @@ export function createField(canvas, opts) {
             }
           : null;
         dirty = true;
+      }
+
+      if (state.mechanisms !== undefined) mechanisms = state.mechanisms;
+      if (Number.isFinite(state.fired)) {
+        if (firedSeen === null || state.fired < firedSeen) {
+          /* First sight, or a new count: nothing to launch for balls that left before this view was
+             watching. */
+          firedSeen = state.fired;
+        } else if (state.fired > firedSeen) {
+          const count = Math.min(12, state.fired - firedSeen);
+          const now = performance.now();
+          for (let i = 0; i < count; i++) launches.push(now + (i * 100) / count);
+          firedSeen = state.fired;
+          dirty = true;
+        }
       }
 
       if (!state.pose && state.placed === false) {
@@ -1313,6 +1376,7 @@ export function createField(canvas, opts) {
       cancelAnimationFrame(raf);
       observer.disconnect();
       model.dispose();
+      shots.dispose();
       scene.traverse((obj) => {
         obj.geometry?.dispose?.();
         if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());

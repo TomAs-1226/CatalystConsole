@@ -16,6 +16,15 @@ export const FUEL_DIAMETER_M = 0.15;
 export const PRELOAD_FUEL = 8;
 export const GRAVITY = 9.81;
 
+/* The two HUBS, centred on each alliance's side of the field in WPILib field metres, as the field model's
+   collision map finds them (the tall 1.2 m squares at x 4.03-5.23 and 11.33-12.53, y 3.43-4.63), and the
+   height of their openings. The height is the one the robot's shot table agrees with (see fitKeep). */
+export const HUB_CENTRES_M = [[4.63, 4.03], [11.93, 4.03]];
+export const HUB_OPENING_HEIGHT_M = 1.83;
+export const HUB_OPENING_RADIUS_M = 0.5;
+/* The share of the flywheel's surface speed a FUEL ball keeps, fitted to team 5805's shot table. */
+export const LAUNCH_KEEP = 0.81;
+
 const INCH = 0.0254;
 
 /**
