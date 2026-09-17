@@ -178,6 +178,18 @@ export function engagedAutopilot(read) {
   return null;
 }
 
+/* The last usable [x, y, heading] of a path array: where it ends, and facing which way. */
+function pathEnd(raw, length, width) {
+  if (!Array.isArray(raw)) return null;
+  for (let i = Math.floor(raw.length / 3) * 3 - 3; i >= 0; i -= 3) {
+    const [x, y, heading] = [raw[i], raw[i + 1], raw[i + 2]];
+    if (![x, y, heading].every(Number.isFinite)) continue;
+    if (x < -1 || y < -1 || x > length + 1 || y > width + 1) continue;
+    return [x, y, heading];
+  }
+  return null;
+}
+
 /* A path as [x, y, heading] triples, field metres from the blue origin, cleaned: non-numbers and
    points far off the field dropped. */
 function pathPoints(raw, length, width) {
@@ -202,6 +214,8 @@ function pathPoints(raw, length, width) {
  *      "vision" and "improvised" draw it as an improvised plan, anything else as a planned path.
  *   2. /PathPlanner/activePath: the path PathPlanner is following.
  *
+ * `end` is where the path finishes, [x, y, heading], which the field view marks as the destination.
+ *
  * A plan counts as improvised when its source says so, or whenever a Catalyst Autopilot is engaged:
  * its actions pathfind on the fly, and PathPlanner publishes that made-up path on the same topic as a
  * drawn one, so the topic alone cannot tell them apart.
@@ -214,11 +228,23 @@ export function drivePath(read, { length = 16.54, width = 8.07 } = {}) {
   if (own) {
     const said = String(read.str(`${PLANNED_PATH_KEY}Source`, "") || "").toLowerCase();
     const improvised = autopilot !== null || /autopilot|vision|improvis/.test(said);
-    return { points: own, style: improvised ? "improvised" : "planned", source: said || "planner", autopilot };
+    return {
+      points: own,
+      end: pathEnd(read.arr(PLANNED_PATH_KEY), length, width),
+      style: improvised ? "improvised" : "planned",
+      source: said || "planner",
+      autopilot,
+    };
   }
   const followed = pathPoints(read.arr(PATHPLANNER_PATH_KEY), length, width);
   if (followed) {
-    return { points: followed, style: autopilot !== null ? "improvised" : "planned", source: "pathplanner", autopilot };
+    return {
+      points: followed,
+      end: pathEnd(read.arr(PATHPLANNER_PATH_KEY), length, width),
+      style: autopilot !== null ? "improvised" : "planned",
+      source: "pathplanner",
+      autopilot,
+    };
   }
   return null;
 }

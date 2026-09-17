@@ -296,6 +296,7 @@ test("PathPlanner's active path is a planned path, as field points", () => {
   const read = view({ "/PathPlanner/activePath": nums([1, 1, 0, 2, 1.5, 0.3, 3, 2, 0.6]) });
   const path = drivePath(read);
   assert.deepEqual(path.points, [[1, 1], [2, 1.5], [3, 2]]);
+  assert.deepEqual(path.end, [3, 2, 0.6], "where it ends, and facing which way");
   assert.equal(path.style, "planned");
   assert.equal(path.source, "pathplanner");
 });

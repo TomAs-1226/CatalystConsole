@@ -798,6 +798,53 @@ export function createField(canvas, opts) {
 
   /* ---- the path ahead (see above) ---- */
 
+  /* The destination: the robot's footprint drawn faintly where the plan ends, facing the way it will
+     arrive, with a notch at its front. It comes and goes with the band. */
+  const destination = new THREE.Group();
+  destination.visible = false;
+  scene.add(destination);
+  const destinationMaterial = new THREE.MeshBasicMaterial({
+    color: SIGNAL, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+  });
+  let destinationSize = "";
+  function shapeDestination(length, width) {
+    const key = `${length.toFixed(3)}x${width.toFixed(3)}`;
+    if (key === destinationSize) return;
+    destinationSize = key;
+    for (const child of [...destination.children]) {
+      child.geometry.dispose();
+      destination.remove(child);
+    }
+    const rounded = (w, h, r) => {
+      const shape = new THREE.Shape();
+      shape.moveTo(-w / 2 + r, -h / 2);
+      shape.lineTo(w / 2 - r, -h / 2);
+      shape.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+      shape.lineTo(w / 2, h / 2 - r);
+      shape.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+      shape.lineTo(-w / 2 + r, h / 2);
+      shape.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+      shape.lineTo(-w / 2, -h / 2 + r);
+      shape.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+      return shape;
+    };
+    const line = 0.035;
+    const outline = rounded(length, width, 0.1);
+    outline.holes.push(rounded(length - 2 * line, width - 2 * line, 0.1 - line));
+    const ring = new THREE.Mesh(new THREE.ShapeGeometry(outline, 6), destinationMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    destination.add(ring);
+    /* The notch: a small arrowhead inside the front edge. The shape's +x is the robot's front. */
+    const notch = new THREE.Shape();
+    notch.moveTo(length / 2 - 0.05, 0);
+    notch.lineTo(length / 2 - 0.16, 0.07);
+    notch.lineTo(length / 2 - 0.16, -0.07);
+    notch.closePath();
+    const arrow = new THREE.Mesh(new THREE.ShapeGeometry(notch), destinationMaterial);
+    arrow.rotation.x = -Math.PI / 2;
+    destination.add(arrow);
+  }
+
   const PLANNED_OPACITY = 0.9;
   const MOTION_OPACITY = 0.8;
   /* The fade's time constant: most of the way in about half a second. */
@@ -874,6 +921,15 @@ export function createField(canvas, opts) {
     motionLine.material.uniforms.uOpacity.value = MOTION_OPACITY * pathFade;
     const shown = pathFade > 0 && robot.visible && !unplaced;
     let drifting = pathFade !== want;
+    const arriving = shown && plan && plan.end;
+    if (arriving) {
+      const spec = model.spec;
+      shapeDestination(spec ? spec.bumperLength : 0.9, spec ? spec.bumperWidth : 0.9);
+      destination.position.set(plan.end[0], 0.014, plan.end[1]);
+      destination.rotation.y = plan.end[2];
+    }
+    destinationMaterial.opacity = 0.55 * pathFade;
+    destination.visible = Boolean(arriving) && pathFade > 0;
     if (shown && plan) {
       layRibbon(plannedBand, planAhead(plan.points), 0.32, 0.012);
       const uniforms = plannedBand.material.uniforms;
@@ -1187,6 +1243,9 @@ export function createField(canvas, opts) {
         plan = points && points.length >= 2
           ? {
               points: points.map(([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)]),
+              end: Array.isArray(state.path.end)
+                ? [state.path.end[0] - poseLength / 2, -(state.path.end[1] - poseWidth / 2), state.path.end[2]]
+                : null,
               improvised: state.path.style === "improvised",
             }
           : null;
