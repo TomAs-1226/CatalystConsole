@@ -684,29 +684,41 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .app[data-linked="false"] .t .mv { opacity: 0.38; }
 
 /* ---- edit mode ----
-   A dashed outline rather than a coloured one. Editing is a mode, not a state, and the four
-   semantic colours are spoken for. */
-.app[data-edit="true"] .t { outline: 1px dashed var(--cat-hair-str); outline-offset: -2px; cursor: grab; }
+   No outline, dashed or otherwise: a board being arranged is said by the two round controls that come
+   up in each tile's corner and the hand the pointer becomes over it. The tile a dragged one would land
+   on steps up a grey, the way Tesla raises what is under a finger. Editing is a mode, not a state, so
+   none of it is coloured - the four semantic colours and the one blue are spoken for. */
+.app[data-edit="true"] .t { cursor: grab; }
 .app[data-edit="true"] .t.dragging { opacity: 0.45; cursor: grabbing; }
-.app[data-edit="true"] .t.dropTarget { outline: 2px solid var(--cat-coral); outline-offset: -2px; }
-.t .tools { display: none; position: absolute; top: 8px; right: 8px; gap: 4px; z-index: 2; }
+.app[data-edit="true"] .t.dropTarget { background-color: var(--cat-surface-2); }
+/* Level with the label row: its top padding plus half its height, less half a control. */
+.t .tools {
+  display: none; position: absolute; right: 8px; gap: 6px; z-index: 2;
+  top: calc(clamp(10px, 2vh, 18px) + clamp(14px, 2.2vh, 20px) / 2 - 14px);
+}
 .app[data-edit="true"] .t .tools { display: flex; }
 .app[data-edit="true"] .t .h .s { opacity: 0; }
-/* The two edit buttons sit in the corner where the label row ends, over the CHECK or FAULT badge. The
-   row gives up their width while editing rather than hiding the badge: a board being rearranged mid-
-   practice is still reporting a fault. */
-.app[data-edit="true"] .t > .h { padding-right: 46px; }
+/* The two edit controls sit in the corner where the label row ends, beside the Check or Fault word.
+   The row gives up their width while editing rather than hiding the word: a board being rearranged
+   mid-practice is still reporting a fault. */
+.app[data-edit="true"] .t > .h { padding-right: calc(76px - clamp(14px, 1.4vw, 20px)); }
+/* A one-row tile is a row: the controls are centred on it and the row itself makes room for them, so
+   they never sit on top of the dropdown or the reading at its right edge. */
+.t[data-h="1"] .tools { top: 50%; transform: translateY(-50%); }
+.app[data-edit="true"] .t[data-h="1"] { padding-right: 78px; }
+.app[data-edit="true"] .t[data-h="1"] > .h { padding-right: 0; }
 .tbtn {
-  width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--cat-hair-str);
-  cursor: pointer; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  line-height: 1; display: grid; place-items: center;
-  background: var(--cat-ink-700); color: var(--cat-text);
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--cat-surface-3); color: var(--cat-body);
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect), color var(--cat-dur-effect) var(--cat-ease-effect);
 }
-.tbtn.cfg:hover { color: var(--cat-white); }
-/* Ink, never a fill: a destructive control should be findable without becoming the loudest red on
-   a board where red already means a fault. */
+.tbtn svg { width: 14px; height: 14px; display: block; }
+.tbtn:hover { background: var(--ctl-raised); color: var(--cat-white); }
+/* Said in the glyph, not a fill: a destructive control should be findable without becoming the
+   loudest red on a board where red already means a fault. */
 .tbtn.del { color: var(--cat-bad); }
-.tbtn.del:hover { background: var(--cat-bad); color: var(--cat-ink-900); border-color: var(--cat-bad); }
+.tbtn.del:hover { background: var(--cat-bad-tint); color: var(--cat-bad); }
 
 /* ---- match timer ---- */
 .phase {

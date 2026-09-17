@@ -2025,6 +2025,12 @@ let layout = [];
 const live = new Map(); // id -> {spec, tile, body, cfg, refs, state}
 let nextId = 1;
 
+/* The two controls a tile shows in edit mode: two sliders for Configure, a cross for Remove. */
+const TILE_TOOL_ICONS = {
+  configure: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h9M18 7.5h2M4 16.5h2M11 16.5h9"/><circle cx="15.5" cy="7.5" r="2.5"/><circle cx="8.5" cy="16.5" r="2.5"/></svg>`,
+  remove: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>`,
+};
+
 function defaults(spec) {
   const cfg = {};
   for (const field of spec.config) cfg[field.key] = field.def;
@@ -2124,12 +2130,18 @@ function buildBoard() {
     head.appendChild(sub);
     if (!spec.tileClass?.includes("pad0")) tile.appendChild(head);
 
+    /* Drawn glyphs rather than the ⚙ and × characters, which came from whichever fallback font had
+     * them and sat off-centre in their circles. */
     const tools = el("div", "tools");
-    const cfgBtn = el("button", "tbtn cfg", "⚙");
+    const cfgBtn = el("button", "tbtn cfg");
+    cfgBtn.innerHTML = TILE_TOOL_ICONS.configure;
     cfgBtn.title = "Configure";
+    cfgBtn.setAttribute("aria-label", "Configure");
     cfgBtn.onclick = (e) => { e.stopPropagation(); openConfig(item); };
-    const delBtn = el("button", "tbtn del", "×");
+    const delBtn = el("button", "tbtn del");
+    delBtn.innerHTML = TILE_TOOL_ICONS.remove;
     delBtn.title = "Remove";
+    delBtn.setAttribute("aria-label", "Remove");
     delBtn.onclick = (e) => {
       e.stopPropagation();
       layout = layout.filter((i) => i !== item);
