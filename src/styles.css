@@ -2791,3 +2791,36 @@ kbd {
 .dswatches button { width: 16px; height: 16px; border-radius: 50%; border: 1px solid transparent;
   background: var(--c); cursor: pointer; padding: 0; }
 .dswatches button[aria-pressed="true"] { border-color: var(--cat-white); }
+
+/* ---------------------------------------------------------------- the part page
+
+   A callout on Park is a button, and pressing it opens this beside the robot: two sentences about what
+   that part of the robot is, then what it is reading. It is a panel, not a dialog - nothing behind it is
+   blocked, Escape closes it, and it goes away by itself the moment the robot is enabled. */
+.park-part {
+  position: absolute; right: 3.2vw; top: 14vh; width: min(360px, 34vw); z-index: 4;
+  display: grid; gap: 14px; padding: 20px 22px 22px;
+  border-radius: var(--cat-r-card); background: color-mix(in srgb, var(--cat-surface-1) 92%, transparent);
+  border: 1px solid var(--cat-line); backdrop-filter: blur(18px) saturate(140%);
+  animation: park-part-in var(--cat-dur-release) var(--cat-ease-release) both;
+}
+.park-part[hidden] { display: none; }
+@keyframes park-part-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .park-part { animation: none; } }
+
+.park-part header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.park-part header small { display: block; font-size: var(--fs-12); color: var(--cat-dim); }
+.park-part header b { font-size: var(--fs-24); color: var(--cat-white); font-weight: var(--cat-w-medium); letter-spacing: -0.01em; }
+.park-part-close { width: 32px; height: 32px; border-radius: 50%; border: 0; flex: none; cursor: pointer;
+  background: var(--cat-surface-2); color: var(--cat-dim); display: grid; place-items: center; }
+.park-part-close:hover { color: var(--cat-white); }
+.park-part-close svg { width: 16px; height: 16px; }
+.park-part p { margin: 0; font-size: var(--fs-13); line-height: 1.55; color: var(--cat-body); }
+.park-part dl { margin: 0; display: grid; gap: 10px; }
+.park-part dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding-top: 10px; border-top: 1px solid var(--cat-line); }
+.park-part dt { font-size: var(--fs-13); color: var(--cat-dim); }
+.park-part dd { margin: 0; font-size: var(--fs-15); color: var(--cat-white); font-variant-numeric: tabular-nums; text-align: right; }
+
+.callout { -webkit-appearance: none; appearance: none; font: inherit; cursor: pointer; text-align: left; }
+.callout[aria-expanded="true"] { color: var(--cat-white); }

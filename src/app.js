@@ -4615,6 +4615,8 @@ function showPark() {
 }
 
 function hidePark() {
+  /* Park is going: whatever page was open about a part of the robot goes with it. */
+  showPart(null);
   const el = $("#park");
   clearTimeout(parkState.hideTimer);
   clearTimeout(parkState.liftTimer);
@@ -4854,6 +4856,144 @@ function trackDrive(now) {
   drive.at = now;
 }
 
+/* ---- the part pages ----
+ *
+ * A callout on Park names a part of the robot and gives one number for it. Pressing it opens a page
+ * about that part: what it is, in the two sentences someone who has not built one needs, and then what
+ * it is reading right now. It is how a team teaches a new driver what they are looking at without
+ * anybody having to be standing next to them.
+ *
+ * Rule two applies: it is a panel and not a dialog. Nothing behind it is blocked, Escape closes it, and
+ * it closes itself when the robot is enabled - along with the rest of Park.
+ */
+
+const PART_PAGES = {
+  vision: {
+    kind: "Vision",
+    title: "Cameras",
+    lede: "The robot finds itself on the field by looking at the AprilTags around it: each camera works out "
+      + "where it must be standing for the tag to look the way it does, and the robot averages those answers "
+      + "with what its wheels and gyro say. The number beside the callout is how many of the cameras it "
+      + "expects are answering. A camera that drops out does not stop the robot driving - it stops it "
+      + "knowing exactly where it is, which is what aiming needs.",
+    rows: (ctx) => [
+      ["Answering", ctx.summary?.cameras?.expected
+        ? `${ctx.summary.cameras.connected ?? 0} of ${ctx.summary.cameras.expected}`
+        : "—"],
+      ["Pose", ctx.pose ? `${ctx.pose[0].toFixed(2)} m, ${ctx.pose[1].toFixed(2)} m` : "not published"],
+      ["Estimator", ctx.confidence === null ? "—" : `${Math.round(ctx.confidence * 100)}% confident`],
+    ],
+  },
+  battery: {
+    kind: "Power",
+    title: "Battery",
+    lede: "One 12 volt lead-acid battery runs everything on the robot. Disabled, it draws only the couple of "
+      + "amps the controller and the radio need, so what is shown is close to its resting voltage: near "
+      + "12.7 V when it is full, and falling steadily as it empties. Under load it sags, and if it sags far "
+      + "enough the controller browns out and the robot stops - which is why a battery that reads low here "
+      + "is swapped rather than driven.",
+    rows: (ctx) => [
+      ["At rest", ctx.volts === null ? "—" : `${ctx.volts.toFixed(2)} V`],
+      ["State", ctx.charge ? ctx.charge.text : "not published"],
+      ["Brownout at", ctx.brownout === null ? "—" : `${ctx.brownout.toFixed(2)} V`],
+    ],
+  },
+  drivetrain: {
+    kind: "Drive",
+    title: "Drivetrain",
+    lede: "Four swerve modules, each with a motor that drives its wheel and a second that points it. Because "
+      + "every wheel can point anywhere, the robot can drive in one direction while facing another - which "
+      + "is what lets it keep its shooter on the target while it moves. The number is how many of its motors "
+      + "are answering on the CAN bus; a module that goes quiet takes a quarter of the robot's grip with it.",
+    rows: (ctx) => [
+      ["Motors", ctx.summary?.motors?.expected
+        ? `${ctx.summary.motors.connected ?? 0} of ${ctx.summary.motors.expected}`
+        : "—"],
+      ["Modules", ctx.modules ? String(ctx.modules) : "—"],
+      ["Size", ctx.size ? `${ctx.size[0].toFixed(2)} × ${ctx.size[1].toFixed(2)} m` : "—"],
+    ],
+  },
+  controller: {
+    kind: "Control system",
+    title: "Robot controller",
+    lede: "The computer that runs the robot's code. It reads every sensor and writes every motor on a fixed "
+      + "loop - twenty milliseconds on this robot - and everything else waits for that loop. The loop time is "
+      + "how long the code actually took; if it creeps toward the budget, something in it is too slow and the "
+      + "robot starts responding late. The CAN figure is how full the wire to the motors is.",
+    rows: (ctx) => [
+      ["Loop", ctx.loop === null ? "—" : `${ctx.loop.toFixed(1)} ms of 20`],
+      ["CAN", ctx.can === null ? "—" : `${Math.round(ctx.can * 100)}%`],
+      ["Round trip", ctx.rtt === null ? "—" : `${ctx.rtt.toFixed(1)} ms`],
+    ],
+  },
+};
+
+let openPart = null;
+
+/** What the part pages read. Gathered once per paint rather than per page. */
+function partContext() {
+  const linked = nt.status.connected || demo.on;
+  const pose = linked ? arr("/Catalyst/Physics/PoseArray") : null;
+  const modules = linked ? arr("/Catalyst/Swerve/ModuleStates") : null;
+  return {
+    summary: linked ? deviceSummary(ntView) : null,
+    volts: linked ? batteryVolts() : null,
+    charge: linked ? batteryReadiness(batteryVolts()) : null,
+    brownout: linked ? num("/Catalyst/Brownout/Threshold", null) : null,
+    pose: Array.isArray(pose) && pose.length >= 2 ? pose : null,
+    confidence: linked ? num("/Catalyst/Physics/Confidence", null) : null,
+    modules: Array.isArray(modules) && modules.length >= 2 ? modules.length / 2 : null,
+    size: linked ? (() => {
+      const l = num(`${SPEC_ROOT}Dimensions/LengthMeters`, null);
+      const w = num(`${SPEC_ROOT}Dimensions/WidthMeters`, null);
+      return l !== null && w !== null ? [l, w] : null;
+    })() : null,
+    loop: linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null,
+    can: linked ? num("/Catalyst/Status/CanUtilization", null) : null,
+    /* Demo data has no round trip, and a zero there would be the console inventing a number about
+       itself. */
+    rtt: nt.status.connected && nt.status.rtt_ms ? nt.status.rtt_ms : null,
+  };
+}
+
+function paintPart() {
+  const panel = $("#parkPart");
+  if (!panel) return;
+  const page = openPart ? PART_PAGES[openPart] : null;
+  if (panel.hidden !== !page) panel.hidden = !page;
+  for (const button of document.querySelectorAll("#parkCallouts .callout")) {
+    button.setAttribute("aria-expanded", String(button.dataset.part === openPart));
+  }
+  if (!page) return;
+  $("#parkPartKind").textContent = page.kind;
+  $("#parkPartTitle").textContent = page.title;
+  $("#parkPartLede").textContent = page.lede;
+  const rows = $("#parkPartRows");
+  rows.textContent = "";
+  for (const [label, value] of page.rows(partContext())) {
+    const row = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    row.append(dt, dd);
+    rows.append(row);
+  }
+}
+
+/** Open a part's page, or close the one that is open when it is pressed again. */
+function showPart(name) {
+  openPart = openPart === name ? null : (name && PART_PAGES[name] ? name : null);
+  paintPart();
+}
+
+function wireParts() {
+  for (const button of document.querySelectorAll("#parkCallouts .callout")) {
+    button.onclick = () => showPart(button.dataset.part);
+  }
+  $("#parkPartClose").onclick = () => showPart(null);
+}
+
 /* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
  * four cards. Written only when they change; Park repaints with the rest of the board at 10 Hz. */
 function paintParkInfo() {
@@ -4991,8 +5131,13 @@ function paintPark() {
     parkState.on = want;
     if (want) showPark(); else hidePark();
   }
-  if (parkState.on) paintParkInfo();
+  if (parkState.on) {
+    paintParkInfo();
+    if (openPart) paintPart();
+  }
 }
+
+wireParts();
 
 $("#parkDash").onclick = () => {
   parkState.dismissed = true;
@@ -7258,6 +7403,10 @@ window.addEventListener("pointerdown", (e) => {
 }, { passive: true });
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openPart) {
+    showPart(null);
+    return;
+  }
   if (e.key === "Escape") {
     /* Escape inside a field means "abandon what I am typing", not "throw the dialog away". Closing
      * the layout modal blanks the paste box, so a stray Escape after pasting a board someone sent you

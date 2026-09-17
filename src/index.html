@@ -97,12 +97,24 @@
           </div>
           <div class="park-ready" id="parkReady" data-ready="false" hidden><i aria-hidden="true"></i><span id="parkReadyText"></span></div>
         </div>
+        <!-- Each callout opens a page about that part of the robot: what it is, what the number beside it
+             means, and what it is reading right now. Buttons rather than labels, because they do something. -->
         <div class="park-callouts" id="parkCallouts">
-          <div class="callout" data-on="false" data-anchor="top"><small>Vision</small><b data-c="vision">—</b></div>
-          <div class="callout" data-on="false" data-anchor="battery"><small>Battery</small><b data-c="battery">—</b></div>
-          <div class="callout" data-on="false" data-anchor="drivetrain"><small>Drivetrain</small><b data-c="drivetrain">—</b></div>
-          <div class="callout" data-on="false" data-anchor="controller"><small data-c="controllerName">Controller</small><b data-c="controller">—</b></div>
+          <button type="button" class="callout" data-on="false" data-anchor="top" data-part="vision" aria-expanded="false"><small>Vision</small><b data-c="vision">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="battery" data-part="battery" aria-expanded="false"><small>Battery</small><b data-c="battery">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="drivetrain" data-part="drivetrain" aria-expanded="false"><small>Drivetrain</small><b data-c="drivetrain">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="controller" data-part="controller" aria-expanded="false"><small data-c="controllerName">Controller</small><b data-c="controller">—</b></button>
         </div>
+        <aside class="park-part" id="parkPart" hidden aria-live="polite">
+          <header>
+            <div><small id="parkPartKind">Part</small><b id="parkPartTitle">—</b></div>
+            <button type="button" class="park-part-close" id="parkPartClose" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </header>
+          <p id="parkPartLede"></p>
+          <dl id="parkPartRows"></dl>
+        </aside>
         <div class="park-cards">
           <div class="pcard"><small>Match</small><b id="parkMatch">—</b><span id="parkMatchSub"></span></div>
           <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
