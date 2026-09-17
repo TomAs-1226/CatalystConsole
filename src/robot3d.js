@@ -823,6 +823,8 @@ export function createRobotModel(opts = {}) {
 
   let allianceTarget = NEUTRAL;
   let fade = null;
+  let mechanisms = null;
+  let hopper = null;
   mat.bumper.color.copy(NEUTRAL);
 
   return {
@@ -897,6 +899,18 @@ export function createRobotModel(opts = {}) {
       return true;
     },
 
+    /**
+     * The robot's mechanisms as mechanisms.js reads them, and how many FUEL the hopper estimate holds.
+     * A model with moving parts poses them from these on its next step; the generic model has none and
+     * ignores them. Returns true when something will move.
+     */
+    setMechanisms(readings, hopperFill = null) {
+      if (disposed) return false;
+      mechanisms = readings ?? null;
+      hopper = Number.isFinite(hopperFill) ? hopperFill : null;
+      return Boolean(built?.animate) && (mechanisms !== null || hopper !== null);
+    },
+
     /** The team number on the bumpers. Anything bumperNumber() refuses prints none. */
     setTeamNumber(value) {
       if (disposed) return;
@@ -942,14 +956,15 @@ export function createRobotModel(opts = {}) {
 
     /** Advance anything the model animates by itself. Returns true while something is still moving. */
     step(now) {
-      if (!fade) return false;
+      const posing = built?.animate ? built.animate(mechanisms, hopper, now) : false;
+      if (!fade) return posing;
       if (fade.start === null) fade.start = now;
       const u = Math.min(1, Math.max(0, (now - fade.start) / BUMPER_FADE_MS));
       mat.bumper.color.lerpColors(fade.from, fade.to, u * u * (3 - 2 * u));
       sheenFrom(mat.bumper.color);
       if (u < 1) return true;
       fade = null;
-      return false;
+      return posing;
     },
 
     /** Finish any animation at once, as if it had run to the end. */

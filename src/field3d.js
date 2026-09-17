@@ -1232,6 +1232,9 @@ export function createField(canvas, opts) {
 
       if (state.spec !== undefined && model.setSpec(state.spec)) dirty = true;
       if (state.team !== undefined) model.setTeamNumber(state.team);
+      if (state.mechanisms !== undefined || state.hopper !== undefined) {
+        if (model.setMechanisms(state.mechanisms ?? null, state.hopper ?? null)) dirty = true;
+      }
       if (model.setAlliance(state.alliance, !reduced && robot.visible)) dirty = true;
       if (typeof state.enabled === "boolean" && parked === state.enabled) {
         parked = !state.enabled;

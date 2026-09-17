@@ -1268,6 +1268,12 @@ export function createPark(canvas, opts) {
       model.setTeamNumber(value);
     },
 
+    /** The robot's mechanism readings and hopper estimate (see robot3d.js setMechanisms). */
+    setMechanisms(readings, hopperFill) {
+      if (disposed) return;
+      if (model.setMechanisms(readings, hopperFill)) requestRender();
+    },
+
     /** "red" or "blue" colours the bumpers; anything else is a robot with no alliance yet. */
     setAlliance(alliance) {
       if (disposed) return;

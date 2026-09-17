@@ -4605,6 +4605,7 @@ function paintParkInfo() {
       parkState.scene.setRobot(JSON.parse(spec));
     }
     parkState.scene.setTeamNumber(team);
+    parkState.scene.setMechanisms(linked ? mechanismState.now : null, mechanismState.hopper.fill);
   }
   /* A label that changed width has to move, even while the model is still and drawing nothing. */
   if (changed) placeCallouts();
