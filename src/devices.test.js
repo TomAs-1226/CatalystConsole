@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { clampToField, countState, deviceSummary, notices, ROBOT_HALF_METERS } from "./devices.js";
+import {
+  clampToField,
+  countState,
+  deviceSummary,
+  limelightFix,
+  notices,
+  ROBOT_HALF_METERS,
+  robotPlacement,
+  VISION_FRESH_MS,
+} from "./devices.js";
 
 /** A fake read-only NetworkTables view. Values are {t, v} the way app.js stores them. */
 function view(values, { linked = true } = {}) {
@@ -158,4 +167,106 @@ test("the auto start check speaks only while disabled", () => {
 
 test("no health topics means no vision notices, not an error", () => {
   assert.deepEqual(notices(view({})), []);
+});
+
+/* ---- where the robot is ---- */
+
+const nums = (v) => ({ t: "nums", v });
+/* A MegaTag solve as a Limelight publishes it: x, y, z, roll, pitch, yaw°, latency, tags, span, distance, area. */
+const solve = (x, y, yawDeg, tags, distance = 2.5) => nums([x, y, 0, 0, 0, yawDeg, 30, tags, 0.4, distance, 0.3]);
+const fresh = () => 0;
+
+test("an estimator pose that has left the origin is the robot's place", () => {
+  const read = view({ "/Catalyst/Physics/PoseArray": nums([5.2, 3.1, 0.4]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.deepEqual(place.pose, [5.2, 3.1, 0.4]);
+  assert.equal(place.source, "estimator");
+  assert.equal(place.placed, true);
+});
+
+test("an estimator still at the boot origin is not a place: the robot is unplaced, not in the corner", () => {
+  const read = view({ "/Catalyst/Physics/PoseArray": nums([0, 0, 1.2]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, false);
+  assert.equal(place.pose, null);
+  assert.equal(place.heading, 1.2, "the gyro's heading is still known");
+});
+
+test("a live Limelight fix places a robot the estimator has not, with the estimator's heading", () => {
+  const read = view({
+    "/Catalyst/Physics/PoseArray": nums([0, 0, 1.2]),
+    "/limelight-ground/botpose_orb_wpiblue": solve(3.4, 5.6, 40, 2),
+    "/limelight-ground/botpose_orb": solve(-4.87, 1.57, 40, 2),
+  });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, true);
+  assert.equal(place.source, "vision");
+  assert.equal(place.camera, "limelight-ground");
+  assert.deepEqual(place.pose, [3.4, 5.6, 1.2]);
+});
+
+test("with no estimator at all, the fix's own heading is used", () => {
+  const read = view({ "/limelight-ground/botpose_wpiblue": solve(2, 2, 90, 1) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, true);
+  assert.ok(Math.abs(place.pose[2] - Math.PI / 2) < 1e-9);
+});
+
+test("a camera that sees nothing publishes zeros, and zeros place nothing", () => {
+  const read = view({ "/limelight-ground/botpose_orb_wpiblue": nums([0, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0]) });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("an unplaceable tag reads as the field's centre and is refused by its all-zero centre-origin twin", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": solve(8.27, 4.035, 0, 1),
+    "/limelight-ground/botpose_orb": nums([0, 0, 0, 0, 0, 0, 30, 1, 0, 0, 0]),
+  });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("a frozen camera's last solve is not a fix", () => {
+  const read = view({ "/limelight-ground/botpose_orb_wpiblue": solve(3, 3, 0, 2) });
+  assert.equal(limelightFix(read, { age: () => VISION_FRESH_MS + 1 }), null);
+  assert.ok(limelightFix(read, { age: () => VISION_FRESH_MS }));
+});
+
+test("a solve off the field is not a fix", () => {
+  const read = view({ "/limelight-ground/botpose_wpiblue": solve(22, 3, 0, 2) });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("MegaTag2 is preferred to MegaTag1 on the same camera", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": solve(3.0, 3.0, 0, 2),
+    "/limelight-ground/botpose_wpiblue": solve(3.3, 3.3, 0, 2),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).megatag, 2);
+});
+
+test("MegaTag1 stands in when MegaTag2 has nothing", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": nums([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    "/limelight-ground/botpose_wpiblue": solve(3.3, 3.3, 0, 1),
+  });
+  const fix = limelightFix(read, { age: fresh });
+  assert.equal(fix.megatag, 1);
+  assert.equal(fix.x, 3.3);
+});
+
+test("the camera seeing the most tags wins, then the nearer tags", () => {
+  const read = view({
+    "/limelight-left/botpose_orb_wpiblue": solve(3.0, 3.0, 0, 1, 1.0),
+    "/limelight-right/botpose_orb_wpiblue": solve(3.1, 3.1, 0, 3, 4.0),
+    "/limelight-shooter/botpose_orb_wpiblue": solve(3.2, 3.2, 0, 3, 2.0),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).camera, "limelight-shooter");
+});
+
+test("cameras named by Catalyst's vision health are looked in even before their tables are listed", () => {
+  const read = view({
+    "/Catalyst/Vision/Health/Names": { t: "strs", v: ["limelight-ground"] },
+    "/limelight-ground/botpose_orb_wpiblue": solve(4, 4, 0, 2),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).camera, "limelight-ground");
 });

@@ -31,6 +31,121 @@ export function clampToField(pose, length, width, half = ROBOT_HALF_METERS) {
   return { x: cx, y: cy, theta, clamped: cx !== x || cy !== y };
 }
 
+/* ---------------------------------------------------------------- where the robot is */
+
+/* Metres inside which an estimator pose has never left the origin it booted at. */
+const ORIGIN_METERS = 1e-3;
+/* How recently a Limelight pose must have changed to count as a live fix, in milliseconds. A camera
+ * that sees tags publishes a slightly different solve every frame; one that has frozen repeats the
+ * last one, and would otherwise hold the robot where it stood when it froze. */
+export const VISION_FRESH_MS = 500;
+
+/* The Limelight tables to look in: the cameras Catalyst's vision health names, and any table on the
+ * wire publishing a blue-origin robot pose. */
+function cameraTables(read) {
+  const names = new Set();
+  const listed = read.arr("/Catalyst/Vision/Health/Names");
+  if (Array.isArray(listed)) {
+    for (const name of listed) if (typeof name === "string" && name.trim()) names.add(name.trim().replace(/^\/+/, ""));
+  }
+  for (const key of read.keys()) {
+    const match = /^\/([^/]+)\/botpose(?:_orb)?_wpiblue$/.exec(key);
+    if (match) names.add(match[1]);
+  }
+  return [...names];
+}
+
+/**
+ * The best live robot pose any Limelight is reporting, or null.
+ *
+ * Read from each camera's classic tables, which is what a Limelight on 2026 firmware publishes and what
+ * Catalyst itself reads on this robot: `botpose_orb_wpiblue` (MegaTag2, which uses the robot's own
+ * heading) before `botpose_wpiblue` (MegaTag1). Both are blue-origin
+ * [x, y, z, roll, pitch, yaw°, latency ms, tag count, tag span, average tag distance, average tag area].
+ *
+ * A fix counts when it has at least one tag, is not all zeros (nothing seen), lies on the field, has
+ * changed within VISION_FRESH_MS, and is not the unplaceable-tag reading: a tag the camera sees but
+ * cannot put on the field map comes through as one tag at exactly the field's centre, and the only way
+ * to tell it from a real fix is that the centre-origin twin (`botpose_orb`, `botpose`) is all zeros.
+ * That is the same test Catalyst's LegacyLimelightReader makes.
+ *
+ * Returns { camera, megatag, x, y, yaw (radians), tags, distance } for the camera seeing the most tags,
+ * then MegaTag2 over MegaTag1, then the nearest tags.
+ */
+export function limelightFix(read, { length = 16.54, width = 8.07, age = () => Infinity } = {}) {
+  let best = null;
+  for (const camera of cameraTables(read)) {
+    for (const [blue, centre, megatag] of [["botpose_orb_wpiblue", "botpose_orb", 2], ["botpose_wpiblue", "botpose", 1]]) {
+      const key = `/${camera}/${blue}`;
+      const a = read.arr(key);
+      if (!Array.isArray(a) || a.length < 8 || !a.slice(0, 8).every(Number.isFinite)) continue;
+      if (!(a[7] >= 1)) continue;
+      if (a.slice(0, 6).every((v) => v === 0)) continue;
+      const twin = read.arr(`/${camera}/${centre}`);
+      if (Array.isArray(twin) && twin.length >= 6 && twin.slice(0, 6).every((v) => v === 0)) continue;
+      if (!(age(key) <= VISION_FRESH_MS)) continue;
+      const [x, y] = a;
+      if (x < -0.5 || y < -0.5 || x > length + 0.5 || y > width + 0.5) continue;
+      const candidate = {
+        camera,
+        megatag,
+        x,
+        y,
+        yaw: (a[5] * Math.PI) / 180,
+        tags: a[7],
+        distance: a.length > 9 && Number.isFinite(a[9]) ? a[9] : Infinity,
+      };
+      const better =
+        !best ||
+        candidate.tags > best.tags ||
+        (candidate.tags === best.tags &&
+          (candidate.megatag > best.megatag || (candidate.megatag === best.megatag && candidate.distance < best.distance)));
+      if (better) best = candidate;
+      break;
+    }
+  }
+  return best;
+}
+
+/**
+ * Where the robot is on the field, and what says so.
+ *
+ * The drivetrain's pose estimator, which Physics Core republishes on /Catalyst/Physics/PoseArray, boots
+ * believing the robot is at the field origin - a corner - and stays there until something moves it:
+ * Catalyst's vision seeding it from a good Limelight fix, an autonomous routine resetting it, or the
+ * robot driving. Drawn as it stands, every robot sat in the corner until the match began. So:
+ *   1. the estimator's pose, once it has left the origin;
+ *   2. otherwise a live Limelight fix (see limelightFix), with the estimator's heading, which is the
+ *      gyro's, when there is one;
+ *   3. otherwise nowhere: `placed` is false, and the view says the robot has not been placed rather
+ *      than guessing.
+ *
+ * `age(key)` is how long ago, in milliseconds, a key's value last changed. Returns
+ * { pose: [x, y, theta] | null, source: "estimator" | "vision" | null, camera, tags, placed, heading },
+ * where `heading` is the best heading known even when the robot is not placed.
+ */
+export function robotPlacement(read, { poseKey = "/Catalyst/Physics/PoseArray", length = 16.54, width = 8.07, age = () => Infinity } = {}) {
+  const fused = read.arr(poseKey);
+  const fusedOk = Array.isArray(fused) && fused.length >= 3 && fused.slice(0, 3).every(Number.isFinite);
+  const heading = fusedOk ? fused[2] : null;
+  const atOrigin = fusedOk && Math.abs(fused[0]) < ORIGIN_METERS && Math.abs(fused[1]) < ORIGIN_METERS;
+  if (fusedOk && !atOrigin) {
+    return { pose: [fused[0], fused[1], fused[2]], source: "estimator", camera: null, tags: 0, placed: true, heading };
+  }
+  const fix = limelightFix(read, { length, width, age });
+  if (fix) {
+    return {
+      pose: [fix.x, fix.y, heading ?? fix.yaw],
+      source: "vision",
+      camera: fix.camera,
+      tags: fix.tags,
+      placed: true,
+      heading: heading ?? fix.yaw,
+    };
+  }
+  return { pose: null, source: null, camera: null, tags: 0, placed: false, heading };
+}
+
 /* ---------------------------------------------------------------- devices */
 
 const MOTOR_TYPE = /talon|kraken|falcon|spark|neo|vortex|venom|motor/i;
