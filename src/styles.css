@@ -396,6 +396,19 @@ textarea:focus-visible, summary:focus-visible,
   .chip .short { display: inline; }
   .chip.loop { display: none; }
 }
+/* Past that, the line gives up whole words rather than cutting one off partway, in this order, and
+   app.js (`fitStatusBar`) takes only as many of the steps as what is on the line right now needs:
+     event  the event's name, which everyone in the building already knows;
+     match  the match number;
+     words  the link chips' words, leaving their lights, each still named in its tooltip;
+     ident  the alliance, which the field view's bumpers show as well;
+     team   the team number.
+   The whole ident stays in its tooltip once any of it has gone. */
+.top[data-fit~="event"] .id-event,
+.top[data-fit~="match"] .id-match,
+.top[data-fit~="words"] .statgroup .chip > span,
+.top[data-fit~="ident"] .idt,
+.top[data-fit~="team"] .profile { display: none; }
 
 .chip {
   display: inline-flex; align-items: center; gap: 7px; min-width: 0;
@@ -403,8 +416,10 @@ textarea:focus-visible, summary:focus-visible,
   white-space: nowrap;
 }
 .chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The line height is the status line's, not the platform's `normal`, so the word in a chip that is a
+   button sits on the same baseline as the words in the chips beside it. */
 button.chip {
-  border: 0; background: transparent; font-family: var(--sans);
+  border: 0; background: transparent; font-family: var(--sans); line-height: inherit;
   padding: 4px 8px; margin: 0 -8px; border-radius: 999px; cursor: pointer;
 }
 button.chip:hover { background: var(--cat-surface-2); color: var(--cat-white); }
@@ -441,7 +456,9 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 /* ---- device strip ----
    Clips rather than pushes. Counts are a glance, not a reading, and the first one is the one that
    matters most — so losing the tail of the strip costs less than losing the gear behind it. */
-.devstrip { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+/* The padding gives back what each count's hover capsule borrows with its negative margin, so the
+   strip's own box holds the capsules and only a count that genuinely does not fit is clipped. */
+.devstrip { display: flex; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 0 6px; margin: 0 -6px; }
 .devstrip[hidden] { display: none; }
 .dev {
   display: inline-flex; align-items: center; gap: 6px;

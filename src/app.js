@@ -3394,11 +3394,19 @@ function paintHeader() {
   const side = alliance();
   const event = str("/FMSInfo/EventName", "");
   const match = num("/FMSInfo/MatchNumber", null);
-  const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
+  const sideText = `${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance`;
+  const matchText = event ? (match ? `Match ${match}` : "") : "no match";
   /* The status line carries the match, not the product: Tesla's bar has no wordmark on it, and the mark
-   * beside the drive-mode letters already says whose screen this is. */
-  $("#ident").innerHTML =
-    `<span class="idstate">${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance · ${escapeHtml(where)}</span>`;
+   * beside the drive-mode letters already says whose screen this is. The event and the match are their
+   * own spans because they are what the line gives up first on a narrow window (`fitStatusBar`), and the
+   * whole line stays in the tooltip once they have gone. */
+  const ident = $("#ident");
+  setHtml(ident, `<span class="idstate">${sideText}`
+    + (event ? `<span class="id-event"> · ${escapeHtml(event)}</span>` : "")
+    + (matchText ? `<span class="id-match"> · ${matchText}</span>` : "")
+    + `</span>`);
+  const identTitle = [sideText, event, matchText].filter(Boolean).join(" · ");
+  if (ident.title !== identTitle) ident.title = identTitle;
 
   /* The drive-mode letters. Unlinked lights none of them: with nothing on the other end the robot is
    * in no mode, and a lit D would say it had been disabled. */
@@ -3438,6 +3446,9 @@ function paintHeader() {
 
   $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
   $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";
+  /* Said in the tooltip as well, for when a narrow line has left the chip only its light. */
+  const linkTitle = `${$("#linkText").textContent} · Robot settings`;
+  if ($("#linkChip").title !== linkTitle) $("#linkChip").title = linkTitle;
   $("#dDs").className = `d ${ds.dsAttached ? "ok" : ""}`;
   $("#dFms").className = `d ${ds.fms ? "ok" : ""}`;
 
@@ -3463,6 +3474,54 @@ function paintHeader() {
   if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
 
   paintDeviceStrip();
+}
+
+/* The status line gives way a word at a time.
+ *
+ * At a laptop-width window, with an alert up, the line holds more than it has room for, and a word cut
+ * off partway - "De…" for Demo, "1/" for a device count - says nothing at all. So it gives up whole
+ * words instead, in the order `BAR_STEPS` lists and the stylesheet hides them (`.top[data-fit]`), and
+ * only as many as what is on it right now needs: a short event name keeps its match number where a
+ * long one does not, and a second alert costs a word that one alert did not.
+ *
+ * Measuring costs a layout, so it happens only when something that can change the line's width has
+ * changed - the window, the fonts arriving, the words on it, the alert count, the device counts - and
+ * not on every paint. Readings are tabular, so a figure that changes without changing length does not
+ * count as a change. */
+const BAR_STEPS = ["event", "match", "words", "ident", "team"];
+let barSig = "";
+
+function barOverflows(line) {
+  if (line.scrollWidth > line.clientWidth + 1) return true;
+  for (const node of line.querySelectorAll(".idt, .chip > span, .devstrip")) {
+    if (node.offsetWidth && node.scrollWidth > node.clientWidth + 1) return true;
+  }
+  return false;
+}
+
+function fitStatusBar() {
+  const sig = [
+    window.innerWidth, document.fonts?.status,
+    $("#ident").textContent, $("#profile").hidden, $("#profileName").textContent,
+    $("#linkText").textContent, $("#loopText").textContent.length,
+    $("#devStrip").hidden, $("#devStrip").dataset.sig,
+    $("#alertInd").hidden, $("#alertCount").textContent.length, $("#clock").textContent.length,
+  ].join("|");
+  if (sig === barSig) return;
+  barSig = sig;
+
+  const top = $(".top");
+  const line = $(".sb-map");
+  let steps = 0;
+  const apply = () => {
+    const fit = BAR_STEPS.slice(0, steps).join(" ");
+    if (top.dataset.fit !== fit) top.dataset.fit = fit;
+  };
+  apply();
+  while (steps < BAR_STEPS.length && barOverflows(line)) {
+    steps++;
+    apply();
+  }
 }
 
 /* ----------------------------------------------------------------- device strip */
@@ -5967,6 +6026,7 @@ function paint() {
   standDownOverlaysOnEnable();
   paintHeader();
   paintNotices();
+  fitStatusBar();
   paintDockAuto();
   trackDrive(performance.now());
   rememberRobot(performance.now());
