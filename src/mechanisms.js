@@ -34,7 +34,11 @@ export function readMechanisms(read) {
     const v = read.num(key, null);
     return typeof v === "number" && Number.isFinite(v) ? v : null;
   };
-  const roller = (name) => ({ speed: num(`/Catalyst/${name}/Speed`), motorRps: num(`/Catalyst/${name}Motor/Velocity`) });
+  const roller = (name) => ({
+    speed: num(`/Catalyst/${name}/Speed`),
+    motorRps: num(`/Catalyst/${name}Motor/Velocity`),
+    currentAmps: num(`/Catalyst/${name}/CurrentAmps`),
+  });
   /* A deploy that has not homed reports a length measured from nowhere. */
   const homed = read.bool("/Catalyst/Deploy/Homed", null);
   const length = num("/Catalyst/Deploy/LengthInches");
@@ -59,6 +63,38 @@ export function readMechanisms(read) {
   };
 }
 
+/**
+ * What the robot is aiming at, when it says: `{ state, target, aimPoint, headingErrorDeg, distance,
+ * timeOfFlight }` from /Catalyst/Aim, or null while it publishes nothing or is not aiming.
+ *
+ * `state` is ALIGNING while the robot turns its shooter onto the target, ALIGNED once it is on it, and SOTF
+ * while it shoots on the move. `target` is the HUB, [x, y] in field metres; `aimPoint` is where the shot is
+ * actually aimed - the virtual goal a moving robot leads, target minus its velocity times the ball's time
+ * of flight - and the target itself when the robot is still.
+ */
+export function readAim(read) {
+  const state = String(read.str("/Catalyst/Aim/State", "") || "").toUpperCase();
+  if (!["ALIGNING", "ALIGNED", "SOTF"].includes(state)) return null;
+  const pair = (key) => {
+    const v = read.arr(key);
+    return Array.isArray(v) && v.length >= 2 && Number.isFinite(v[0]) && Number.isFinite(v[1]) ? [v[0], v[1]] : null;
+  };
+  const target = pair("/Catalyst/Aim/Target");
+  if (!target) return null;
+  const num = (key) => {
+    const v = read.num(key, null);
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+  return {
+    state,
+    target,
+    aimPoint: pair("/Catalyst/Aim/AimPoint") ?? target,
+    headingErrorDeg: num("/Catalyst/Aim/HeadingErrorDeg"),
+    distance: num("/Catalyst/Aim/DistanceMeters"),
+    timeOfFlight: num("/Catalyst/Aim/TimeOfFlightSeconds"),
+  };
+}
+
 /** True when anything here would move a part of the robot. */
 export function hasMechanisms(m) {
   return Boolean(m) && [m.hoodDeg, m.deployM, m.intake?.speed, m.conveyor?.speed, m.feeder?.speed, m.shooterRps]
@@ -67,11 +103,20 @@ export function hasMechanisms(m) {
 
 const state = (name) => (typeof name === "string" ? name.toUpperCase() : "");
 
-/** Pulling FUEL in: the hopper manager says so, or the intake rollers are running inward. */
+/* Intake rollers spinning on nothing draw a few amps; FUEL going through them draws several times that. */
+export const INTAKE_LOAD_AMPS = 12;
+
+/**
+ * Taking FUEL in: the hopper manager says it is intaking, or the rollers are running inward - and, when the
+ * robot publishes its intake current, the rollers are actually loaded. A driver who drops the intake and
+ * runs it across open carpet extends the hopper and brings nothing in, so nothing is counted.
+ */
 export function isIntaking(m) {
   const s = state(m.hopperState);
-  if (s) return s.includes("INTAK");
-  return (m.intake?.speed ?? 0) > 0.5;
+  const running = s ? s.includes("INTAK") : (m.intake?.speed ?? 0) > 0.5;
+  if (!running) return false;
+  const amps = m.intake?.currentAmps;
+  return typeof amps !== "number" || amps >= INTAKE_LOAD_AMPS;
 }
 
 /** Pushing FUEL back out through the intake. */

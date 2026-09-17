@@ -26,7 +26,7 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
-import { createHopper, FEED_RATE, hasMechanisms, readMechanisms } from "./mechanisms.js";
+import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms } from "./mechanisms.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -289,6 +289,9 @@ function demoTick() {
     set("/Catalyst/Deploy/LengthInches", "num", m.deploy);
     set("/Catalyst/Deploy/GoalInches", "num", deployGoal);
     set("/Catalyst/Intake/Speed", "num", phase === "intake" ? 1 : phase === "score" ? 5 / 12 : 0);
+    /* Loaded only while it is actually going through FUEL: a free-spinning intake draws a few amps. */
+    set("/Catalyst/Intake/CurrentAmps", "num",
+      phase === "intake" ? (lap > 0.5 && lap < 1.9 ? 30 + 5 * Math.sin(t * 9) : 3) : phase === "score" ? 4 : 0);
     set("/Catalyst/Conveyor/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? 1 / 12 : 0);
     set("/Catalyst/Feeder/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? -1 / 12 : 0);
     set("/Catalyst/Shooter/VelocityRPS", "num", m.shooter);
@@ -299,6 +302,23 @@ function demoTick() {
     set("/Catalyst/HopperManager/State", "str",
       phase === "intake" ? "INTAKING" : phase === "score" ? "SCORE" : enabled ? "IDLE_DEPLOYED" : "IDLE_STOWED");
     set("/Catalyst/HopperManager/IsFull", "bool", false);
+
+    /* Aiming at the red HUB: aligning while it spins up, shooting on the move while it scores, leading the
+       HUB by its velocity over the ball's time of flight. */
+    const target = [11.93, 4.035];
+    const px = 8.2 + radius * Math.cos(tm * 0.42);
+    const py = 4.1 + radius * 0.7 * Math.sin(tm * 0.42);
+    const vx = -radius * 0.42 * Math.sin(tm * 0.42);
+    const vy = radius * 0.7 * 0.42 * Math.cos(tm * 0.42);
+    const distance = Math.hypot(target[0] - px, target[1] - py);
+    const flight = 0.25 + distance * 0.18;
+    set("/Catalyst/Aim/State", "str",
+      phase === "prepare" ? (lap < 2.7 ? "ALIGNING" : "ALIGNED") : phase === "score" ? "SOTF" : "IDLE");
+    set("/Catalyst/Aim/Target", "nums", target);
+    set("/Catalyst/Aim/AimPoint", "nums", [target[0] - vx * flight, target[1] - vy * flight]);
+    set("/Catalyst/Aim/HeadingErrorDeg", "num", phase === "prepare" ? Math.max(0.5, (2.7 - lap) * 45) : 0.8);
+    set("/Catalyst/Aim/DistanceMeters", "num", distance);
+    set("/Catalyst/Aim/TimeOfFlightSeconds", "num", flight);
   }
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
@@ -1926,6 +1946,7 @@ define("field", {
           <span>y <b data-x="fy">—</b> m</span>
           <span>θ <b data-x="ft">—</b>°</span>
         </div>
+        <div class="car-aim" data-x="aim" data-state="" hidden><i aria-hidden="true"></i><span data-x="aimText"></span></div>
         <div class="fc off" data-x="foff" hidden>drawn at the wall</div>
         <div class="fc place" data-x="fplace" hidden></div>
       </div>
@@ -2037,6 +2058,19 @@ define("field", {
        that the chip does not say better. */
     const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
     x.foff.hidden = !(drawn && drawn.clamped);
+    /* What the robot's aiming is doing, in words under the figures, in the blue its marks on the field
+       are drawn in: aligning with the error still to close, locked on with the distance, or shooting on
+       the move. */
+    const aim = linked && ds.enabled ? readAim(ntView) : null;
+    const aimState = aim ? aim.state : "";
+    const range = aim && aim.distance !== null ? ` · ${aim.distance.toFixed(1)} m` : "";
+    const aimText = !aim ? ""
+      : aim.state === "ALIGNING" ? `Aligning${aim.headingErrorDeg !== null ? ` · ${Math.abs(aim.headingErrorDeg).toFixed(0)}°` : ""}`
+      : aim.state === "ALIGNED" ? `Locked on${range}`
+      : `Shooting on the move${range}`;
+    if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
+    if (x.aim.dataset.state !== aimState) x.aim.dataset.state = aimState;
+    if (x.aimText.textContent !== aimText) x.aimText.textContent = aimText;
     /* Said under the figures whenever the position is not the estimator's own: where a vision fix is
        standing in for it, and when there is nothing to place the robot with at all. */
     const placeText = !linked ? ""
@@ -2059,6 +2093,7 @@ define("field", {
       team: parkTeam(linked),
       /* Its mechanisms, and how many balls have left the shooter (see trackMechanisms). */
       mechanisms: linked ? mechanismState.now : null,
+      aim,
       fired: mechanismState.fired,
       hopper: mechanismState.hopper.fill / mechanismState.hopper.capacity,
     });

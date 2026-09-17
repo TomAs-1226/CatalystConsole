@@ -11,6 +11,7 @@ import {
   launchAngleDeg,
   launchSpeed,
   PRELOAD_FUEL,
+  readAim,
   readMechanisms,
   speedToReach,
 } from "./mechanisms.js";
@@ -82,6 +83,14 @@ test("the longer the robot intakes, the fuller the hopper, up to what it holds",
   assert.equal(hopper.fill, 40);
 });
 
+test("an intake running on open carpet takes nothing in; a loaded one does", () => {
+  const hopper = createHopper({ capacity: 40, intakeRate: 5, preload: 0 });
+  run(hopper, { ...intaking, intake: { speed: 1, currentAmps: 3 } }, 2, 60);
+  assert.equal(hopper.fill, 0, "rollers spinning free");
+  run(hopper, { ...intaking, intake: { speed: 1, currentAmps: 30 } }, 2, 60);
+  near(hopper.fill, 10, 1e-6, "rollers eating FUEL");
+});
+
 test("the full sensor pins the estimate, and ejecting empties it", () => {
   const hopper = createHopper({ capacity: 40 });
   hopper.step(0.02, { ...idle, hopperFull: true });
@@ -136,4 +145,24 @@ test("a ball launched at the speed to reach a target passes through it", () => {
   near(at[0], 3.46, 1e-9, "x");
   near(at[1], 1.83, 1e-9, "height at the target");
   near(launchSpeed(1610 / 60, 0.0508, 1), 8.564, 1e-3, "surface speed at 1610 RPM");
+});
+
+/* ---- aiming ---- */
+
+test("what the robot is aiming at is read only while it aims, with the lead point it shoots at", () => {
+  assert.equal(readAim(view({})), null);
+  assert.equal(readAim(view({ "/Catalyst/Aim/State": "IDLE", "/Catalyst/Aim/Target": [11.93, 4.03] })), null);
+  const moving = readAim(view({
+    "/Catalyst/Aim/State": "sotf",
+    "/Catalyst/Aim/Target": [11.93, 4.03],
+    "/Catalyst/Aim/AimPoint": [11.6, 4.4],
+    "/Catalyst/Aim/HeadingErrorDeg": 1.2,
+    "/Catalyst/Aim/DistanceMeters": 3.1,
+  }));
+  assert.equal(moving.state, "SOTF");
+  assert.deepEqual(moving.aimPoint, [11.6, 4.4]);
+  assert.equal(moving.distance, 3.1);
+  const still = readAim(view({ "/Catalyst/Aim/State": "ALIGNING", "/Catalyst/Aim/Target": [11.93, 4.03] }));
+  assert.deepEqual(still.aimPoint, [11.93, 4.03], "no lead published: aimed straight at the target");
+  assert.equal(still.headingErrorDeg, null);
 });

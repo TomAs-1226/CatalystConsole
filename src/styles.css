@@ -1038,6 +1038,20 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim);
 }
 .car-stats b { color: var(--cat-white); font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; }
+/* What the robot's aiming is doing, in the automation's blue: a small pill under the figures with a light
+   that breathes while the shooter swings onto the target, holds steady once locked, and runs as a short
+   streak while the robot shoots on the move. */
+.car-aim {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 11px 4px 9px;
+  border-radius: 999px; background: color-mix(in srgb, var(--cat-signal) 22%, rgba(0, 0, 0, 0.55));
+  font-size: var(--fs-13); font-weight: var(--cat-w-semi); color: #dbe4ff; white-space: nowrap;
+}
+.car-aim[hidden] { display: none; }
+.car-aim i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cat-signal); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-signal) 30%, transparent); }
+.car-aim[data-state="ALIGNING"] i { animation: aimBreathe 0.9s ease-in-out infinite; }
+.car-aim[data-state="SOTF"] i { width: 14px; border-radius: 4px; animation: aimStreak 0.5s linear infinite; background: linear-gradient(90deg, transparent, var(--cat-signal) 45%, #dbe4ff); background-size: 200% 100%; }
+@keyframes aimBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes aimStreak { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 /* The estimator put the robot through a wall and the drawing is holding it inside one. A state, so
    it is allowed amber, as a filled pill so it is seen over a lit scene. */
 .fc.off {

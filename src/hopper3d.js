@@ -17,6 +17,9 @@ import { FUEL_DIAMETER_M } from "./mechanisms.js";
 const RADIUS = FUEL_DIAMETER_M / 2;
 const ARRIVE_S = 0.42;
 const LEAVE_S = 0.18;
+/* When the hopper changes shape - the intake sliding out opens room, sliding back squeezes the pile - the
+   balls already in it move to their new places rather than jumping. */
+const SETTLE_S = 0.3;
 /* Arrivals in a burst are staggered, so a big intake reads as a stream rather than a teleport. */
 const STAGGER_S = 0.07;
 
@@ -66,12 +69,12 @@ const smooth = (u) => {
  * it with setMouth as the intake slides), `feeder` where they leave to, `colour` FUEL's. Returns
  * { root, setCount, setMouth, step, count, capacity, setColour, dispose }.
  */
-export function createHopperBalls({ slots: given_slots = null, box = null, mouth, feeder, colour = "#a8913e", material: given = null }) {
-  const slots = given_slots ?? packSlots(box.min, box.max);
+export function createHopperBalls({ slots: given_slots = null, box = null, mouth, feeder, colour = "#a8913e", material: given = null, maxSlots = null }) {
+  let slots = given_slots ?? packSlots(box.min, box.max);
   let entry = [mouth[0], mouth[1], mouth[2]];
   const geometry = new THREE.IcosahedronGeometry(RADIUS, 2);
   const material = given ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
-  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, slots.length));
+  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, maxSlots ?? slots.length));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -107,6 +110,44 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
     }
   }
 
+  /* Where a ball is drawn at `now`: its slot, or on its way from where the hopper last reshaped. */
+  function settledAt(ball, now) {
+    const slot = slots[Math.min(ball.slot, slots.length - 1)];
+    if (!ball.from) return slot;
+    const u = smooth((now - ball.moved) / 1000 / SETTLE_S);
+    if (u >= 1) {
+      ball.from = null;
+      return slot;
+    }
+    return [ball.from[0] + (slot[0] - ball.from[0]) * u, ball.from[1] + (slot[1] - ball.from[1]) * u, ball.from[2] + (slot[2] - ball.from[2]) * u];
+  }
+
+  /* Change the places balls sit - a different list for the stowed and the extended hopper. Balls in the
+     pile move over to their new places; any the smaller hopper has no room for are squeezed out in place. */
+  function setSlots(next, now) {
+    if (next === slots || !Array.isArray(next)) return;
+    for (const ball of balls) {
+      if (ball.leaving) continue;
+      if (now - ball.since >= ARRIVE_S * 1000) {
+        ball.from = settledAt(ball, now);
+        ball.moved = now;
+      }
+    }
+    slots = next;
+    let kept = 0;
+    for (const ball of balls) {
+      if (ball.leaving) continue;
+      if (kept >= slots.length) {
+        ball.leaving = true;
+        ball.squeezed = settledAt(ball, now);
+        ball.since = now;
+      } else {
+        kept++;
+      }
+    }
+    wanted = Math.min(wanted, slots.length);
+  }
+
   function step(now) {
     let moving = false;
     for (let i = balls.length - 1; i >= 0; i--) {
@@ -114,10 +155,14 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
     }
     mesh.count = balls.length;
     balls.forEach((ball, i) => {
-      const slot = slots[Math.min(ball.slot, slots.length - 1)];
+      const slot = ball.leaving && ball.squeezed ? ball.squeezed : settledAt(ball, now);
       const t = (now - ball.since) / 1000;
       let s = 1;
-      if (ball.leaving) {
+      if (ball.leaving && ball.squeezed) {
+        place.set(slot[0], slot[1], slot[2]);
+        s = 1 - smooth(t / LEAVE_S);
+        moving = true;
+      } else if (ball.leaving) {
         const u = smooth(t / LEAVE_S);
         place.set(slot[0] + (feeder[0] - slot[0]) * u, slot[1] + (feeder[1] - slot[1]) * u, slot[2] + (feeder[2] - slot[2]) * u);
         s = 1 - u;
@@ -138,6 +183,7 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
         moving = true;
       } else {
         place.set(slot[0], slot[1], slot[2]);
+        if (ball.from) moving = true;
       }
       turn.set(0, 0, 0, 1);
       size.setScalar(s);
@@ -150,6 +196,7 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
   return {
     root,
     setCount,
+    setSlots,
     step,
     /** Where balls come in from now, as the intake slides. */
     setMouth(point) {

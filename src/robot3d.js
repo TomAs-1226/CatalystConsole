@@ -582,15 +582,16 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
     .filter((md) => md.steer && md.wheel);
   const positions = cadSpec(m).modules;
 
-  /* FUEL in the hopper, in the positions the CAD analysis packed, lowest first: the stowed hopper's, then
-     the room the intake opens up as it slides out. */
-  const slots = m.hopper?.ballCentres?.deployed ?? m.hopper?.ballCentres?.stowed ?? [];
-  const stowedSlots = m.hopper?.ballCentres?.stowed?.length ?? slots.length;
+  /* FUEL in the hopper, in the positions the CAD analysis packed, lowest first: one list for the hopper
+     with the intake stowed, a longer one for the room the intake opens up when it slides out. */
+  const stowedSlots = m.hopper?.ballCentres?.stowed ?? [];
+  const deployedSlots = m.hopper?.ballCentres?.deployed ?? stowedSlots;
+  const slots = deployedSlots.length >= stowedSlots.length ? deployedSlots : stowedSlots;
   const feeder = m.rollers.find((r) => r.role === "feeder" && r.node === "roller-feeder-3")?.center
     ?? m.rollers.find((r) => r.role === "feeder")?.center
     ?? [-0.09, 0.42, 0];
   const hopperBalls = slots.length
-    ? createHopperBalls({ slots, mouth: intakeMouth(m, 0), feeder, material: fuel })
+    ? createHopperBalls({ slots: stowedSlots.length ? stowedSlots : slots, maxSlots: slots.length, mouth: intakeMouth(m, 0), feeder, material: fuel })
     : null;
   if (hopperBalls) group.add(hopperBalls.root);
 
@@ -647,9 +648,12 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
     if (hopperBalls) {
       hopperBalls.setMouth(intakeMouth(m, state.deploy));
       const share = Number.isFinite(hopperShare) ? Math.min(1, Math.max(0, hopperShare)) : 0;
-      /* Retracting squeezes the pile back toward the shooter, as the real hopper does. */
-      const room = state.deploy > 0.2 ? slots.length : stowedSlots;
-      hopperBalls.setCount(Math.min(room, Math.round(share * slots.length)), now);
+      /* The extended hopper's places only once the intake is most of the way out; retracting squeezes the
+         pile back into the stowed hopper, as the real one does. */
+      const extended = state.deploy > (m.intake.travel ?? 0.3) * 0.75;
+      const room = extended || !stowedSlots.length ? deployedSlots : stowedSlots;
+      hopperBalls.setSlots(room, now);
+      hopperBalls.setCount(Math.min(room.length, Math.round(share * slots.length)), now);
       if (hopperBalls.step(now)) moving = true;
     }
     return moving;

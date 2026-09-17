@@ -91,6 +91,8 @@ const TELEPORT_M = 1.5;
 /* The camera turns with the robot, but slowly: a swerve robot can spin on the spot, and a camera that
    whipped round with it would make a driver sick. */
 const CAMERA_TURN_S = 0.45;
+/* The slower swing round to look over the robot at what it aims at (see placeCamera). */
+const AIM_TURN_S = 0.3;
 const CAMERA_SWING_RATE = 2.6;
 
 /* ---- the clearing ----
@@ -845,6 +847,132 @@ export function createField(canvas, opts) {
     destination.add(arrow);
   }
 
+  /* ---- aiming (see mechanisms.js readAim) ----
+     While the robot aims, the field says at what, in the path's blue - it is the robot's automation
+     speaking. A reticle stands on the HUB's opening, facing the lens and drawn over whatever is in front
+     of it: wide and breathing while the shooter swings onto the target, closing in as the error falls,
+     and on the moment it locks it gains a centre and one ring ripples out from it. A guide runs along the
+     carpet from the robot to where it is aiming. Shooting on the move, a second, small reticle marks the
+     point the robot actually leads - the virtual goal its velocity makes it aim at - joined to the HUB's
+     by a hairline, so the lead itself is on screen. Nothing here predicts where a ball goes: every mark
+     is a number the robot published. The camera, meanwhile, swings round to look over the robot at the
+     target (see placeCamera). */
+  const OPENING_HEIGHT = 1.83;
+  const LOCKED_RADIUS = 0.34;
+  const RIPPLE_S = 0.65;
+  /* Never drawn smaller than this share of its distance from the lens, so a far HUB's reticle still reads. */
+  const MIN_SCREEN = 0.028;
+  const aimMaterial = () => new THREE.MeshBasicMaterial({
+    color: SIGNAL, transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false,
+    side: THREE.DoubleSide, fog: false,
+  });
+  const aimGroup = new THREE.Group();
+  aimGroup.visible = false;
+  scene.add(aimGroup);
+  const ringGeometry = new THREE.RingGeometry(0.84, 1, 96);
+  const facingMesh = (geometry) => {
+    const mesh = new THREE.Mesh(geometry, aimMaterial());
+    mesh.renderOrder = 10;
+    aimGroup.add(mesh);
+    return mesh;
+  };
+  const halo = facingMesh(ringGeometry);
+  const haloCentre = facingMesh(new THREE.CircleGeometry(0.16, 32));
+  const ripple = facingMesh(ringGeometry);
+  const leadRing = facingMesh(ringGeometry);
+  const leadCentre = facingMesh(new THREE.CircleGeometry(0.2, 24));
+  const leadLine = new THREE.Line(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)),
+    new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0, depthTest: false, toneMapped: false, fog: false })
+  );
+  leadLine.renderOrder = 10;
+  leadLine.frustumCulled = false;
+  aimGroup.add(leadLine);
+  /* Place a camera-facing mark at `at`, `radius` metres across but never smaller on screen than MIN_SCREEN. */
+  const face = (mesh, at, radius) => {
+    mesh.position.copy(at);
+    mesh.quaternion.copy(camera.quaternion);
+    mesh.scale.setScalar(Math.max(radius, camera.position.distanceTo(at) * MIN_SCREEN * (radius / LOCKED_RADIUS)));
+  };
+  const aimAt = new THREE.Vector3();
+  const leadAt = new THREE.Vector3();
+  const guide = makeRibbon(SIGNAL, 0, 0.35);
+  scene.add(guide);
+  let aimInfo = null;       // { state, target: [x, z], aimPoint: [x, z], headingErrorDeg } in the scene
+  let aimShown = null;      // the last aim drawn, kept while it fades out
+  let aimFade = 0;
+  let haloRadius = LOCKED_RADIUS + 0.9;
+  let lockedAt = -Infinity;
+  let lastAimState = "IDLE";
+
+  function placeAim(dt, now) {
+    const want = aimInfo && robot.visible && !unplaced && model.root.visible ? 1 : 0;
+    aimFade = reduced ? want : want + (aimFade - want) * Math.exp(-dt / 0.14);
+    if (Math.abs(aimFade - want) < 0.004) aimFade = want;
+    if (aimInfo) aimShown = aimInfo;
+    const info = aimShown;
+    const visible = aimFade > 0 && info;
+    aimGroup.visible = Boolean(visible);
+    guide.visible = Boolean(visible);
+    if (!visible) {
+      lastAimState = "IDLE";
+      return false;
+    }
+    const [tx, tz] = info.target;
+    const [ax, az] = info.aimPoint;
+    const locked = info.state === "ALIGNED" || info.state === "SOTF";
+    if (locked && lastAimState !== "ALIGNED" && lastAimState !== "SOTF") lockedAt = now;
+    lastAimState = info.state;
+
+    /* The reticle: wide with the heading error while aligning, closed and centred once locked. */
+    const error = Math.abs(Number.isFinite(info.headingErrorDeg) ? info.headingErrorDeg : 10);
+    const goal = locked ? LOCKED_RADIUS : LOCKED_RADIUS + Math.min(0.75, error / 25);
+    haloRadius = reduced ? goal : goal + (haloRadius - goal) * Math.exp(-dt / 0.12);
+    const breathe = locked || reduced ? 1 : 0.72 + 0.28 * Math.sin((now / 1000) * Math.PI * 2 * 1.1);
+    aimAt.set(tx, OPENING_HEIGHT, tz);
+    face(halo, aimAt, haloRadius);
+    halo.material.opacity = aimFade * (locked ? 1 : 0.7) * breathe;
+    haloCentre.visible = locked;
+    if (locked) {
+      face(haloCentre, aimAt, LOCKED_RADIUS);
+      haloCentre.material.opacity = aimFade * 0.9;
+    }
+
+    /* The lock: one ring out from the reticle, fading as it goes. */
+    const since = (now - lockedAt) / 1000;
+    const rippling = !reduced && since >= 0 && since < RIPPLE_S;
+    ripple.visible = rippling;
+    if (rippling) {
+      const u = since / RIPPLE_S;
+      face(ripple, aimAt, LOCKED_RADIUS * (1 + 1.6 * (1 - (1 - u) * (1 - u))));
+      ripple.material.opacity = aimFade * 0.8 * (1 - u);
+    }
+
+    /* The lead, while shooting on the move. */
+    const offset = Math.hypot(ax - tx, az - tz);
+    const leading = info.state === "SOTF" && offset > 0.04;
+    leadRing.visible = leading;
+    leadCentre.visible = leading;
+    leadLine.visible = leading;
+    if (leading) {
+      leadAt.set(ax, OPENING_HEIGHT, az);
+      face(leadRing, leadAt, LOCKED_RADIUS * 0.55);
+      leadRing.material.opacity = aimFade * 0.95;
+      face(leadCentre, leadAt, LOCKED_RADIUS * 0.55);
+      leadCentre.material.opacity = aimFade * 0.95;
+      const line = leadLine.geometry.getAttribute("position");
+      line.setXYZ(0, tx, OPENING_HEIGHT, tz);
+      line.setXYZ(1, ax, OPENING_HEIGHT, az);
+      line.needsUpdate = true;
+      leadLine.material.opacity = aimFade * 0.7;
+    }
+
+    /* The guide on the carpet, to the point being aimed at. */
+    layRibbon(guide, [[robot.position.x, robot.position.z], leading ? [ax, az] : [tx, tz]], 0.045, 0.02);
+    guide.material.uniforms.uOpacity.value = aimFade * (locked ? 0.55 : 0.32);
+    return aimFade !== want || rippling || Math.abs(haloRadius - goal) > 1e-3 || (!locked && !reduced);
+  }
+
   const PLANNED_OPACITY = 0.9;
   const MOTION_OPACITY = 0.8;
   /* The fade's time constant: most of the way in about half a second. */
@@ -1009,6 +1137,13 @@ export function createField(canvas, opts) {
   /** The shot the following camera wants, as polar coordinates in the robot's frame. */
   function wantedRel() {
     if (parked) return polar(PARKED_EYE, PARKED_LOOK);
+    if (aimInfo) {
+      /* Aiming: a little higher and further back, looking partway to the target and up toward its opening,
+         so the robot sits in the lower half of the picture and what it aims at in the upper half, clear of
+         the figures over the top of the panel. */
+      const range = Math.hypot(aimInfo.target[0] - robot.position.x, aimInfo.target[1] - robot.position.z);
+      return polar([-4.8, 3.4, 0], [Math.min(range * 0.6, 4), 0.9, 0]);
+    }
     const eye = turnY(CHASE_EYE, chaseSwing);
     const lookAt = turnY(CHASE_LOOK, chaseSwing);
     return polar(eye, lookAt);
@@ -1032,9 +1167,18 @@ export function createField(canvas, opts) {
     if (Math.abs(swingTarget - chaseSwing) > 1e-3) moving = true;
 
     if (mode === "chase" && robot.visible) {
-      const headingStep = angleTo(cameraHeading, robot.rotation.y);
-      cameraHeading += reduced ? headingStep : headingStep * (1 - Math.exp(-dt / CAMERA_TURN_S));
-      if (Math.abs(angleTo(cameraHeading, robot.rotation.y)) > 1e-3) moving = true;
+      /* While the robot aims, the camera looks where it aims: from behind the robot, over it, at the HUB.
+         A robot that shoots out of its back faces away from its target, and a camera following its
+         heading would watch the balls fly at the lens with the target behind it. The swing round is
+         slower than a turn, so it reads as the camera choosing the shot. */
+      const aiming = aimInfo && !parked;
+      /* Toward the middle of the HUB and the point the robot leads, so both of their marks are in frame. */
+      const aimX = aiming ? (aimInfo.target[0] + aimInfo.aimPoint[0]) / 2 : 0;
+      const aimZ = aiming ? (aimInfo.target[1] + aimInfo.aimPoint[1]) / 2 : 0;
+      const reference = aiming ? Math.atan2(-(aimZ - robot.position.z), aimX - robot.position.x) : robot.rotation.y;
+      const headingStep = angleTo(cameraHeading, reference);
+      cameraHeading += reduced ? headingStep : headingStep * (1 - Math.exp(-dt / (aiming ? AIM_TURN_S : CAMERA_TURN_S)));
+      if (Math.abs(angleTo(cameraHeading, reference)) > 1e-3) moving = true;
 
       const want = wantedRel();
       if (!rel) rel = relFromCamera();
@@ -1183,6 +1327,7 @@ export function createField(canvas, opts) {
     carveUniforms.uCarveEye.value.copy(camera.position);
     const clearingMoving = amount.value !== clearing;
     const pathsMoving = placePaths(dt);
+    const aimMoving = placeAim(dt, now);
     if (!environment) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
@@ -1192,7 +1337,7 @@ export function createField(canvas, opts) {
     while (launches.length && launches[0].at <= now) launchBall(launches.shift(), now);
     const shotsMoving = shots.step(now);
     draw();
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0 || aimMoving;
     dirty = false;
   }
 
@@ -1266,6 +1411,14 @@ export function createField(canvas, opts) {
       }
 
       if (state.mechanisms !== undefined) mechanisms = state.mechanisms;
+      if (state.aim !== undefined) {
+        const toScene = ([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)];
+        const next = state.aim
+          ? { ...state.aim, target: toScene(state.aim.target), aimPoint: toScene(state.aim.aimPoint) }
+          : null;
+        if (Boolean(next) !== Boolean(aimInfo) || next?.state !== aimInfo?.state) dirty = true;
+        aimInfo = next;
+      }
       if (Number.isFinite(state.fired)) {
         if (firedSeen === null || state.fired < firedSeen) {
           /* First sight, or a new count: nothing to launch for balls that left before this view was
