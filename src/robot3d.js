@@ -5,12 +5,26 @@
  * parked, down to the numbers on its bumpers, and a transition between the two can hand one over to
  * the other without the robot changing under the viewer's eye.
  *
- * The model is built from the robot's configured dimensions instead of loaded from CAD, for the reason
- * the field is (see field3d.js): a team's assembly is hundreds of megabytes and says nothing here that
- * a frame, bumpers and swerve modules drawn to scale do not.
+ * When the team has baked its own CAD (`npm run robot-cad`, see robot-cad.js) the model is that robot,
+ * lightened to about 120k triangles, with its hood, intake, rollers and swerve modules posed from the
+ * robot's telemetry and the FUEL in its hopper drawn from the hopper estimate. Otherwise it is built
+ * from the robot's configured dimensions: a frame, bumpers and swerve modules drawn to scale.
  */
 
 import * as THREE from "./vendor/three.module.min.js";
+import { createHopperBalls } from "./hopper3d.js";
+import {
+  cadSpec,
+  hoodTurn,
+  intakeMouth,
+  intakeSlide,
+  loadRobotCad,
+  moduleStates,
+  optimizeModule,
+  rollerSpin,
+  shooterExit,
+  shownRevs,
+} from "./robot-cad.js";
 
 /**
  * A robot description with every field present and sane, in metres.
@@ -367,23 +381,7 @@ function buildRobot(spec, mat, keep) {
   const pan = put(roundedBox(L - 2 * rail - 0.004, 0.006, W - 2 * rail - 0.004, 0.008, 0.002), mat.pan, 0, FRAME_BOTTOM + 0.004, 0);
   const deck = pan.position.y + 0.003;
 
-  /* Bumpers: one continuous ring rather than four rails, a flat face with rounded top and bottom edges,
-     the shape fabric takes when it is pulled over pool noodles. A deeper bevel than this rounds the
-     face away entirely and the ring reads as an inflatable. */
-  const tx = (spec.bumperLength - L) / 2;
-  const tz = (spec.bumperWidth - W) / 2;
-  const thin = Math.min(tx, tz);
-  const corner = 0.02 + Math.max(thin, 0) * 0.6;
-  if (thin > 0.004) {
-    const b = Math.min(thin * 0.3, BUMPER_HEIGHT * 0.25);
-    put(
-      extrudeUp(
-        ring(spec.bumperLength - 2 * b, spec.bumperWidth - 2 * b, corner - b, L + 2 * b, W + 2 * b, 0.02 + b),
-        BUMPER_HEIGHT, b, 4, 6
-      ),
-      mat.bumper, 0, BUMPER_BOTTOM + BUMPER_HEIGHT / 2, 0
-    );
-  }
+  const { tx, thin, corner } = addBumpers(put, spec, mat, L, W, BUMPER_BOTTOM, BUMPER_HEIGHT);
 
   /* A light bar along the top of the front bumper. It is the one thing on the model that says which
      way is forward from every angle: the field view's overhead camera draws the robot a couple of
@@ -505,6 +503,208 @@ function buildRobot(spec, mat, keep) {
 }
 
 /**
+ * Bumpers round a frame `frameLength` by `frameWidth` out to the spec's bumper size, from `bottom` to
+ * `bottom + height` above the floor: one continuous ring rather than four rails, a flat face with
+ * rounded top and bottom edges, the shape fabric takes when it is pulled over pool noodles. A deeper
+ * bevel than this rounds the face away entirely and the ring reads as an inflatable.
+ */
+function addBumpers(put, spec, mat, frameLength, frameWidth, bottom, height) {
+  const tx = (spec.bumperLength - frameLength) / 2;
+  const tz = (spec.bumperWidth - frameWidth) / 2;
+  const thin = Math.min(tx, tz);
+  const corner = 0.02 + Math.max(thin, 0) * 0.6;
+  if (thin > 0.004) {
+    const b = Math.min(thin * 0.3, height * 0.25);
+    put(
+      extrudeUp(
+        ring(spec.bumperLength - 2 * b, spec.bumperWidth - 2 * b, corner - b, frameLength + 2 * b, frameWidth + 2 * b, 0.02 + b),
+        height, b, 4, 6
+      ),
+      mat.bumper, 0, bottom + height / 2, 0
+    );
+  }
+  return { tx, thin, corner };
+}
+
+/* ---- the team's own robot, from its CAD ---- */
+
+/* How quickly a posed part follows a new reading: long enough that telemetry arriving fifty times a second
+   reads as motion rather than steps, short enough that the hood is where the code has it. */
+const PART_FOLLOW_S = 0.07;
+/* How quickly a swerve module turns to a new heading on screen. */
+const MODULE_FOLLOW_S = 0.05;
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * The robot drawn from its CAD (see robot-cad.js), posed by `animate` from the robot's telemetry. The
+ * baked geometry is shared with every other view that draws the robot; `restyle` gives this model its own
+ * materials, which carry this view's reflections. The CAD has no bumpers, so they are drawn here at the
+ * manifest's size, and the FUEL in the hopper is drawn in the ball positions the CAD analysis packed.
+ */
+function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
+  const m = asset.manifest;
+  const group = new THREE.Group();
+  group.name = "cad-robot";
+  const cad = asset.scene.clone(true);
+  cad.traverse((obj) => {
+    if (!obj.isMesh) return;
+    obj.material = Array.isArray(obj.material) ? obj.material.map(restyle) : restyle(obj.material);
+  });
+  group.add(cad);
+  const put = (geometry, material, x, y, z) => {
+    const mesh = new THREE.Mesh(keep(geometry), material);
+    mesh.position.set(x, y, z);
+    group.add(mesh);
+    return mesh;
+  };
+  const frame = m.framePerimeter;
+  const { thin, corner } = addBumpers(put, spec, mat, frame.length, frame.width, m.bumpers.bottom, m.bumpers.height);
+
+  const find = (name) => cad.getObjectByName(name) ?? null;
+  const unit = (a) => new THREE.Vector3(a[0], a[1], a[2]).normalize();
+  const hood = find(m.hood.node);
+  const hoodAxis = unit(m.hood.axis);
+  const intake = find(m.intake.node);
+  const intakeRest = intake ? intake.position.clone() : null;
+  const rollers = m.rollers
+    .map((r) => ({ node: find(r.node), role: r.role, axis: unit(r.axis), ratio: r.drivenBy?.ratio ?? 1, turned: 0 }))
+    .filter((r) => r.node);
+  const modules = m.modules
+    .map((md) => ({
+      steer: find(md.steerNode),
+      wheel: find(md.wheelNode),
+      rest: (md.cadSteerAngle * Math.PI) / 180,
+      axis: unit(md.wheelAxis),
+      radius: md.wheelRadius,
+      angle: 0,
+      turned: 0,
+    }))
+    .filter((md) => md.steer && md.wheel);
+  const positions = cadSpec(m).modules;
+
+  /* FUEL in the hopper, in the positions the CAD analysis packed, lowest first: the stowed hopper's, then
+     the room the intake opens up as it slides out. */
+  const slots = m.hopper?.ballCentres?.deployed ?? m.hopper?.ballCentres?.stowed ?? [];
+  const stowedSlots = m.hopper?.ballCentres?.stowed?.length ?? slots.length;
+  const feeder = m.rollers.find((r) => r.role === "feeder" && r.node === "roller-feeder-3")?.center
+    ?? m.rollers.find((r) => r.role === "feeder")?.center
+    ?? [-0.09, 0.42, 0];
+  const hopperBalls = slots.length
+    ? createHopperBalls({ slots, mouth: intakeMouth(m, 0), feeder, material: fuel })
+    : null;
+  if (hopperBalls) group.add(hopperBalls.root);
+
+  const state = { at: null, hood: m.hood.cadAngle, deploy: 0 };
+
+  /* Pose everything for `now`. Returns true while something is still moving. */
+  function animate(readings, hopperShare, now, motion) {
+    const dt = state.at === null ? 0 : Math.min(0.1, Math.max(0, (now - state.at) / 1000));
+    state.at = now;
+    const follow = (value, goal, seconds) => (dt > 0 ? goal + (value - goal) * Math.exp(-dt / seconds) : value);
+    let moving = false;
+
+    const hoodGoal = Number.isFinite(readings?.hoodDeg) ? readings.hoodDeg : m.hood.cadAngle;
+    state.hood = follow(state.hood, hoodGoal, PART_FOLLOW_S);
+    if (Math.abs(state.hood - hoodGoal) > 0.02) moving = true;
+    hood?.quaternion.setFromAxisAngle(hoodAxis, hoodTurn(m, state.hood));
+
+    const deployGoal = Number.isFinite(readings?.deployM) ? readings.deployM : 0;
+    state.deploy = follow(state.deploy, deployGoal, PART_FOLLOW_S);
+    if (Math.abs(state.deploy - deployGoal) > 1e-4) moving = true;
+    if (intake) {
+      const slide = intakeSlide(m, state.deploy);
+      intake.position.set(intakeRest.x + slide[0], intakeRest.y + slide[1], intakeRest.z + slide[2]);
+    }
+
+    for (const roller of rollers) {
+      const revs = rollerSpin(roller.role, readings) * roller.ratio;
+      if (revs !== 0) {
+        roller.turned = (roller.turned + revs * 2 * Math.PI * dt) % (2000 * Math.PI);
+        moving = true;
+      }
+      roller.node.quaternion.setFromAxisAngle(roller.axis, roller.turned);
+    }
+
+    if (modules.length === positions.length) {
+      /* The robot's own module states when it publishes them; otherwise the ones its motion implies. */
+      const states = readings?.modules?.length === modules.length
+        ? readings.modules
+        : moduleStates(motion.vx, motion.vy, motion.omega, positions, modules.map((md) => md.angle));
+      modules.forEach((md, i) => {
+        const want = optimizeModule(states[i].angle, md.angle);
+        md.angle = follow(md.angle, want.angle, MODULE_FOLLOW_S);
+        if (Math.abs(md.angle - want.angle) > 1e-3) moving = true;
+        md.steer.quaternion.setFromAxisAngle(UP, md.angle - md.rest);
+        const revs = shownRevs((states[i].speed * want.flip) / (2 * Math.PI * md.radius));
+        if (revs !== 0) {
+          md.turned = (md.turned + revs * 2 * Math.PI * dt) % (2000 * Math.PI);
+          moving = true;
+        }
+        md.wheel.quaternion.setFromAxisAngle(md.axis, md.turned);
+      });
+    }
+
+    if (hopperBalls) {
+      hopperBalls.setMouth(intakeMouth(m, state.deploy));
+      const share = Number.isFinite(hopperShare) ? Math.min(1, Math.max(0, hopperShare)) : 0;
+      /* Retracting squeezes the pile back toward the shooter, as the real hopper does. */
+      const room = state.deploy > 0.2 ? slots.length : stowedSlots;
+      hopperBalls.setCount(Math.min(room, Math.round(share * slots.length)), now);
+      if (hopperBalls.step(now)) moving = true;
+    }
+    return moving;
+  }
+
+  /* Where FUEL leaves, from the hood as it is drawn now, so balls come off the hood on screen. */
+  function muzzleAt() {
+    const exit = shooterExit(m, state.hood);
+    return {
+      point: new THREE.Vector3(exit.point[0], exit.point[1], exit.point[2]),
+      direction: new THREE.Vector3(exit.direction[0], exit.direction[1], exit.direction[2]).normalize(),
+      wheelRadius: m.shooter.flywheel?.radius ?? 0.0508,
+      across: new THREE.Vector3(0, 0, 1),
+      /* Four abreast: the shooter is four FUEL wide. */
+      lanes: 4,
+      laneSpacing: (exit.width ?? 0.55) / 4,
+    };
+  }
+
+  const b = m.bounds;
+  const bumperTop = m.bumpers.bottom + m.bumpers.height;
+  const reach = Math.hypot(Math.max(-b.min[0], b.max[0]), Math.max(-b.min[2], b.max[2]));
+  const parts = [
+    { radius: Math.hypot(spec.bumperLength / 2 - corner, spec.bumperWidth / 2 - corner) + corner, bottom: 0, top: bumperTop },
+    { radius: reach, bottom: 0, top: b.max[1] },
+  ];
+  const [flx, , flz] = m.modules[0].position;
+  const anchors = {
+    drivetrain: { point: new THREE.Vector3(flx, 0.13, flz), normal: new THREE.Vector3(flx, 0.9, flz).normalize() },
+    bumper: {
+      point: new THREE.Vector3(spec.bumperLength / 2, m.bumpers.bottom + m.bumpers.height * 0.55, 0),
+      normal: new THREE.Vector3(1, 0.15, 0).normalize(),
+    },
+    top: { point: new THREE.Vector3(m.hood.pivot[0] + 0.06, b.max[1], 0), normal: new THREE.Vector3(0, 1, 0) },
+  };
+  const box = new THREE.Box3(
+    new THREE.Vector3(Math.min(b.min[0], -spec.bumperLength / 2), 0, Math.min(b.min[2], -spec.bumperWidth / 2)),
+    new THREE.Vector3(Math.max(b.max[0], spec.bumperLength / 2), b.max[1], Math.max(b.max[2], spec.bumperWidth / 2))
+  );
+  return {
+    group,
+    anchors,
+    parts,
+    corner,
+    box,
+    bumpered: thin > 0.004,
+    animate,
+    muzzleAt,
+    dispose() {
+      hopperBalls?.dispose();
+    },
+  };
+}
+
+/**
  * The team number on all four bumper faces, as white numerals on a transparent plane just proud of the
  * fabric, the way iron-on numbers sit on a real bumper cover.
  *
@@ -560,7 +760,7 @@ function bumperNumbers(text, spec, fontFamily) {
   });
   material.envMapIntensity = 0.25;
 
-  const y = BUMPER_BOTTOM + BUMPER_HEIGHT / 2;
+  const y = (spec.bumperBottom ?? BUMPER_BOTTOM) + (spec.bumperHeight ?? BUMPER_HEIGHT) / 2;
   const proud = 0.0015;
   const faces = [
     [spec.bumperLength / 2 + proud, 0, Math.PI / 2],
@@ -764,6 +964,52 @@ export function createRobotModel(opts = {}) {
   lights.add(keyLight, rimLight);
   let aimed = 0;
 
+  /* The CAD's materials, restyled once each for this model: the same classes the pipeline names, with the
+     CAD's own colours, finished the way the parts are - anodised and bare aluminium catch the studio, prints
+     and belts are matte, polycarbonate is nearly clear. */
+  const cadMaterials = new Map();
+  const reflecting = (material) => {
+    material.envMapRotation.set(0, aimed, 0);
+    if (envTexture) material.envMap = envTexture;
+    return material;
+  };
+  const restyle = (source) => {
+    if (!source) return source;
+    let made = cadMaterials.get(source);
+    if (made) return made;
+    const colour = source.color ? source.color.clone() : new THREE.Color(0.5, 0.5, 0.5);
+    switch (source.name) {
+      case "aluminium": made = standard(colour, 0.85, 0.36, 1); break;
+      case "steel": made = standard(colour, 1, 0.3, 1); break;
+      case "black": made = standard(colour, 0.3, 0.55, 0.5); break;
+      case "motor": made = standard(colour, 0.45, 0.4, 0.8); break;
+      case "tread": made = standard(colour.multiplyScalar(0.85), 0, 0.85, 0.35); break;
+      case "belt": made = standard(colour, 0, 0.8, 0.3); break;
+      case "print": made = standard(colour, 0, 0.72, 0.4); break;
+      case "electronics": made = standard(colour, 0.1, 0.6, 0.5); break;
+      case "poly":
+        made = own(new THREE.MeshPhysicalMaterial({
+          color: new THREE.Color(0.9, 0.92, 0.95),
+          metalness: 0,
+          roughness: 0.06,
+          transparent: true,
+          opacity: 0.15,
+          envMapIntensity: 1.1,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          dithering: true,
+        }));
+        break;
+      default: made = standard(colour, 0.1, 0.65, 0.5);
+    }
+    cadMaterials.set(source, reflecting(made));
+    return made;
+  };
+  let fuelMaterial = null;
+  let cad = null;
+  let requested = {};
+  const motion = { vx: 0, vy: 0, omega: 0 };
+
   const root = new THREE.Group();
   root.name = "robot";
   let built = null;
@@ -825,6 +1071,47 @@ export function createRobotModel(opts = {}) {
   let fade = null;
   let mechanisms = null;
   let hopper = null;
+
+  /* Build the robot for `next`, or for the CAD once it has loaded, whose size wins over the spec sheet's.
+     Returns true when the model was rebuilt: callers pass the config over on every telemetry tick, and
+     rebuilding for nothing would be the most expensive thing either view does. */
+  function applySpec(next) {
+    requested = next;
+    const normal = cad
+      ? { ...normalizeRobot(cadSpec(cad.manifest)), bumperBottom: cad.manifest.bumpers.bottom, bumperHeight: cad.manifest.bumpers.height }
+      : normalizeRobot(next);
+    const sig = (cad ? "cad:" : "") + JSON.stringify(normal);
+    if (sig === signature) return false;
+    signature = sig;
+    if (built) {
+      dropNumbers();
+      root.remove(built.group);
+      built.dispose?.();
+      for (const geometry of geometries) geometry.dispose();
+      geometries = new Set();
+    }
+    if (cad) {
+      fuelMaterial ??= reflecting(standard(token("--draw-fuel", "#a8913e"), 0, 0.9, 0.3));
+      built = buildCadRobot(cad, normal, mat, keep, restyle, fuelMaterial);
+    } else {
+      built = buildRobot(normal, mat, keep);
+    }
+    spec = normal;
+    root.add(built.group);
+    applyNumbers();
+    return true;
+  }
+
+  if (opts.cad !== false) {
+    loadRobotCad().then((asset) => {
+      if (!asset || disposed) return;
+      cad = asset;
+      if (spec !== null) {
+        applySpec(requested);
+        notify();
+      }
+    });
+  }
   mat.bumper.color.copy(NEUTRAL);
 
   return {
@@ -841,6 +1128,7 @@ export function createRobotModel(opts = {}) {
      * a robot with no shooter.
      */
     muzzle(hoodDeg) {
+      if (built?.muzzleAt) return built.muzzleAt(hoodDeg);
       const m = built?.muzzle;
       if (!m) return null;
       const launch = ((90 - (Number.isFinite(hoodDeg) ? hoodDeg : 30)) * Math.PI) / 180;
@@ -862,21 +1150,15 @@ export function createRobotModel(opts = {}) {
      *  thing either view does. */
     setSpec(next) {
       if (disposed) return false;
-      const normal = normalizeRobot(next);
-      const sig = JSON.stringify(normal);
-      if (sig === signature) return false;
-      signature = sig;
-      if (built) {
-        dropNumbers();
-        root.remove(built.group);
-        for (const geometry of geometries) geometry.dispose();
-        geometries = new Set();
-      }
-      built = buildRobot(normal, mat, keep);
-      spec = normal;
-      root.add(built.group);
-      applyNumbers();
-      return true;
+      return applySpec(next);
+    },
+
+    /** How the robot is moving, in its own frame (WPILib: x forward, y left; metres and radians a second),
+     *  for the swerve modules to follow when the robot does not publish their states. */
+    setMotion(vx, vy, omega) {
+      motion.vx = Number.isFinite(vx) ? vx : 0;
+      motion.vy = Number.isFinite(vy) ? vy : 0;
+      motion.omega = Number.isFinite(omega) ? omega : 0;
     },
 
     /** "red" or "blue" colours the bumpers; anything else is a robot with no alliance yet. With
@@ -900,7 +1182,7 @@ export function createRobotModel(opts = {}) {
     },
 
     /**
-     * The robot's mechanisms as mechanisms.js reads them, and how many FUEL the hopper estimate holds.
+     * The robot's mechanisms as mechanisms.js reads them, and how full the hopper estimate is, 0 to 1.
      * A model with moving parts poses them from these on its next step; the generic model has none and
      * ignores them. Returns true when something will move.
      */
@@ -956,7 +1238,7 @@ export function createRobotModel(opts = {}) {
 
     /** Advance anything the model animates by itself. Returns true while something is still moving. */
     step(now) {
-      const posing = built?.animate ? built.animate(mechanisms, hopper, now) : false;
+      const posing = built?.animate ? built.animate(mechanisms, hopper, now, motion) : false;
       if (!fade) return posing;
       if (fade.start === null) fade.start = now;
       const u = Math.min(1, Math.max(0, (now - fade.start) / BUMPER_FADE_MS));
@@ -987,7 +1269,10 @@ export function createRobotModel(opts = {}) {
       disposed = true;
       listeners.clear();
       dropNumbers();
-      if (built) root.remove(built.group);
+      if (built) {
+        root.remove(built.group);
+        built.dispose?.();
+      }
       for (const geometry of geometries) geometry.dispose();
       for (const thing of owned) thing.dispose();
       built = null;

@@ -1162,6 +1162,16 @@ export function createField(canvas, opts) {
     resize();
     updateOcclusion(now);
     const robotMoving = stepRobot(dt, now);
+    /* The robot's motion in its own frame, for the swerve modules to follow when it does not publish them. */
+    if (reported) {
+      const c = Math.cos(shown.heading);
+      const s = Math.sin(shown.heading);
+      const vx = reported.vx;
+      const vy = -reported.vz;
+      model.setMotion(c * vx + s * vy, -s * vx + c * vy, reported.vh);
+    } else {
+      model.setMotion(0, 0, 0);
+    }
     const cameraMoving = placeCamera(dt);
     const modelMoving = model.step(now);
     /* The clearing follows the drawn robot and the lens, and fades in and out with the robot. */

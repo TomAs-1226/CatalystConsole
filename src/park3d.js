@@ -728,6 +728,14 @@ export function createPark(canvas, opts) {
 
   function applyRobot(spec) {
     if (!model.setSpec(spec)) return;
+    syncModel();
+    requestRender();
+  }
+
+  /* Frame and shadow the robot the model is now: after a new spec, and when the team's CAD finishes
+     loading and replaces the drawn robot. */
+  function syncModel() {
+    if (!model.spec) return;
     parts = model.parts;
     anchorDefs = model.anchors;
     /* Looking at the middle of the robot's height. The lens shift does the fine centring, so this only
@@ -735,9 +743,11 @@ export function createPark(canvas, opts) {
     lookY = Math.max(...parts.map((part) => part.top)) / 2;
     floorUniforms.uFootprint.value.set(model.spec.bumperLength / 2, model.spec.bumperWidth / 2);
     floorUniforms.uCorner.value = model.corner;
-    requestRender();
   }
-  model.onChange(() => requestRender());
+  model.onChange(() => {
+    syncModel();
+    requestRender();
+  });
 
   /* ---- camera state ----
    *

@@ -61,12 +61,14 @@ const smooth = (u) => {
 };
 
 /**
- * `box` is the hopper interior ({ min, max } in the robot frame), `mouth` where balls come in from (a
- * point on the carpet just in front of the intake), `feeder` where they leave to, `colour` FUEL's.
- * Returns { root, setCount, step, count, setColour, dispose }.
+ * `slots` are where balls sit, lowest first ([x, y, z] in the robot frame) - or `box` ({ min, max }) to
+ * pack them - `mouth` where balls come in from (a point on the carpet just in front of the intake; move
+ * it with setMouth as the intake slides), `feeder` where they leave to, `colour` FUEL's. Returns
+ * { root, setCount, setMouth, step, count, capacity, setColour, dispose }.
  */
-export function createHopperBalls({ box, mouth, feeder, colour = "#a8913e", material: given = null }) {
-  const slots = packSlots(box.min, box.max);
+export function createHopperBalls({ slots: given_slots = null, box = null, mouth, feeder, colour = "#a8913e", material: given = null }) {
+  const slots = given_slots ?? packSlots(box.min, box.max);
+  let entry = [mouth[0], mouth[1], mouth[2]];
   const geometry = new THREE.IcosahedronGeometry(RADIUS, 2);
   const material = given ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, slots.length));
@@ -122,16 +124,16 @@ export function createHopperBalls({ box, mouth, feeder, colour = "#a8913e", mate
         moving = true;
       } else if (t < 0) {
         s = 0;
-        place.set(mouth[0], mouth[1], mouth[2]);
+        place.set(entry[0], entry[1], entry[2]);
         moving = true;
       } else if (t < ARRIVE_S) {
         /* Up the intake and over into the pile: a quadratic curve through a point above the midway. */
         const u = smooth(t / ARRIVE_S);
-        const mid = [(mouth[0] + slot[0]) / 2, Math.max(mouth[1], slot[1]) + 0.12, (mouth[2] + slot[2]) / 2];
+        const mid = [(entry[0] + slot[0]) / 2, Math.max(entry[1], slot[1]) + 0.12, (entry[2] + slot[2]) / 2];
         const a = (1 - u) * (1 - u);
         const b = 2 * (1 - u) * u;
         const c = u * u;
-        place.set(a * mouth[0] + b * mid[0] + c * slot[0], a * mouth[1] + b * mid[1] + c * slot[1], a * mouth[2] + b * mid[2] + c * slot[2]);
+        place.set(a * entry[0] + b * mid[0] + c * slot[0], a * entry[1] + b * mid[1] + c * slot[1], a * entry[2] + b * mid[2] + c * slot[2]);
         s = smooth(t / 0.08);
         moving = true;
       } else {
@@ -149,6 +151,10 @@ export function createHopperBalls({ box, mouth, feeder, colour = "#a8913e", mate
     root,
     setCount,
     step,
+    /** Where balls come in from now, as the intake slides. */
+    setMouth(point) {
+      entry = [point[0], point[1], point[2]];
+    },
     /** How many balls the hopper can show. */
     get capacity() {
       return slots.length;
