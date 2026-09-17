@@ -221,29 +221,34 @@
     </div>
   </div>
 
+  <!-- The pop-ups, after Tesla's: the screen dims and a dark sheet sits over it. Each is a title, a body
+       that scrolls under it, and a foot holding the one blue button, so the button stays in reach
+       however long the body is. -->
   <!-- component palette -->
   <div class="modal" id="pickModal">
-    <div class="picker">
-      <h3>Add a component</h3>
+    <div class="picker" role="dialog" aria-labelledby="pickTitle">
+      <h3 id="pickTitle">Add a component</h3>
       <p>Each one binds to NetworkTables keys you choose, so nothing here is hard-coded to a season or a robot.</p>
-      <div id="pickBody"></div>
-      <button class="close" id="pickClose">Done</button>
+      <div class="pbody" id="pickBody"></div>
+      <div class="pfoot"><button class="close" id="pickClose">Done</button></div>
     </div>
   </div>
 
   <!-- per-component configuration -->
   <div class="modal" id="cfgModal">
-    <div class="picker narrow">
+    <div class="picker narrow" role="dialog" aria-labelledby="cfgTitle">
       <h3 id="cfgTitle">Configure</h3>
       <p id="cfgDesc"></p>
-      <div id="cfgBody"></div>
-      <button class="close" id="cfgClose">Done</button>
+      <div class="pbody" id="cfgBody"></div>
+      <div class="pfoot"><button class="close" id="cfgClose">Done</button></div>
     </div>
   </div>
 
-  <!-- Settings: a mode of the instrument rather than a window floating over it. Full bleed, a quiet
-       rail of categories, one column of tall rows. About is the last section rather than a
-       destination of its own, because a product explaining itself is the end of the manual. -->
+  <!-- Settings: a mode of the instrument rather than a window floating over it, drawn after Tesla's
+       Controls screen. Full bleed, the categories down the left with the search at their head, and the
+       open one to the right as a large title, a row of quick controls where it has them, and one
+       column of tall rows. About is the last section rather than a destination of its own, because a
+       product explaining itself is the end of the manual. -->
   <!-- No aria-modal. There is no focus trap and the dashboard behind is not inert, and that is the
        design rather than an oversight: rule two says nothing may impede driving, so this is a mode you
        step out of and not a window that holds you. Claiming modality would have been the markup saying
@@ -252,18 +257,17 @@
 
     <div class="srail">
       <div class="srailhead">
-        <span>Settings</span>
+        <!-- Fifteen settings across seven sections is past the point where remembering which one
+             holds what is free. Typing here filters every row in every section at once and leaves
+             them where they are, so a match is changed in place rather than in a copy of itself. -->
+        <div class="ssearch">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off"
+                 spellcheck="false" aria-label="Search settings" />
+        </div>
         <button class="sclose" id="settingsClose" title="Close  ·  Esc" aria-label="Close settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
-      </div>
-      <!-- Fifteen settings across seven sections is past the point where remembering which one holds
-           what is free. Typing here filters every row in every section at once and leaves them
-           where they are, so a match is changed in place rather than in a copy of itself. -->
-      <div class="ssearch">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off"
-               spellcheck="false" aria-label="Search settings" />
       </div>
 
       <div class="snavlist" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
@@ -474,6 +478,39 @@
         <section class="ssec" role="tabpanel" id="ssec-robot" aria-labelledby="snav-robot" data-sec="robot" data-active="true">
           <h2 class="stitle">Robot</h2>
           <p class="slead">Which robot the console looks for, and how it is finding it.</p>
+
+          <!-- Tesla's quick controls, the row of big square buttons at the top of its Controls screen.
+               None is a setting of its own: each presses a control that already exists - the demo
+               switch, the team field below, the field camera, the field model, the units, the reset -
+               through the same code that control runs, and paintQuick reads each state back from the
+               same place, so a tile and its control cannot disagree. The grey line under each name is
+               how it is set now. -->
+          <div class="squick" role="group" aria-label="Quick controls">
+            <button type="button" class="qtile" id="qDemo" aria-pressed="false" title="Demo data on or off  ·  D">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg>
+              <b>Demo data</b><small aria-hidden="true">Off</small>
+            </button>
+            <button type="button" class="qtile" id="qTeam" title="Change the team number the console looks for">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="6" width="18" height="20" rx="3.2"/><path d="M11.5 11h9M11.5 21h9" stroke-linecap="round"/><path d="M4.5 9.5v4M4.5 18.5v4M27.5 9.5v4M27.5 18.5v4" stroke-width="2.6" stroke-linecap="round"/></svg>
+              <b>Team</b><small>&mdash;</small>
+            </button>
+            <button type="button" class="qtile" id="qCamera" title="Next field camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/></svg>
+              <b>Camera</b><small>Chase</small>
+            </button>
+            <button type="button" class="qtile" id="qModel" aria-pressed="true" title="Draw the baked field model">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><path d="M4.5 7.8 12 12l7.5-4.2M12 12v8.5"/></svg>
+              <b>Field model</b><small aria-hidden="true">On</small>
+            </button>
+            <button type="button" class="qtile" id="qUnits" title="Units on the spec sheet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.8 15.6 15.6 3.8l4.6 4.6L8.4 20.2z"/><path d="m7.6 11.8 2 2M10.4 9l1.4 1.4M13.2 6.2l2 2"/></svg>
+              <b>Units</b><small>Metric</small>
+            </button>
+            <button type="button" class="qtile" id="qReset" title="Reset the board to the default tiles">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.6 13.5A7.5 7.5 0 1 0 6.8 6.7"/><path d="M6.4 3v4h4"/></svg>
+              <b>Reset board</b><small>Press twice</small>
+            </button>
+          </div>
 
           <!-- The robot's own account of itself, published by FrcCatalyst under Catalyst/Robot. The
                plan is drawn from the frame and module figures on the wire rather than from a stock
@@ -701,7 +738,7 @@
                 <span>Back to the default tiles.</span>
               </div>
               <div class="sctl">
-                <button class="sbtn" id="resetBoard">Reset</button>
+                <button class="sbtn danger" id="resetBoard">Reset</button>
               </div>
             </div>
 
@@ -733,7 +770,8 @@
                 <b>Demo data</b>
                 <span>Invented telemetry, for a board with no robot.</span>
               </div>
-              <!-- Amber rather than blue, alone among the switches. See .tog.hazard in styles.css. -->
+              <!-- An ordinary switch. What marks it as the hazard is the small amber mark .tog.hazard
+                   puts beside the row's name while it is on; see styles.css. -->
               <div class="sctl">
                 <button class="tog hazard" id="setDemoTog" role="switch" aria-checked="false" aria-label="Demo data"><i></i></button>
               </div>
@@ -790,9 +828,9 @@
             <pre id="relNotesBody"></pre>
           </section>
 
-          <!-- The one primary action in the panel, and the only place outside the two nav rails
-               that the accent is spent: it appears only when there is a release to take, under a
-               note that says what it is, and it is the decision the section exists to put. -->
+          <!-- The one primary action in the panel, and its one blue button: it appears only when
+               there is a release to take, under a note that says what it is, and it is the decision
+               the section exists to put. -->
           <button class="sbtn primary below" id="installUpdate" hidden>Install</button>
 
           <p class="sprose">
@@ -807,11 +845,12 @@
           <header class="mast">
             <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
             <div class="mastname">
-              <h1><span>Catalyst</span>Console</h1>
+              <h1><span>Catalyst</span> Console</h1>
               <p>A driver station companion for teams running FrcCatalyst.</p>
             </div>
             <div class="mastver">
-              <!-- The version badge as the identity draws it: a capsule with a lit dot. -->
+              <!-- The identity's version badge, in the grey capsule Controls draws it in: a version is
+                   not a state, so the signal colour and the lit dot come off in styles.css. -->
               <b class="cat-pill" data-x="version2">—</b>
               <small data-x="versionSrc">reading version…</small>
             </div>

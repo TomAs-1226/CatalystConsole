@@ -2145,12 +2145,20 @@ function openConfig(item) {
   const bodyEl = $("#cfgBody");
   bodyEl.innerHTML = "";
 
-  const add = (label, control, hint) => {
-    const row = el("div", "cfgrow");
-    const wrap = el("div");
-    wrap.appendChild(control);
-    if (hint) wrap.appendChild(el("div", "hint", hint));
-    row.append(el("label", null, label), wrap);
+  /* A Settings row: the name with its explanation under it, and the control at the right edge. Text
+   * that runs long - a topic, a note - takes the full width under its name instead, where a column
+   * beside it would cut a path off after its first segment; a title or a unit is a word or two and
+   * sits at the edge like a number. The label is tied to its field, so a click on the name lands in
+   * the box. */
+  const SHORT_TEXT = ["title", "unit"];
+  const add = (label, control, hint, wide) => {
+    const row = el("div", wide ? "cfgrow wide" : "cfgrow");
+    const lab = el("div", "cfglab");
+    const name = el("label", null, label);
+    if (control.id) name.htmlFor = control.id;
+    lab.appendChild(name);
+    if (hint) lab.appendChild(el("div", "hint", hint));
+    row.append(lab, control);
     bodyEl.appendChild(row);
   };
 
@@ -2173,18 +2181,25 @@ function openConfig(item) {
       control = el("input");
       control.type = "text";
       control.value = item.cfg[field.key] ?? "";
-      if (field.type === "topic") control.setAttribute("list", "ntkeys");
+      if (field.type === "topic") {
+        control.setAttribute("list", "ntkeys");
+        /* A path is typed back into robot code exactly, so it is set in the mono face. */
+        control.classList.add("mono");
+        control.spellcheck = false;
+      }
     }
+    control.id = `cfg-${field.key}`;
     control.oninput = () => {
       item.cfg[field.key] = field.type === "number" ? Number(control.value) : control.value;
     };
-    add(field.label, control, field.hint);
+    add(field.label, control, field.hint,
+      field.type === "topic" || (field.type === "text" && !SHORT_TEXT.includes(field.key)));
   }
 
-  const size = el("div");
-  size.style.cssText = "display:flex;gap:8px";
+  const size = el("div", "cfgsize");
   const mk = (label, value, max, apply) => {
     const s = el("select");
+    s.setAttribute("aria-label", label);
     for (let i = 1; i <= max; i++) {
       const o = el("option", null, `${label} ${i}`);
       o.value = String(i);
@@ -2208,6 +2223,37 @@ $("#cfgClose").onclick = () => {
 
 /* ---------------------------------------------------------------- picker modal */
 
+/* A white line drawing for each component on its card in the palette, the way Tesla's launcher draws
+ * its apps. Kept here rather than on the component definitions, because a drawing is how the palette
+ * presents a component and not part of what the component is; a type with none gets a plain tile. */
+const PICK_ICONS = {
+  match: `<path d="M5.5 21V4M5.5 4h11l-2.2 4 2.2 4h-11"/>`,
+  tower: `<path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><circle cx="12" cy="12" r="2.6"/>`,
+  gauge: `<path d="M4.6 16.5a8 8 0 1 1 14.8 0"/><path d="m12 13 3.6-4"/><circle cx="12" cy="13.5" r="1.3" fill="currentColor"/>`,
+  battery: `<rect x="3" y="7" width="16" height="10" rx="2.2"/><path d="M21.2 10.5v3M6.5 10v4M9.8 10v4"/>`,
+  systemcore: `<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/>`,
+  autonomy: `<circle cx="12" cy="12" r="8.5"/><path d="m15.4 8.6-2 4.8-4.8 2 2-4.8z"/>`,
+  motorhistory: `<rect x="3" y="8" width="13" height="9" rx="2"/><path d="M16 11h3.5v3H16M8 8V5.5M11 8V5.5M9.5 17v2.5"/>`,
+  health: `<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>`,
+  physics: `<circle cx="12" cy="10.5" r="6.5"/><circle cx="12" cy="10.5" r="2.2"/><path d="M4 20.5h16"/>`,
+  impacts: `<path d="M12 3v4.5M12 16.5V21M3 12h4.5M16.5 12H21M5.6 5.6l3 3M15.4 15.4l3 3M18.4 5.6l-3 3M8.6 15.4l-3 3"/>`,
+  swerve: `<rect x="7" y="6" width="10" height="12" rx="2.2"/><path d="M3.5 5v4.5M3.5 14.5V19M20.5 5v4.5M20.5 14.5V19"/>`,
+  alerts: `<path d="M12 4.2 20.8 19.5H3.2z"/><path d="M12 10v4.2M12 16.8v.1"/>`,
+  auto: `<path d="M4 5.5v6l5-3z"/><path d="M12.5 8.5H20M4 15.5h16M4 19.5h11"/>`,
+  value: `<path d="M5 9h14M5 15h14M10 4.5 8.5 19.5M15.5 4.5 14 19.5"/>`,
+  lamps: `<circle cx="5.5" cy="12" r="2.6"/><circle cx="12" cy="12" r="2.6"/><circle cx="18.5" cy="12" r="2.6"/>`,
+  graph: `<path d="M3.5 15.5 8.5 10l3.5 3.5 7.5-8"/><path d="M3.5 20h17"/>`,
+  stopwatch: `<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V10M9.5 3h5M12 3v3.5M18.3 7.2l1.3-1.3"/>`,
+  note: `<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h5M9 12.5h7M9 16h5"/>`,
+  field: `<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.4"/>`,
+};
+const PICK_ICON_PLAIN = `<rect x="4.5" y="4.5" width="15" height="15" rx="3"/>`;
+
+function pickIcon(type) {
+  return `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" `
+    + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PICK_ICONS[type] || PICK_ICON_PLAIN}</svg>`;
+}
+
 function openPicker() {
   const bodyEl = $("#pickBody");
   bodyEl.innerHTML = "";
@@ -2220,8 +2266,11 @@ function openPicker() {
     bodyEl.appendChild(el("div", "pg", group));
     const grid = el("div", "cat");
     for (const [type, spec] of items) {
-      const btn = el("button", `item ${group === "Catalyst" ? "own" : ""}`);
-      btn.innerHTML = `<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
+      /* Catalyst's own tiles used to wear the accent on their cards to mark where they came from. The
+       * group heading above them already says so, and blue is kept for what is switched on. */
+      const btn = el("button", "item");
+      btn.type = "button";
+      btn.innerHTML = `${pickIcon(type)}<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
       btn.onclick = () => {
         const spot = findSpace(spec.w, spec.h);
         layout.push({ type, x: spot.x, y: spot.y, w: spec.w, h: spec.h, cfg: defaults(spec) });
@@ -2648,14 +2697,16 @@ function paintTune() {
   for (const [group, entries] of groups) {
     sheet.appendChild(el("div", "sh", group));
     for (const t of entries) {
-      const row = el("div", "tr");
+      const current = num(t.key, null);
+      const isBool = raw(t.key)?.t === "bool";
+
+      /* An on-or-off tunable is a shorter row, name left and switch at the right edge where the other
+       * rows keep their values; a slider needs the middle of the row to itself. */
+      const row = el("div", isBool ? "tr bool" : "tr");
       const name = el("div", "nm");
       name.appendChild(el("span", null, t.name || leaf(t.key)));
       name.appendChild(el("small", null, t.key));
       row.appendChild(name);
-
-      const current = num(t.key, null);
-      const isBool = raw(t.key)?.t === "bool";
 
       if (isBool) {
         // A switch, the control Settings already uses for an on-or-off setting, and the one Tesla's
@@ -2665,10 +2716,12 @@ function paintTune() {
         tog.setAttribute("role", "switch");
         tog.setAttribute("aria-checked", String(bool(t.key)));
         tog.setAttribute("aria-label", t.name || leaf(t.key));
+        tog.dataset.key = t.key;
         tog.appendChild(el("i"));
         tog.onclick = () => ntSet(t.key, !bool(t.key));
-        row.appendChild(tog);
-        row.appendChild(el("div", "v", bool(t.key) ? "On" : "Off"));
+        const control = el("div", "tswitch");
+        control.append(el("div", "v", bool(t.key) ? "On" : "Off"), tog);
+        row.appendChild(control);
       } else {
         const slider = el("input");
         slider.type = "range";
@@ -2701,6 +2754,25 @@ function paintTune() {
   );
 }
 
+/* A switch on the Tune sheet shows what the robot holds, not what was pressed.
+ *
+ * `paintTune` builds the sheet once, when it is opened, and a switch's `aria-checked` was only ever
+ * written there - so a pressed switch did not move until the sheet was opened again, even though the
+ * value had been written. It follows the store now, on every paint while the sheet is up, which also
+ * means a write the robot refuses leaves the switch where the robot says it is rather than where the
+ * press put it. Written only when it changed. */
+function syncTune() {
+  for (const tog of $("#tuneSheet").querySelectorAll(".tog[data-key]")) {
+    const on = bool(tog.dataset.key, null);
+    if (on === null) continue;
+    const v = String(on);
+    if (tog.getAttribute("aria-checked") === v) continue;
+    tog.setAttribute("aria-checked", v);
+    const word = tog.parentElement.querySelector(".v");
+    if (word) word.textContent = on ? "On" : "Off";
+  }
+}
+
 /* ------------------------------------------------------------------- logs sheet */
 
 /* Two halves, in this order deliberately: what the link has done since this console started, and then
@@ -2716,7 +2788,6 @@ function paintLogs() {
 
   const host = el("div");
   host.id = "dsLogs";
-  host.style.marginTop = "26px";
   sheet.appendChild(host);
   refreshSessions(host);
 }
@@ -2833,16 +2904,18 @@ async function openSession(session) {
   if (samples.parsed && samples.battery.length) {
     const w = 900, h = 90;
     const stat = (v) => `${Math.min(...v).toFixed(2)} – ${Math.max(...v).toFixed(2)}`;
+    /* Three readings, all white, the way a graph on the board is: packet loss used to be drawn amber
+     * whatever it measured, which put a warning colour on a session that lost nothing. */
     host.insertAdjacentHTML(
       "beforeend",
-      `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
-       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      `<div class="sh">Link quality · ${samples.battery.length} samples</div>
+       <div class="lq">
          <div><div class="ml">Battery ${stat(samples.battery)} V</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, TOK.warn)}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.loss_pct, w, h, TOK.data)}</svg></div>
        </div>`
     );
   } else if (!samples.parsed) {
@@ -2852,7 +2925,7 @@ async function openSession(session) {
     );
   }
 
-  host.insertAdjacentHTML("beforeend", `<div class="sh" style="margin-top:20px">Events</div>`);
+  host.insertAdjacentHTML("beforeend", `<div class="sh">Events</div>`);
   if (!events.length) {
     host.insertAdjacentHTML("beforeend", `<div class="empty">No events recorded.</div>`);
     return;
@@ -2876,9 +2949,16 @@ function paintTopics() {
   const sheet = $("#topicSheet");
   if (!sheet.dataset.built) {
     sheet.dataset.built = "1";
+    /* The filter sits beside the title as a capsule with a magnifier, the way Settings' search does. A
+     * label rather than a div, so a press on the magnifier lands in the field. */
     sheet.innerHTML = `
-      <div class="sh">NetworkTables</div>
-      <div class="pickrow"><input type="text" id="topicSearch" placeholder="filter topics…" style="min-width:280px"></div>
+      <div class="sheethead">
+        <div class="sh">NetworkTables</div>
+        <label class="sfilter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="topicSearch" placeholder="Filter topics" aria-label="Filter topics" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
       <div id="topicList"></div>`;
     $("#topicSearch").oninput = (e) => { topicFilter = e.target.value.toLowerCase(); paintTopics(); };
   }
@@ -2896,7 +2976,7 @@ function paintTopics() {
         : v.t === "bool" ? (v.v ? "true" : "false")
         : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
         : String(v.v).slice(0, 90);
-      return `<div class="tr" style="grid-template-columns:1fr 70px 200px"><div class="nm"><small style="font-size:11.5px">${escapeHtml(k)}</small></div><div class="cap">${v.t}</div><div class="v" style="font-size:12px">${escapeHtml(shown)}</div></div>`;
+      return `<div class="topic"><div class="tk">${escapeHtml(k)}</div><div class="tt"><span>${v.t}</span></div><div class="tv">${escapeHtml(shown)}</div></div>`;
     })
     .join("");
   if (keys.length > 400) {
@@ -4069,6 +4149,68 @@ function applyUpdateInfo(info) {
   setUpdateNote("No newer release. This is the current build.");
 }
 
+/* The quick controls at the top of the Robot section, after the row of big square buttons at the top
+ * of Tesla's Controls screen.
+ *
+ * None of them is a setting of its own. Each presses a control that already exists, through the same
+ * function that control calls - `setDemo`, the team field, `setCamera`, the field model switch, the
+ * units choice - and `paintQuick` reads every state back from where that control reads it. So a tile
+ * and its control cannot disagree, and a tile cannot do anything its control would not. The reset is
+ * wired in `buildSettings`, beside the button whose two presses it shares. */
+const CAMERA_WORDS = { chase: "Chase", top: "Overhead", free: "Free" };
+/* The field tile's own drawing for each camera, so the tile shows the camera in use the way the round
+ * buttons on the field do. */
+const CAMERA_GLYPHS = {
+  chase: `<rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/>`,
+  top: `<rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9.5" y="9" width="5" height="6" rx="1"/>`,
+  free: `<ellipse cx="12" cy="12" rx="9" ry="3.6"/><path d="M18 7.5l2.2 1.3-1 2.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>`,
+};
+
+function wireQuick() {
+  $("#qDemo").onclick = () => setDemo(!demo.on);
+  /* Where the link chip in the status bar goes too. The team number decides which addresses the
+   * console tries, so finding a different robot is changing that field. */
+  $("#qTeam").onclick = () => {
+    const input = $("#setTeam");
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    input.closest(".srow").scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    if (!input.disabled) input.focus({ preventScroll: true });
+  };
+  $("#qCamera").onclick = () => {
+    setCamera(CAMERAS[(CAMERAS.indexOf(settings.fieldCamera) + 1) % CAMERAS.length]);
+    paintQuick();
+  };
+  $("#qModel").onclick = () => $("#setModel").click();
+  $("#qUnits").onclick = () => {
+    const next = UNITS[(UNITS.indexOf(settings.units) + 1) % UNITS.length];
+    $("#setUnits").querySelector(`button[data-v="${next}"]`)?.click();
+    paintQuick();
+  };
+}
+
+/* Runs inside the 10 Hz paint while the Robot section is open, so nothing is written that has not
+ * changed. */
+function paintQuick() {
+  const state = (id) => $(id).querySelector("small");
+  const press = (id, on) => {
+    const v = String(on);
+    if ($(id).getAttribute("aria-pressed") !== v) $(id).setAttribute("aria-pressed", v);
+    setText(state(id), on ? "On" : "Off");
+  };
+
+  press("#qDemo", demo.on);
+  press("#qModel", settings.fieldModel);
+  setText(state("#qTeam"), teamNumber ? String(teamNumber) : "—");
+  setText(state("#qUnits"), settings.units === "imperial" ? "Imperial" : "Metric");
+
+  const camera = $("#qCamera");
+  if (camera.dataset.mode !== settings.fieldCamera) {
+    camera.dataset.mode = settings.fieldCamera;
+    camera.querySelector("svg").innerHTML = CAMERA_GLYPHS[settings.fieldCamera];
+    setText(state("#qCamera"), CAMERA_WORDS[settings.fieldCamera]);
+  }
+}
+
 /* Wiring, done once on first open. A settings panel nobody has opened has no business asking the
  * backend anything, and the update check behind it can sit for a while on a field network. */
 function buildSettings() {
@@ -4083,6 +4225,7 @@ function buildSettings() {
 
   /* --- robot --- */
   $("#setSearch").oninput = (e) => applySearch(e.target.value);
+  wireQuick();
 
   $("#gCopy").onclick = async () => {
     const text = sheetAsText();
@@ -4173,26 +4316,42 @@ function buildSettings() {
   hold.onchange = saveSettings;
 
   /* Two presses rather than a confirmation dialog. Rule two says nothing blocks the board, and a
-   * button that arms itself asks the question without putting anything in front of anything. */
+   * button that arms itself asks the question without putting anything in front of anything.
+   *
+   * The quick control at the top of the Robot section is this button in a second place, so it arms and
+   * fires through the same two presses and each shows the other armed. Its page cannot see the board
+   * or the status line under the Dashboard rows, so the tile says itself that the press took. */
   const reset = $("#resetBoard");
+  const quickReset = $("#qReset");
+  const quickResetState = quickReset.querySelector("small");
   let armed = 0;
+  let settled = 0;
+  const showArmed = (on) => {
+    reset.classList.toggle("armed", on);
+    quickReset.classList.toggle("armed", on);
+    reset.textContent = on ? "Press again" : "Reset";
+    quickResetState.textContent = on ? "Press again" : "Press twice";
+  };
   const disarm = () => {
     clearTimeout(armed);
     armed = 0;
-    reset.classList.remove("armed");
-    reset.textContent = "Reset";
+    showArmed(false);
   };
-  reset.onclick = () => {
+  const pressReset = () => {
+    clearTimeout(settled);
     if (!armed) {
-      reset.classList.add("armed");
-      reset.textContent = "Press again";
+      showArmed(true);
       armed = setTimeout(disarm, 4000);
       return;
     }
     disarm();
     resetBoard();
     setLayoutStatus("The board is back to the layout the console ships with.", "ok");
+    quickResetState.textContent = "Done";
+    settled = setTimeout(() => { quickResetState.textContent = "Press twice"; }, 2500);
   };
+  reset.onclick = pressReset;
+  quickReset.onclick = pressReset;
 
   /* --- data --- */
   $("#setDemoTog").onclick = () => setDemo(!demo.on);
@@ -4661,7 +4820,7 @@ function paintGarage() {
 
   $("#gSpecs").innerHTML = groups.map(([title, rows]) =>
     `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${rows.map(([label, v]) =>
-      `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
+      `<div class="gspec"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
     ).join("")}</div>`).join("");
 
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
@@ -5476,7 +5635,7 @@ function paintSettings() {
   if (!settingsRefs || $("#settings").dataset.open !== "true") return;
   const x = settingsRefs;
 
-  if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
   if (currentSection === "core") paintCore();
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
@@ -5566,6 +5725,7 @@ function paint() {
   }
 
   const active = activeView();
+  if (active === "tune") syncTune();
   if (active === "topics") paintTopics();
   if (active === "logs") tickLinkHistory();
   if (active === "can") paintCan();
@@ -5771,12 +5931,12 @@ const KEYS = Object.assign(Object.create(null), {
  * rebuilt and the update chip arrives six seconds after launch — a wiring pass would miss it. It is
  * `pointerdown`, not `click`, because the whole point is to answer at the moment of the press.
  *
- * Only controls that are pressed: the views, the dock, the settings rail and its buttons. Not the
- * tiles, which are surfaces repainting at 10 Hz, and not the chips, which are readouts that happen to
- * be clickable. `stateLayer` declines to run at all under `prefers-reduced-motion` and removes its own
- * element, so nothing here has to be undone. */
+ * Only controls that are pressed: the views, the dock, the settings rail, its buttons and its quick
+ * controls, and the palette's cards. Not the tiles, which are surfaces repainting at 10 Hz, and not
+ * the chips, which are readouts that happen to be clickable. `stateLayer` declines to run at all under
+ * `prefers-reduced-motion` and removes its own element, so nothing here has to be undone. */
 window.addEventListener("pointerdown", (e) => {
-  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose") : null;
+  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose, .qtile, .item") : null;
   if (hit && !hit.disabled) stateLayer(hit, e);
 }, { passive: true });
 

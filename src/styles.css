@@ -1202,116 +1202,179 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 
 /* ============================================= sheets (tune / logs / topics / can) ==== */
 .sheetwrap { grid-template-columns: 1fr; overflow: hidden; }
+/* A sheet is one of Tesla's app cards opened over the map: a grey card on the black, with Controls'
+   row language inside it - white section titles, tall rows split by a hairline, grey capsules for
+   filters and grey chips for labels. Nothing in a sheet is coloured unless it is a state. */
 .sheet {
-  background: var(--cat-ink-800); border: 0;
-  border-radius: var(--r); padding: 24px 32px; overflow: auto;
+  background: var(--cat-surface-1); border: 0;
+  border-radius: var(--r); padding: 28px 36px 40px; overflow: hidden auto;
 }
-.sheet::-webkit-scrollbar { width: 8px; }
-.sheet::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
+
 /* A section of a sheet is titled the way Tesla titles a section of Controls: sentence case, white,
    medium, a size up from the rows under it. */
 .sh {
-  font-size: 18px; letter-spacing: 0; text-transform: none;
-  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 12px 0 8px;
+  font-size: 20px; font-weight: var(--cat-w-medium); line-height: 1.3; letter-spacing: 0; text-transform: none;
+  color: var(--cat-white); margin: 36px 0 6px;
 }
 .sh:first-child { margin-top: 0; }
-.tr { display: grid; grid-template-columns: 200px 1fr 82px; align-items: center; gap: 16px; padding: 12px 0; }
-.tr + .tr { border-top: 1px solid var(--hair-dense); }
-.tr .nm { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
-.tr .nm small { display: block; color: var(--cat-muted); font-family: var(--mono); font-size: var(--fs-12); margin-top: 4px; font-weight: 500; }
-.tr .v { font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); text-align: right; font-variant-numeric: tabular-nums; color: var(--cat-white); }
 
-.empty { color: var(--cat-muted); font-size: var(--fs-13); padding: 20px 0; text-align: center; line-height: 1.6; }
+/* A title with the one control that belongs to the whole sheet beside it, as the topic filter is. */
+.sheethead { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 10px; }
+.sheethead .sh { margin: 0; }
 
-.lg { display: grid; grid-template-columns: 68px 12px 1fr; gap: 0 12px; }
-.lg .lt { font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-muted); padding: 8px 0; font-variant-numeric: tabular-nums; }
+/* ---- tune ----
+   A tunable is a Controls row: its name, with the key under it for anyone matching it to robot code, then
+   the slider across the middle and the value at the right edge, where every row's value lines up. An
+   on-or-off tunable is a shorter row with its switch at that edge instead. */
+.tr {
+  display: grid; grid-template-columns: minmax(200px, 1fr) minmax(220px, 2fr) 112px;
+  align-items: center; column-gap: 32px; min-height: 76px; padding: 14px 0;
+}
+.tr + .tr { border-top: 1px solid var(--cat-hair); }
+.tr.bool { grid-template-columns: minmax(0, 1fr) auto; }
+.tr .nm { min-width: 0; font-size: 16px; font-weight: var(--cat-w-medium); line-height: 1.35; color: var(--cat-white); }
+.tr .nm small {
+  display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: 400; color: var(--cat-dim);
+}
+.tr .v {
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); text-align: right;
+  font-variant-numeric: tabular-nums; color: var(--cat-white); white-space: nowrap;
+}
+/* The word beside a switch is quiet: the switch is the reading, the word is there for anyone who does
+   not read a switch. */
+.tswitch { display: flex; align-items: center; gap: 14px; }
+.tswitch .v { color: var(--cat-dim); }
+
+.empty { color: var(--cat-dim); font-size: 14px; padding: 28px 0; text-align: center; line-height: 1.6; }
+.empty code { font-family: var(--mono); font-size: 13px; color: var(--cat-body); }
+
+/* A note on a sheet is a grey panel, not a tinted callout: it explains, and nothing about it is urgent. */
+.note {
+  margin-top: 24px; padding: 14px 18px; border: 0; border-radius: 12px;
+  background: var(--cat-surface-2);
+  font-size: var(--fs-13); line-height: 1.6; color: var(--cat-body);
+}
+.note b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.note code { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-white); }
+
+/* ---- logs ---- */
+.lg { display: grid; grid-template-columns: 72px 12px 1fr; gap: 0 14px; }
+.lg .lt { font-family: var(--sans); font-size: var(--fs-13); color: var(--cat-dim); padding: 11px 0; font-variant-numeric: tabular-nums; }
 .lg .rl { position: relative; }
-.lg .rl::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px; background: var(--cat-hair-str); transform: translateX(-50%); }
+.lg .rl::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px; background: var(--cat-line-strong); transform: translateX(-50%); }
 .lg .rl i {
-  position: absolute; left: 50%; top: 13px; width: 8px; height: 8px; border-radius: 50%;
-  transform: translateX(-50%); background: var(--cat-muted);
-  box-shadow: 0 0 0 3.5px var(--cat-ink-800);
+  position: absolute; left: 50%; top: 17px; width: 8px; height: 8px; border-radius: 50%;
+  transform: translateX(-50%); background: var(--cat-dim);
+  box-shadow: 0 0 0 3.5px var(--cat-surface-1);
 }
 /* Same three shapes as everywhere else, so the timeline is read with the vocabulary already
-   learned from the header. */
+   learned from the header. The lights are the only colour on the sheet. */
 .lg .rl.info i { background: var(--cat-info); }
 .lg .rl.warn i { background: var(--cat-warn); border-radius: 1px; transform: translateX(-50%) rotate(45deg); }
 .lg .rl.error i { background: var(--cat-bad); border-radius: 1px; }
 .lg .rl.up i { background: var(--cat-ok); }
 .lg .rl.down i { background: var(--cat-bad); border-radius: 1px; }
-.lg .le { padding: 8px 0; font-size: var(--fs-13); line-height: 1.45; color: var(--cat-text); }
-.lg .le .sub { color: var(--cat-muted); font-size: var(--fs-12); margin-top: 4px; }
-.lg .le .held { color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-12); }
+.lg .le { padding: 11px 0; font-size: 14px; line-height: 1.5; color: var(--cat-body); }
+.lg .le .sub { color: var(--cat-dim); font-size: var(--fs-13); margin-top: 4px; }
+.lg .le .held { color: var(--cat-dim); font-family: var(--sans); font-size: var(--fs-13); }
 
-.lh { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
+.lh { display: flex; align-items: baseline; gap: 14px; margin: 0 0 10px; }
 .lh .sh { margin: 0; }
-.lh .sum { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
+.lh .sum { font-size: var(--fs-13); color: var(--cat-dim); font-weight: 400; }
 
-.note {
-  margin-top: 12px; padding: 12px 16px; border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--cat-coral) 9%, transparent);
-  border-left: 3px solid var(--cat-coral-dk);
-  font-size: var(--fs-13); line-height: 1.55; color: var(--cat-text);
+.pickrow { display: flex; gap: 8px; align-items: center; margin: 14px 0 8px; flex-wrap: wrap; }
+/* The recorded sessions start a section of their own under the live one, and a session's first title
+   keeps the same distance from the picker above it that every other title keeps from what is above. */
+#dsLogs { margin-top: 36px; }
+#sessionBody { margin-top: 28px; }
+#sessionBody > .note:first-child { margin-top: 0; }
+
+/* A recorded session's three traces, each on its own grey panel, all white: they are readings, the same
+   as a graph on the board. */
+.lq { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.lq > div { min-width: 0; padding: 14px 16px 12px; border-radius: 12px; background: var(--cat-surface-2); }
+.lq .ml { margin-top: 0; }
+.lq svg { display: block; width: 100%; height: 70px; margin-top: 10px; }
+
+/* ---- topics ----
+   The key is what gets typed back into robot code, so it keeps the mono face; the type is a grey chip;
+   the value is read, so it is the sans at the right edge. */
+.topic {
+  display: grid; grid-template-columns: minmax(0, 3fr) 64px minmax(0, 2fr);
+  align-items: center; column-gap: 20px; min-height: 52px; padding: 10px 0;
 }
-.note b { color: var(--cat-white); }
-
-.pickrow { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.topic + .topic { border-top: 1px solid var(--cat-hair); }
+.topic .tk { min-width: 0; font-family: var(--mono); font-size: var(--fs-13); color: var(--cat-white); overflow-wrap: anywhere; }
+.topic .tt span {
+  display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--cat-surface-2);
+  font-size: var(--fs-12); font-weight: var(--cat-w-medium); color: var(--cat-dim);
+}
+.topic .tv {
+  min-width: 0; text-align: right; overflow-wrap: anywhere;
+  font-size: 14px; font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; color: var(--cat-white);
+}
 
 /* --- the CAN sheet -----------------------------------------------------------------------------
    `.ctrack` is borrowed from the Systemcore card rather than reinvented: a filled bar means bus
    utilisation on both pages, and a reader should not have to learn it twice. A controller is a box
-   because that is what the page is claiming — the buses inside one share a bandwidth ceiling, and
-   two boxes do not. */
-.canhead { display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
-.canstat { display: flex; align-items: baseline; gap: 6px; }
-.canstat b { font-size: var(--fs-15); font-weight: var(--cat-w-semi); color: var(--cat-white); font-variant-numeric: tabular-nums; }
-.canstat small { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
+   because that is what the page is claiming - the buses inside one share a bandwidth ceiling, and
+   two boxes do not - so each is a grey panel of its own on the sheet. */
+.canhead { display: flex; align-items: flex-start; gap: 44px; flex-wrap: wrap; margin: 14px 0 24px; }
+.canstat { display: flex; flex-direction: column; gap: 2px; }
+.canstat b { font-size: 28px; font-weight: 400; line-height: 1.15; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canstat small { font-size: var(--fs-13); color: var(--cat-dim); font-weight: 400; }
+/* The no-robot note is the same grey as the controller panels under it, so it keeps the gap they keep
+   between each other rather than running into the first of them. */
+#canNote { margin: 0 0 12px; }
 
-.cangroup { border: 1px solid var(--cat-hair); border-radius: var(--r-sm); padding: 14px 16px; }
+.cangroup { border: 0; border-radius: 14px; padding: 18px 22px 20px; background: var(--cat-surface-2); }
 .cangroup + .cangroup { margin-top: 12px; }
-.cangroup > header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.cangroup > header h4 { margin: 0; font-size: var(--fs-13); font-weight: 650; color: var(--cat-white); }
-.cangroup > header small { font-size: var(--fs-12); color: var(--cat-muted); }
+.cangroup > header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.cangroup > header h4 { margin: 0; font-size: 17px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.cangroup > header small { font-size: var(--fs-13); color: var(--cat-dim); }
+/* The grey panel is the track's own colour, so on it the track steps up a shade to stay a track. */
+.cangroup .ctrack { background: var(--ctl-raised); }
 
 /* The pair total, above the buses it sums. It is the constraint they are both inside, not a third
    bus, so it leads the group rather than trailing it. */
-.canpair { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; margin-bottom: 12px; }
-.canpair > span { font-size: var(--fs-12); color: var(--cat-muted); font-weight: var(--cat-w-medium); }
-.canpair > b { font-size: var(--fs-13); font-weight: var(--cat-w-semi); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canpair { display: grid; grid-template-columns: 88px 1fr 60px; align-items: center; gap: 16px; margin-bottom: 14px; }
+.canpair > span { font-size: var(--fs-13); color: var(--cat-dim); font-weight: 400; }
+.canpair > b { font-size: var(--fs-15); font-weight: var(--cat-w-medium); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
 
-.canbus + .canbus { margin-top: 10px; border-top: 1px solid var(--hair-dense); padding-top: 10px; }
-.canline { display: grid; grid-template-columns: 78px 1fr 54px; align-items: center; gap: 12px; }
-.canline > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-text); }
-.canline > b { font-size: var(--fs-13); font-weight: var(--cat-w-semi); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
-.canmeta { font-size: var(--fs-12); color: var(--cat-muted); margin: 6px 0 0 90px; }
+.canbus + .canbus { margin-top: 12px; border-top: 1px solid var(--cat-hair); padding-top: 12px; }
+.canline { display: grid; grid-template-columns: 88px 1fr 60px; align-items: center; gap: 16px; }
+.canline > span { font-family: var(--mono); font-size: var(--fs-13); color: var(--cat-white); }
+.canline > b { font-size: var(--fs-15); font-weight: var(--cat-w-medium); text-align: right; color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.canmeta { font-size: var(--fs-13); color: var(--cat-dim); margin: 6px 0 0 104px; }
 
 /* Idle and absent must not look alike. An idle bus measured at zero is dimmed — it is real, it is
    just carrying nothing, and dimming keeps the eye on the buses under load. A bus nobody measured
    keeps its name at full strength and shows a dash, because it is not a low reading, it is the
    absence of one, and the reader is meant to notice that rather than skim past it. */
 .canbus[data-idle="true"] .canline > span,
-.canbus[data-idle="true"] .canline > b { color: var(--cat-muted); }
+.canbus[data-idle="true"] .canline > b { color: var(--cat-dim); }
 .canbus[data-absent="true"] .canline > b,
-.canpair[data-absent="true"] > b { color: var(--cat-muted); font-weight: var(--cat-w-medium); }
+.canpair[data-absent="true"] > b { color: var(--cat-dim); font-weight: var(--cat-w-medium); }
 .canbus[data-absent="true"] .ctrack,
 .canpair[data-absent="true"] .ctrack { background: repeating-linear-gradient(
-  135deg, var(--cat-track) 0 3px, transparent 3px 6px); }
+  135deg, var(--ctl-raised) 0 3px, transparent 3px 6px); }
 
-.candevs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 90px; }
+.candevs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0 104px; }
 .candev {
-  display: flex; align-items: baseline; gap: 6px; padding: 3px 8px;
-  background: var(--cat-ink-700); border: 1px solid var(--hair-dense); border-radius: var(--r-sm);
+  display: flex; align-items: baseline; gap: 7px; padding: 5px 10px;
+  background: var(--cat-surface-3); border: 0; border-radius: 8px;
 }
-.candev i { font-style: normal; font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-white); font-variant-numeric: tabular-nums; }
-.candev span { font-size: var(--fs-12); color: var(--cat-text); }
-.candev small { font-size: var(--fs-12); color: var(--cat-muted); }
+.candev i { font-style: normal; font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.candev span { font-size: var(--fs-13); color: var(--cat-white); }
+.candev small { font-size: var(--fs-13); color: var(--cat-dim); }
 
-.canwarn { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.canwarn { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
 .canwarn:empty { display: none; }
-.canwarn .sh { margin: 0; }
-.canw { display: grid; grid-template-columns: 8px 1fr; gap: 10px; align-items: start; font-size: var(--fs-13); line-height: 1.5; color: var(--cat-text); }
+.canwarn .sh { margin: 0 0 2px; }
+.canw { display: grid; grid-template-columns: 8px 1fr; gap: 12px; align-items: start; font-size: 14px; line-height: 1.55; color: var(--cat-body); }
 /* The same three shapes the header uses, so a warning is read with a vocabulary already learned. */
-.canw::before { content: ""; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--cat-warn); }
+.canw::before { content: ""; width: 8px; height: 8px; border-radius: 50%; margin-top: 7px; background: var(--cat-warn); }
 .canw[data-level="crit"]::before { background: var(--cat-bad); border-radius: 1px; }
 .canw[data-level="ok"]::before { background: var(--cat-ok); }
 
@@ -1347,7 +1410,10 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 
 /* ================================================================= modals ==== */
 /* Tesla's pop-up: the screen behind dims, and a dark rounded sheet sits over it with its action as a
-   solid blue button along the bottom. No frosted glass - Tesla dims, it does not blur. */
+   solid blue button along the bottom. No frosted glass - Tesla dims, it does not blur.
+
+   The sheet is a column. The title stays where it is, the rows scroll under it, and the button sits at
+   the foot in reach whatever is scrolled; on a long palette it used to scroll away with the cards. */
 .modal {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(0, 0, 0, 0.62);
@@ -1355,498 +1421,632 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .modal[data-open="true"] { display: flex; }
 .picker {
-  background: var(--cat-surface-1); border: 0;
-  border-radius: 18px; padding: 28px; max-width: 800px; width: 100%;
-  max-height: 90vh; overflow: auto;
+  display: flex; flex-direction: column; width: 100%; max-width: 840px; max-height: min(90vh, 880px);
+  background: var(--cat-surface-1); border: 0; border-radius: 18px; overflow: hidden;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
-/* The same hairline thumb the sheets and the settings pane use. Without it the palette gets the
-   user agent's own scrollbar, which on a near-black dialog is a bar of light down one edge and the
-   brightest thing in the program — brighter than the one accent, which is the whole problem. */
-.picker::-webkit-scrollbar { width: 8px; }
-.picker::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
 /* Configure holds one label beside one control per row; the component palette holds a grid of
    cards. The narrower measure was an inline width on the markup, which is the one place a value
    like this cannot be found by anyone looking at the stylesheet. */
-.picker.narrow { max-width: 560px; }
-.picker h3 { margin: 0 0 6px; font-size: 22px; font-weight: var(--cat-w-medium); letter-spacing: 0; color: var(--cat-white); }
-.picker p { margin: 0 0 16px; font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.55; }
-.pg {
-  font-size: var(--fs-15); letter-spacing: 0; text-transform: none;
-  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 20px 0 10px;
+.picker.narrow { max-width: 600px; }
+.picker h3 {
+  margin: 0; padding: 28px 28px 0;
+  font-size: 22px; font-weight: var(--cat-w-medium); line-height: 1.25; letter-spacing: 0; color: var(--cat-white);
 }
-.cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
+.picker > p { margin: 6px 0 0; padding: 0 28px; font-size: 14px; color: var(--cat-dim); line-height: 1.5; }
+/* The rows fade out under the title and above the button rather than being cut off at a hard edge. At
+   rest the fades cover only this padding, so nothing is dimmed until it scrolls. */
+.pbody {
+  flex: 1 1 auto; min-height: 0; overflow: hidden auto; margin-top: 4px; padding: 10px 28px 14px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+}
+.pfoot { flex: none; padding: 8px 28px 24px; }
+
+/* The palette's groups and cards. A card is a grey tile with a white line drawing of what it puts on
+   the board, the way Tesla's launcher draws its apps, then its name and one line on what it shows. */
+.pg {
+  font-size: 16px; letter-spacing: 0; text-transform: none;
+  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 24px 0 10px;
+}
+.pg:first-child { margin-top: 4px; }
+.cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; }
 .item {
-  background: var(--cat-surface-2); border: 0; border-radius: 12px;
-  padding: 14px; cursor: pointer; text-align: left; color: var(--cat-text); font-family: var(--sans);
-  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-height: 136px; padding: 16px; border: 0; border-radius: 14px;
+  background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); text-align: left; cursor: pointer;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .item:hover { background: var(--cat-surface-3); }
-.item .i { color: var(--cat-muted); display: block; margin-bottom: 8px; }
-/* The signal marks provenance, which is what the accent is for here: these are Catalyst's own tiles
-   rather than generic ones. */
-.item.own .i { color: var(--cat-coral); }
-.item .n2 { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
-.item .d2 { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.4; }
+.item:active { transform: scale(0.98); }
+.item .i { width: 26px; height: 26px; flex: none; margin-bottom: 10px; color: var(--cat-white); }
+.item .n2 { font-size: var(--fs-15); font-weight: var(--cat-w-medium); line-height: 1.3; color: var(--cat-white); }
+.item .d2 { font-size: var(--fs-13); line-height: 1.45; color: var(--cat-dim); }
+
 /* The action, the way Tesla sets one: a solid blue rectangle, softly rounded, white words. */
 .picker .close {
-  margin-top: 20px; width: 100%; height: 48px; border: 0;
+  display: block; width: 100%; height: 48px; margin: 0; border: 0;
   border-radius: 8px; background: var(--cat-signal); color: #ffffff;
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); cursor: pointer;
+  font-family: var(--sans); font-size: 16px; font-weight: var(--cat-w-medium); cursor: pointer;
   transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .picker .close:hover { background: var(--cat-signal-lt); }
+.picker .close:active { background: var(--cat-signal-dk); }
 
-.cfgrow { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px; padding: 8px 0; }
-.cfgrow label { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-text); }
+/* Configure's rows are Settings rows: the name, with its explanation under it in grey, and the control
+   at the right edge. A topic or a title is text that can run long, so it takes the row's full width
+   under its name rather than being cut off in a column beside it. */
+.cfgrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 250px);
+  align-items: center; column-gap: 24px; row-gap: 12px; min-height: 72px; padding: 16px 0;
+}
+.cfgrow + .cfgrow { border-top: 1px solid var(--cat-hair); }
+.cfgrow.wide { grid-template-columns: minmax(0, 1fr); }
+.cfglab label { display: block; font-size: 16px; font-weight: var(--cat-w-medium); line-height: 1.35; color: var(--cat-white); }
 .cfgrow select, .cfgrow input { width: 100%; }
-.hint { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.45; }
+.cfgsize { display: flex; gap: 8px; min-width: 0; }
+.cfgsize select { flex: 1 1 0; }
+.hint { font-size: var(--fs-13); color: var(--cat-dim); margin-top: 3px; line-height: 1.5; }
 
 /* ---- layout export / import ---- */
 #impText {
-  width: 100%; margin-top: 12px; resize: vertical; min-width: 0;
-  background: var(--cat-ink-700); border: 0; color: var(--cat-white);
-  border-radius: var(--r-sm); padding: 12px;
-  font-family: var(--mono); font-size: var(--fs-13); font-weight: 500;
+  width: 100%; margin-top: 12px; resize: vertical; min-width: 0; min-height: 112px;
+  background: var(--cat-surface-1); border: 0; color: var(--cat-white);
+  border-radius: 12px; padding: 14px 16px;
+  font-family: var(--mono); font-size: var(--fs-13); font-weight: 400; line-height: 1.55;
 }
-.lstatus { margin-top: 16px; min-height: 20px; font-size: var(--fs-13); line-height: 1.55; color: var(--cat-text); }
-.lstatus[data-tone="ok"] { color: var(--cat-ok); }
-.lstatus[data-tone="bad"] { color: var(--cat-bad); }
-.lstatus ul { margin: 8px 0 0; padding-left: 20px; }
+/* The grip it is resized by, drawn as two grey strokes: styling the scrollbar hands the corner to CSS,
+   and left to the platform it is a light grip on a dark field. */
+#impText::-webkit-resizer {
+  background: linear-gradient(135deg, transparent 0 52%, var(--cat-faint) 52% 58%, transparent 58% 70%,
+    var(--cat-faint) 70% 76%, transparent 76%);
+}
+.lstatus { margin-top: 16px; min-height: 20px; font-size: var(--fs-13); line-height: 1.55; color: var(--cat-body); }
+.lstatus ul { margin: 8px 0 0; padding-left: 20px; color: var(--cat-dim); }
 .lstatus li { margin-top: 4px; }
 
-/* =============================================================== settings ====
-   Full bleed, not a dialog: a mode of the instrument, and it should feel like the dashboard has
-   stepped aside rather than like a window has landed on top of it.
+/* =============================================================== controls ====
+   Settings, the pop-ups and the sheets are drawn after Tesla's Controls screen, and this is the one set
+   of controls they share. Everything is grey on black or grey on grey, and nothing has an outline:
 
-   Everything here is restraint. Hairlines instead of borders, no gradients on rows, and exactly one
-   shadow in the whole panel — under the switch knob, where it is doing a job rather than decorating
-   one. The board is dense because it has to be; this is the opposite on purpose. Text is selectable
+     a switch is a grey track that turns blue when it is on, with a white knob;
+     a choice of a few is a grey capsule with the chosen one raised in a lighter grey;
+     a slider is a white fill along a grey track, under a white knob;
+     a field is a dark grey box with white words in it, and no border;
+     a button is a grey capsule, the one primary action is a blue rectangle, and a destructive one is a
+       grey capsule with red words.
+
+   Blue is the switch that is on, the checked box and the primary button, and nothing else. Out on the
+   board a field keeps the border described above; in here the ground is black or the grey of a card,
+   and the fill alone is a clear enough step up from it. */
+:root {
+  --ctl-raised: #48484a;                    /* the chosen segment, and a quick control that is on */
+  --ctl-h: 44px;                            /* one height for a field, a choice and a button */
+}
+
+/* One scrollbar for everything in here that scrolls: a pale thumb inset from the edge, and no track.
+   Left to the platform, WebView2 draws a light grey gutter down a near-black sheet, which is the
+   brightest thing on it. */
+:is(.sheet, .spane, .srail, .pbody, .relnotes pre, .clog pre, #impText, .settings .mhist)::-webkit-scrollbar { width: 12px; height: 12px; }
+:is(.sheet, .spane, .srail, .pbody, .relnotes pre, .clog pre, #impText, .settings .mhist)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18) padding-box; border: 3px solid transparent; border-radius: 999px;
+}
+:is(.sheet, .spane, .srail, .pbody, .relnotes pre, .clog pre, #impText, .settings .mhist)::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+:is(.sheet, .spane, .srail, .pbody, .relnotes pre, .clog pre, #impText, .settings .mhist)::-webkit-scrollbar-track,
+:is(.sheet, .spane, .srail, .pbody, .relnotes pre, .clog pre, #impText, .settings .mhist)::-webkit-scrollbar-corner { background: transparent; }
+
+/* Focus is a white ring in here. The blue is spoken for, and a ring in it beside a switch that is on
+   would read as a second thing switched on. */
+:is(.settings, .modal, .sheet) :is(button, input, select, textarea, summary, [href], [tabindex]):focus-visible {
+  outline: 2px solid var(--cat-white);
+  outline-offset: 2px;
+}
+
+/* Two selectors rather than one `:is()` holding all three: `:is()` takes the specificity of its most
+   specific argument, which would have lifted a plain select to an attribute selector's weight and let
+   this rule outrank every select rule written after it. */
+:is(.settings, .modal, .sheet) :is(input[type="text"], input[type="number"]),
+:is(.settings, .modal, .sheet) select {
+  height: var(--ctl-h); min-width: 0; padding: 0 14px;
+  border: 0; border-radius: 8px; background-color: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
+}
+/* The colour only, never the `background` shorthand: the identity draws a select's chevron as its
+   background image. */
+:is(.settings, .modal, .sheet) select { padding-right: 40px; }
+:is(.settings, .modal, .sheet) :is(input[type="text"], input[type="number"]):is(:hover, :focus),
+:is(.settings, .modal, .sheet) select:is(:hover, :focus) { background-color: var(--cat-surface-3); }
+:is(.settings, .modal, .sheet) :is(input, textarea)::placeholder { color: var(--cat-faint); }
+/* A topic path is typed back into robot code exactly, so its field is set in the mono face. */
+:is(.settings, .modal, .sheet) input.mono { font-family: var(--mono); font-size: var(--fs-13); font-weight: 400; }
+/* A topic field suggests the keys it can see as it is typed in. The arrow Chromium adds to say so is
+   the platform's light drawing, and typing already opens the list. */
+.modal input::-webkit-calendar-picker-indicator { display: none !important; }
+
+/* A search or filter is a capsule with a magnifier in it, in the grey a field is. */
+.ssearch, .sfilter { position: relative; }
+.ssearch svg, .sfilter svg {
+  position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; color: var(--cat-dim); pointer-events: none;
+}
+:is(.settings, .sheet) :is(.ssearch, .sfilter) input {
+  width: 100%; height: var(--ctl-h); min-width: 0; padding: 0 18px 0 44px; border: 0; border-radius: 999px;
+  background-color: var(--cat-surface-1);
+  color: var(--cat-white); font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
+}
+.sfilter { flex: 0 1 360px; min-width: 200px; }
+.sheet .sfilter input { height: 40px; background-color: var(--cat-surface-2); font-size: 14px; }
+.sheet .sfilter input:is(:hover, :focus) { background-color: var(--cat-surface-3); }
+.ssearch input:is(:hover, :focus) { background-color: var(--cat-surface-2); }
+:is(.ssearch, .sfilter) input::placeholder { color: var(--cat-dim); }
+/* The browser's own clear affordance is a grey cross on a dark field, and Escape already clears. */
+.ssearch input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* A select in a sheet picks a session or a view rather than filling in a form, so it is a capsule. */
+.sheet .pickrow select { height: 40px; min-width: 320px; border-radius: 999px; padding-left: 18px; font-size: 14px; }
+
+/* The filled part of the track is the reading. CSS cannot see a range's value, so `--fill` is
+   written from `paintRange` in app.js wherever the value changes. */
+:is(.settings, .sheet) input[type="range"] {
+  -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px;
+  background: linear-gradient(to right, var(--cat-white) 0 var(--fill, 0%), var(--cat-surface-3) var(--fill, 0%) 100%);
+}
+:is(.settings, .sheet) input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 24px; height: 24px; border: 0; border-radius: 50%;
+  background: var(--cat-white); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transition: box-shadow var(--cat-dur-effect) var(--cat-ease-effect);
+}
+/* A ring round a four-pixel track draws a thin box around nothing; the knob is what is held, so the
+   knob is what shows focus. */
+:is(.settings, .sheet) input[type="range"]:focus-visible { outline: none; }
+:is(.settings, .sheet) input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45), 0 0 0 6px rgba(255, 255, 255, 0.32);
+}
+
+/* A real switch that slides. The knob travels once, quickly, and stops — the difference between a
+   control that feels physical and one that feels like a checkbox with rounded corners. */
+.tog {
+  position: relative; flex: none; width: 52px; height: 32px; padding: 0;
+  border: 0; border-radius: 999px; background: var(--cat-surface-3);
+  font-family: var(--sans); font-size: var(--fs-13); cursor: pointer;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
+}
+/* The knob's shadow is functional: it is what says the knob sits on the track rather than being
+   painted onto it. */
+.tog i {
+  position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--cat-white); box-shadow: 0 1px 3px rgb(var(--draw-shade) / 0.4);
+  /* A value travelling to where it was set, which is exactly the identity's `settle`. */
+  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
+}
+.tog:hover { background: var(--ctl-raised); }
+.tog:active { transform: scale(0.96); }
+.tog[aria-checked="true"] { background: var(--cat-signal); }
+.tog[aria-checked="true"]:hover { background: var(--cat-signal-lt); }
+.tog[aria-checked="true"] i { transform: translateX(20px); }
+/* Demo data on is the state where every number on the board is invented, which is what the third rule is
+   about. The switch stays an ordinary switch, the way the dock's demo button stays grey; what says so is
+   the small amber mark beside the row's name, the same play mark the dock lights. */
+.srow:has(.tog.hazard[aria-checked="true"]) .slab b::after {
+  content: ""; display: inline-block; width: 9px; height: 10px; margin-left: 10px; vertical-align: 0;
+  background: var(--cat-warn); clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+/* Not `.seg`: that is the match timer's four-pixel progress bar, and a segmented control that
+   inherits `height: 4px` and `overflow: hidden` from it collapses into a sliver. */
+.choice {
+  position: relative; flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--cat-surface-2); border: 0;
+  border-radius: 999px; padding: 3px; min-width: 240px;
+}
+/* One raised pill that moves, rather than three that light up. `--n` is the number of segments and
+   is set on the element, so the maths holds whatever the choice set is. */
+.choice .choicesel {
+  position: absolute; top: 3px; bottom: 3px; left: 3px;
+  width: calc((100% - 6px) / var(--n, 3));
+  border-radius: 999px; background: var(--ctl-raised);
+  box-shadow: 0 1px 3px rgb(var(--draw-shade) / 0.35);
+  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
+}
+.choice button {
+  position: relative; z-index: 1; height: calc(var(--ctl-h) - 6px); padding: 0 18px;
+  border: 0; background: transparent; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  color: var(--cat-dim); font-family: var(--sans); font-size: 14px; font-weight: var(--cat-w-medium);
+  transition:
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
+}
+.choice button:hover { color: var(--cat-body); }
+.choice button[aria-checked="true"] { color: var(--cat-white); }
+.choice button:active { transform: scale(0.96); }
+
+.sbtn {
+  flex: none; height: var(--ctl-h); padding: 0 22px; border: 0;
+  border-radius: 999px;
+  background: var(--cat-surface-2); color: var(--cat-white); white-space: nowrap;
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); cursor: pointer;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
+}
+.sbtn:hover { background: var(--cat-surface-3); }
+.sbtn:active { background: var(--ctl-raised); transform: scale(0.97); }
+.sbtn.below { margin-top: 16px; }
+/* The one primary action in the panel: it exists only when there is a release to take, and it is
+   the thing the section is asking you to decide. Tesla's rectangle, not the capsule. */
+.sbtn.primary { border-radius: 8px; background: var(--cat-signal); color: #ffffff; }
+.sbtn.primary:hover { background: var(--cat-signal-lt); }
+.sbtn.primary:active { background: var(--cat-signal-dk); }
+/* Destructive is said in the words, not the fill: a grey capsule with red on it. Armed - the next press
+   destroys the board - is a state, so it takes the red tint behind the words as well. */
+.sbtn.danger { color: var(--cat-bad); }
+.sbtn.armed { background: var(--cat-bad-tint); color: var(--cat-bad); }
+.sbtn.armed:hover { background: color-mix(in srgb, var(--cat-bad) 24%, transparent); }
+.sbtn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.sbtn:disabled:hover { background: var(--cat-surface-2); }
+
+/* =============================================================== settings ====
+   Tesla's Controls screen, full bleed: a mode of the instrument, so it should feel like the dashboard has
+   stepped aside rather than like a window has landed on top of it. The list of categories down the
+   left, with the search at its head and the open category on a lighter grey row; the open page to the
+   right, its title large, and under it tall rows split by a hairline with the control at the right edge.
+
+   Everything else is restraint: grey on black, no outlines, no gradients on rows. Text is selectable
    here and nowhere else, because a version string and a link are worth copying. */
 .settings {
   position: fixed; inset: 0; z-index: 80; display: none;
-  grid-template-columns: 240px 1fr;
-  background: var(--cat-ink-900);
-  color: var(--cat-text);
+  grid-template-columns: clamp(248px, 22vw, 320px) minmax(0, 1fr);
+  background: var(--cat-ground);
+  color: var(--cat-body);
   user-select: text;
   font-variant-numeric: tabular-nums;
 }
 .settings[data-open="true"] { display: grid; }
 
 .srail {
-  border-right: 1px solid var(--cat-hair);
-  padding: 24px 12px 20px; overflow: auto;
-  display: flex; flex-direction: column;
+  padding: 24px 12px 24px 20px; overflow: hidden auto;
+  display: flex; flex-direction: column; gap: 20px;
 }
-.srailhead {
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 4px 16px 12px;
-  font-size: var(--fs-12); letter-spacing: 0; text-transform: none;
-  color: var(--cat-muted); font-weight: var(--cat-w-semi);
-}
-.srailhead span { flex: 1; min-width: 0; }
-/* Outside the scrolling pane, which is why it was pinned in the first place: a close control that
-   scrolls away is one you have to go looking for. */
+/* The search, and the way out beside it. Outside the scrolling pane, which is why the close control
+   was pinned in the first place: one that scrolls away is one you have to go looking for. */
+.srailhead { display: flex; align-items: center; gap: 10px; }
+.srailhead .ssearch { flex: 1 1 auto; min-width: 0; }
 .sclose {
-  flex: none; width: 32px; height: 32px;
-  border: 0; border-radius: 50%; background: var(--cat-ink-800); color: var(--cat-text);
+  flex: none; width: var(--ctl-h); height: var(--ctl-h);
+  border: 0; border-radius: 50%; background: var(--cat-surface-1); color: var(--cat-white);
   display: grid; place-items: center; cursor: pointer;
   font-family: var(--sans); font-size: var(--fs-13);
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
-    color var(--cat-dur-effect) var(--cat-ease-effect),
     transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
-.sclose svg { width: 16px; height: 16px; }
-.sclose:hover { background: var(--cat-ink-700); color: var(--cat-white); }
+.sclose svg { width: 18px; height: 18px; }
+.sclose:hover { background: var(--cat-surface-2); }
 .sclose:active { transform: scale(0.94); }
 
-.ssearch { position: relative; margin: 0 4px 12px; }
-.ssearch svg {
-  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-  width: 15px; height: 15px; color: var(--cat-muted); pointer-events: none;
-}
-.ssearch input {
-  width: 100%; height: 40px; border: 0; border-radius: 999px; background: var(--cat-ink-800);
-  color: var(--cat-white); font-family: var(--sans); font-size: var(--fs-13); font-weight: 500;
-  padding: 0 16px 0 36px; min-width: 0;
-}
-.ssearch input::placeholder { color: var(--cat-muted); }
-/* The browser's own clear affordance is a grey cross on a dark field, and this panel already has
-   Escape doing the same job. */
-.ssearch input::-webkit-search-cancel-button { -webkit-appearance: none; }
-
-.snavlist { display: flex; flex-direction: column; gap: 4px; }
+/* The categories: a white line drawing and a name, the name grey until the row is open. The open one
+   sits on the lighter grey Tesla gives it, and the blue stays with the switches and buttons inside. */
+.snavlist { display: flex; flex-direction: column; gap: 2px; }
 .snav {
-  flex: none; height: 44px; padding: 0 16px; text-align: left;
-  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--cat-text);
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: var(--track-head);
-  cursor: pointer; display: flex; align-items: center; gap: 12px;
+  flex: none; height: 52px; padding: 0 16px; text-align: left;
+  border: 0; border-radius: 12px; background: transparent; color: var(--cat-dim);
+  font-family: var(--sans); font-size: 16px; font-weight: var(--cat-w-medium); letter-spacing: 0;
+  cursor: pointer; display: flex; align-items: center; gap: 16px;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
     color var(--cat-dur-effect) var(--cat-ease-effect),
     transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
-.snav:hover { background: var(--cat-ink-800); color: var(--cat-white); }
-.snav svg { flex: none; width: 19px; height: 19px; opacity: 0.72; }
-/* The active nav item, which is the second and last thing in the program the accent is spent on.
-   The old grey pill needed a hand-picked value off the ramp to clear 3:1 against black; the signal
-   clears 5:1 and says what it is at the same time. */
-/* Tesla's Controls list marks the open category with a lighter grey sheet behind it, and keeps the
-   blue for the switches and buttons inside it. */
+.snav svg { flex: none; width: 22px; height: 22px; color: var(--cat-white); }
+.snav:hover { background: var(--cat-surface-1); color: var(--cat-white); }
 .snav[aria-selected="true"] { background: var(--cat-surface-2); color: var(--cat-white); }
-.snav[aria-selected="true"] svg { opacity: 1; }
 .snav:active { transform: scale(0.985); }
 
 /* ---- searching ----
    Every section is shown at once and the rows that do not match are hidden, so a result is the row
-   itself and changing it changes the setting. Section headings stay for context; the leads and the
-   garage go, because they are page furniture rather than settings. */
+   itself and changing it changes the setting. Section headings stay for context; the leads, the quick
+   controls and the garage go, because they are page furniture rather than settings. */
 .settings[data-search="true"] .ssec { display: block; }
 .settings[data-search="true"] .slead,
 .settings[data-search="true"] .snote,
+.settings[data-search="true"] .squick,
 .settings[data-search="true"] .garage,
 .settings[data-search="true"] .ssec[data-hits="0"] { display: none; }
-.settings[data-search="true"] .ssec + .ssec { margin-top: 40px; }
+/* Space above a section only when a section with results is above it: the hidden ones still count as
+   siblings, and `+` alone pushed the first result down under nothing. */
+.settings[data-search="true"] .ssec:not([data-hits="0"]) ~ .ssec { margin-top: 40px; }
 /* No entrance animation while filtering: the sections are being narrowed, not arrived at, and
    seven of them sliding up on every keystroke is a strobe. */
 .settings[data-search="true"] .ssec[data-active="true"] { animation: none; }
-.snohits { margin: 8px 0 0; font-size: var(--fs-15); color: var(--cat-text); }
+.snohits { margin: 8px 0 0; font-size: var(--fs-15); color: var(--cat-dim); }
 .snohits b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 
 /* The gutter is reserved whether or not this section needs it. Without that, moving from a section
    short enough to fit to one that scrolls shifts the whole column by the width of the scrollbar. */
-.spane { overflow: auto; scrollbar-gutter: stable; }
-.spane::-webkit-scrollbar { width: 8px; }
-.spane::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
-.sbody { max-width: 880px; margin: 0 auto; padding: 32px 52px 88px; }
+.spane { overflow: hidden auto; scrollbar-gutter: stable; }
+/* The top padding centres the page title on the search beside it in the list. */
+.sbody { max-width: 960px; margin: 0 auto; padding: 24px 48px 96px; }
 /* About is a document, not a column of rows. 880px is the right measure for a label beside a
    control; for prose meant to be read across it just makes the page taller than it needs to be. */
-.sbody:has(> .ssec[data-sec="about"][data-active="true"]) { max-width: 1320px; }
+.sbody:has(> .ssec[data-sec="about"][data-active="true"]) { max-width: 1160px; }
 
 .ssec { display: none; }
 .ssec[data-active="true"] { display: block; animation: secIn var(--cat-dur-release) var(--cat-ease-release) both; }
 /* A settle, not an entrance. Six pixels and it is over. */
 @keyframes secIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-.stitle { margin: 8px 0 8px; font-size: var(--fs-32); font-weight: var(--cat-w-semi); letter-spacing: var(--track-head); color: var(--cat-white); }
-.slead { margin: 0; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 56ch; }
+.stitle {
+  margin: 0; font-size: 28px; font-weight: var(--cat-w-medium); line-height: var(--ctl-h);
+  letter-spacing: 0; color: var(--cat-white);
+}
+.slead { margin: 0; font-size: var(--fs-15); line-height: 1.5; color: var(--cat-dim); }
+
+/* ---- quick controls ----
+   The row of big square buttons Tesla puts at the top of Controls, for what is reached for most. Each is
+   a shortcut to a control that already exists - a switch in Data, the team field below, the camera,
+   the field model, the units, the reset - so a tile says what it does, then how it is set in grey. A
+   tile that is on steps up to a lighter grey with its drawing in white; no tile is ever blue. */
+.squick { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.qtile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 104px; height: 92px; padding: 10px 6px; border: 0; border-radius: 14px;
+  background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); text-align: center; cursor: pointer;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
+}
+.qtile svg { width: 26px; height: 26px; flex: none; margin-bottom: 6px; color: var(--cat-body); }
+.qtile b { font-size: var(--fs-13); font-weight: var(--cat-w-medium); line-height: 1.25; color: var(--cat-white); white-space: nowrap; }
+.qtile small { font-size: var(--fs-12); line-height: 1.25; color: var(--cat-dim); white-space: nowrap; }
+.qtile:hover { background: var(--cat-surface-3); }
+.qtile:active { transform: scale(0.96); }
+.qtile[aria-pressed="true"] { background: var(--ctl-raised); }
+.qtile[aria-pressed="true"]:hover { background: #545458; }
+.qtile[aria-pressed="true"] svg { color: var(--cat-white); }
+.qtile[aria-pressed="true"] small { color: var(--cat-body); }
+/* The dock's demo button lights its play mark amber while every number is invented, and so does this. */
+#qDemo[aria-pressed="true"] svg { color: var(--cat-warn); }
+.qtile.armed small { color: var(--cat-bad); }
 
 /* ---- rows ----
-   Tall, hairline-separated, label and explanation left, control hard right. The height is the
-   point: these are meant to be read and pressed at arm's length in a pit, not filled in like a
-   form. */
-.srows { margin-top: 24px; border-top: 1px solid var(--cat-hair); }
+   Tall, split by a hairline, label and explanation left, control hard right. The height is the point:
+   these are meant to be read and pressed at arm's length in a pit, not filled in like a form. The
+   hairline goes above a row with a visible row before it, so a search that hides the first row does
+   not leave a rule hanging over the second. */
+.srows { margin-top: 24px; }
 .srow {
-  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 32px;
-  min-height: 76px; padding: 20px 0;
-  border-bottom: 1px solid var(--cat-hair);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 32px; row-gap: 14px;
+  min-height: 80px; padding: 18px 0;
 }
-.srow.stack { grid-template-columns: 1fr; align-items: stretch; gap: 12px; }
-.slab b { display: block; font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: var(--track-head); color: var(--cat-white); }
-.slab span { display: block; margin-top: 4px; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 56ch; }
+.srow:not([hidden]) ~ .srow { border-top: 1px solid var(--cat-hair); }
+.srow.stack { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.slab b { display: block; font-size: 16px; font-weight: var(--cat-w-medium); line-height: 1.35; letter-spacing: 0; color: var(--cat-white); }
+.slab span { display: block; margin-top: 3px; font-size: var(--fs-13); line-height: 1.5; color: var(--cat-dim); max-width: 60ch; }
 
-.sctl { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.sctl { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .sctl.start { justify-content: flex-start; }
-.sctl input[type="number"] {
-  min-width: 0; width: 132px; height: 44px; text-align: right;
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-semi);
-  font-variant-numeric: tabular-nums; border-radius: var(--r-sm);
-}
-.sctl input[type="range"] { width: 240px; height: 6px; }
-.sctl input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+.sctl input[type="number"] { width: 140px; text-align: right; font-variant-numeric: tabular-nums; }
+.sctl input[type="range"] { width: 240px; }
 .sval {
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-semi);
-  font-variant-numeric: tabular-nums; color: var(--cat-white); min-width: 72px; text-align: right;
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
+  font-variant-numeric: tabular-nums; color: var(--cat-white); min-width: 64px; text-align: right;
 }
-.sval.wide { min-width: 0; font-size: var(--fs-18); letter-spacing: var(--track-head); }
+.sval.wide { min-width: 0; font-size: 16px; }
 
 /* A stacked row already spaces its own parts, so the margin this carries from the modal it used to
    live in would double up against the gap. */
 .srow #impText { margin-top: 0; }
 
-.snote { margin-top: 16px; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 62ch; }
-.snote[data-tone="ok"] { color: var(--cat-ok); }
-.snote[data-tone="bad"] { color: var(--cat-bad); }
-.sprose { margin: 24px 0 0; font-size: var(--fs-13); line-height: 1.75; color: var(--cat-text); max-width: 62ch; }
+/* What happened when a control was used is the section speaking, in grey under the rows. When it went
+   well or badly a small light says which - a green circle or a red square - and the words turn white
+   to be read; the words themselves are never green or red. */
+.snote { margin-top: 16px; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-dim); max-width: 72ch; }
+:is(.snote, .lstatus):is([data-tone="ok"], [data-tone="bad"]) { color: var(--cat-white); }
+:is(.snote, .lstatus):is([data-tone="ok"], [data-tone="bad"])::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 9px; vertical-align: 1px;
+  border-radius: 50%; background: var(--cat-ok);
+}
+:is(.snote, .lstatus)[data-tone="bad"]::before { border-radius: 1px; background: var(--cat-bad); }
+.sprose { margin: 24px 0 0; font-size: 14px; line-height: 1.7; color: var(--cat-dim); max-width: 66ch; }
 .sprose b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
-
-/* ---- controls ----
-   Filled, not outlined, and only in here. In Settings a border made two rows look like a web form
-   sitting inside a panel that is deliberately not one, and what lets the fill carry it alone is the
-   ground: this panel is full-bleed --cat-ink-900, so --cat-ink-700 is a real step up out of nothing.
-   Nowhere else in the app has that ground, which is why the border stays on out there. */
-.settings select,
-.settings input[type="text"],
-.settings input[type="number"] { border: 0; }
-
-/* A real switch that slides. The knob travels once, quickly, and stops — the difference between a
-   control that feels physical and one that feels like a checkbox with rounded corners. */
-.tog {
-  position: relative; flex: none; width: 52px; height: 30px; padding: 0;
-  border: 1px solid var(--cat-hair-str); border-radius: 999px; background: var(--cat-ink-700);
-  font-family: var(--sans); font-size: var(--fs-13); cursor: pointer;
-  transition:
-    background-color var(--cat-dur-effect) var(--cat-ease-effect),
-    transform var(--cat-dur-hold) var(--cat-ease-hold);
-}
-/* The one shadow in the panel, and it is functional: it is what says the knob sits on the track
-   rather than being painted onto it. */
-.tog i {
-  position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--cat-white); box-shadow: 0 1px 2px rgb(var(--draw-shade) / 0.5);
-  /* A value travelling to where it was set, which is exactly the identity's `settle`. */
-  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
-}
-.tog:hover { background: var(--tile-4); }
-.tog:active { transform: scale(0.96); }
-.tog[aria-checked="true"] { background: var(--cat-coral); border-color: var(--cat-coral); }
-.tog[aria-checked="true"] i { transform: translateX(22px); }
-/* The deliberate break. Demo data on is the state where every number on the board is invented,
-   which is exactly what amber is for and exactly what the third rule is about — the switch should
-   agree with the paragraph underneath it at a glance rather than after reading it. */
-.tog.hazard[aria-checked="true"] { background: var(--cat-warn); border-color: var(--cat-warn); }
-.tog[aria-checked="true"]:hover { filter: brightness(1.1); }
-
-/* Not `.seg`: that is the match timer's four-pixel progress bar, and a segmented control that
-   inherits `height: 4px` and `overflow: hidden` from it collapses into a sliver. */
-.choice {
-  position: relative; flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair);
-  border-radius: 999px; padding: 4px; min-width: 288px;
-}
-/* One filled pill that moves, rather than three that light up. `--n` is the number of segments and
-   is set on the element, so the maths holds whatever the choice set is. */
-.choice .choicesel {
-  position: absolute; top: 4px; bottom: 4px; left: 4px;
-  width: calc((100% - 8px) / var(--n, 3));
-  border-radius: 999px; background: var(--cat-ink-700);
-  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
-}
-.choice button {
-  position: relative; z-index: 1; height: 36px; padding: 0 16px;
-  border: 0; background: transparent; border-radius: 999px; cursor: pointer;
-  color: var(--cat-muted); font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
-  transition:
-    color var(--cat-dur-effect) var(--cat-ease-effect),
-    transform var(--cat-dur-hold) var(--cat-ease-hold);
-}
-.choice button:hover { color: var(--cat-text); }
-.choice button[aria-checked="true"] { color: var(--cat-white); }
-.choice button:active { transform: scale(0.96); }
-
-.sbtn {
-  flex: none; height: 44px; padding: 0 20px; border: 1px solid var(--cat-hair);
-  border-radius: var(--r-sm);
-  background: var(--cat-ink-800); color: var(--cat-white);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); cursor: pointer;
-  transition:
-    background-color var(--cat-dur-effect) var(--cat-ease-effect),
-    color var(--cat-dur-effect) var(--cat-ease-effect),
-    transform var(--cat-dur-hold) var(--cat-ease-hold);
-}
-.sbtn:hover { background: var(--cat-ink-700); border-color: var(--cat-hair-str); }
-.sbtn:active { background: var(--tile-4); transform: scale(0.97); }
-.sbtn.below { margin-top: 12px; }
-/* The one primary action in the panel: it exists only when there is a release to take, and it is
-   the thing the section is asking you to decide. */
-.sbtn.primary { background: var(--cat-coral); border-color: var(--cat-coral); color: var(--cat-ink-900); }
-.sbtn.primary:hover { background: var(--cat-coral-lt); border-color: var(--cat-coral-lt); color: var(--cat-ink-900); }
-.sbtn.primary:active { background: var(--cat-coral-dk); border-color: var(--cat-coral-dk); color: var(--cat-white); }
-/* Armed is a state — the next press destroys the board — so it takes the semantic colour rather
-   than the accent. */
-.sbtn.armed { background: var(--cat-bad); border-color: var(--cat-bad); color: var(--cat-ink-900); }
-.sbtn.armed:hover { background: var(--cat-bad); border-color: var(--cat-bad); color: var(--cat-ink-900); filter: brightness(1.08); }
-.sbtn:disabled { opacity: 0.4; cursor: default; }
-.sbtn:disabled:hover { background: var(--cat-ink-800); border-color: var(--cat-hair); }
 
 /* The candidate addresses, in the order the console cycles them, with the one that answered
    marked. Nothing is marked at all while nothing has answered — an address list is not a claim. */
 .saddr {
-  list-style: none; margin: 0; padding: 0; display: grid; gap: 1px;
-  background: var(--cat-hair); border-radius: var(--r); overflow: hidden;
+  list-style: none; margin: 0; padding: 0 18px;
+  background: var(--cat-surface-1); border-radius: 14px;
 }
 .saddr li {
-  display: flex; align-items: center; gap: 12px; background: var(--cat-ink-800); padding: 16px;
-  font-family: var(--mono); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-text);
+  display: flex; align-items: center; gap: 16px; min-height: 52px; padding: 10px 0;
+  font-family: var(--mono); font-size: var(--fs-13); font-weight: 400; color: var(--cat-body);
 }
+.saddr li + li { border-top: 1px solid var(--cat-hair); }
 .saddr li[data-answered="true"] { color: var(--cat-white); }
 .saddr .what {
-  margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
+  margin-left: auto; text-align: right;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim);
 }
-.saddr li[data-answered="true"] .what { color: var(--cat-ok); }
+.saddr li[data-answered="true"] .what { color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.saddr li[data-answered="true"] .what::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px;
+  border-radius: 50%; background: var(--cat-ok);
+}
 
 /* ---- the garage ----
    Sits above the rows because it is the answer to "which robot is this", and the rows below it are
    only how the console goes looking. Card rather than rows: everything in it arrived together, from
    one source, and none of it is editable here. */
 .garage {
-  margin-top: 24px; border-radius: var(--r-lg); padding: 8px 32px 32px;
+  margin-top: 28px; border-radius: 18px; padding: 8px 32px 28px;
   display: grid; justify-items: center;
-  border: 1px solid var(--cat-hair);
+  border: 0;
   /* Lit from above rather than a flat card, so the robot reads as sitting on a surface. The stop at
      58% is where the plan ends and the sheet begins. */
   background:
     radial-gradient(120% 62% at 50% 0%, rgb(var(--draw-light) / 0.05), rgb(var(--draw-light) / 0) 58%),
-    var(--cat-ink-800);
+    var(--cat-surface-1);
 }
 /* No drawing, so no stage light and no hero spacing — it becomes an ordinary card of facts. */
-.garage[data-plan="false"] { padding-top: 32px; background: var(--cat-ink-800); }
+.garage[data-plan="false"] { padding-top: 28px; background: var(--cat-surface-1); }
 .garage[data-plan="false"] .ghead { margin-top: 0; }
 .garage[data-known="false"] .gplan,
 .garage[data-known="false"] .ghead,
-.garage[data-known="false"] .gspecs { display: none; }
+.garage[data-known="false"] .gspecs,
+.garage[data-known="false"] .gfoot { display: none; }
 .garage[data-known="true"] .gempty { display: none; }
 
-.gempty { display: grid; gap: 8px; justify-items: center; text-align: center; padding: 24px 0; max-width: 46ch; }
-.gempty b { font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-text); }
-.gempty span { font-size: var(--fs-13); line-height: 1.6; color: var(--cat-muted); }
+.gempty { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 24px 0; max-width: 48ch; }
+.gempty b { font-size: 16px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.gempty span { font-size: 14px; line-height: 1.6; color: var(--cat-dim); }
 
 /* Drawn, not photographed. The canvas is sized in CSS and scaled for the device ratio in script,
    so the hairlines stay hairlines on a high-density panel. */
 .gplan { margin: 0; display: grid; justify-items: center; gap: 12px; }
 .gplan canvas { width: 380px; height: 320px; max-width: 100%; display: block; }
-.gplan figcaption {
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
-}
+.gplan figcaption { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim); }
 
-.ghead { text-align: center; margin-top: 24px; }
+.ghead { text-align: center; margin-top: 20px; }
 .ghead h3 {
-  margin: 0; font-family: var(--sans); font-size: var(--fs-32); font-weight: 300;
-  letter-spacing: var(--track-head); line-height: 1.1; color: var(--cat-white); text-wrap: balance;
+  margin: 0; font-family: var(--sans); font-size: 28px; font-weight: var(--cat-w-medium);
+  letter-spacing: 0; line-height: 1.2; color: var(--cat-white); text-wrap: balance;
 }
-.ghead p { margin: 8px 0 0; font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-muted); }
+.ghead p { margin: 6px 0 0; font-family: var(--sans); font-size: var(--fs-15); font-weight: 400; color: var(--cat-dim); }
 
 .gspecs {
-  margin-top: 36px; width: 100%; padding-top: 28px; border-top: 1px solid var(--cat-hair);
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 28px 44px;
+  margin-top: 28px; width: 100%; padding-top: 24px; border-top: 1px solid var(--cat-hair);
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 28px 40px;
 }
 .ggroup { display: grid; align-content: start; }
-.ggroup h4 {
-  margin: 0 0 4px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
-}
-.grow {
+.ggroup h4 { margin: 0 0 4px; font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+/* A line of the sheet. Not `.grow`, which is the status bar's and the dock's flex spacer: under that
+   name this rule gave both bars' spacers a hairline and padding of their own. */
+.gspec {
   display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
-  padding: 8px 0; border-bottom: 1px solid var(--hair-dense);
+  padding: 9px 0; border-bottom: 1px solid var(--cat-hair);
 }
-.grow:last-child { border-bottom: 0; }
-.grow span { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-text); }
-.grow b { font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-white); text-align: right; }
+.gspec:last-child { border-bottom: 0; }
+.gspec span { font-family: var(--sans); font-size: 14px; font-weight: 400; color: var(--cat-dim); }
+.gspec b { font-family: var(--sans); font-size: 14px; font-weight: var(--cat-w-medium); color: var(--cat-white); text-align: right; }
 
 /* ---- the two diagrams ----
    Cards rather than more rows, because neither of these is a label-and-value: one is a topology and
-   the other is a panel you look at the shape of. */
+   the other is a panel you look at the shape of. Top-aligned, so a short card does not stretch into
+   an empty one beside a long device list. */
 .gviz {
-  width: 100%; margin-top: 24px;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+  width: 100%; margin-top: 28px; align-items: start;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px;
 }
 .gviz[hidden] { display: none; }
 /* The devices empty state sits on the section ground rather than inside a card. */
 #devEmpty { justify-items: start; text-align: left; padding: 28px 0 0; }
-#devEmpty span { color: var(--cat-text); }
-.gcard { background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r); padding: 16px; min-width: 0; }
+.gcard { background: var(--cat-surface-1); border: 0; border-radius: 16px; padding: 20px 24px 22px; min-width: 0; }
 .gcard h4 {
-  margin: 0 0 16px; display: flex; align-items: baseline; gap: 8px;
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
+  margin: 0 0 14px; display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--sans); font-size: 17px; font-weight: var(--cat-w-medium); color: var(--cat-white);
 }
-.gcard h4 b { font-family: var(--sans); font-weight: var(--cat-w-medium); color: var(--cat-text); letter-spacing: 0; }
+.gcard h4 b { font-family: var(--sans); font-weight: 400; color: var(--cat-dim); }
 
 /* A bus and the ids hanging off it. Indented and rule-led rather than boxed: the point being made
-   is that these devices are on one wire, and a box would say the opposite. */
-.gbus + .gbus { margin-top: 16px; }
+   is that these devices are on one wire, and a box would say the opposite. The bus and the ids are
+   what get typed back, so they are the mono face; the count is read. */
+.gbus + .gbus { margin-top: 18px; }
 .gbusname {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  font-family: var(--mono); font-size: var(--fs-13); font-weight: 400; color: var(--cat-white);
   padding-bottom: 8px; border-bottom: 1px solid var(--cat-hair);
 }
-.gbusname span { font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
+.gbusname span { font-family: var(--sans); font-size: var(--fs-13); color: var(--cat-dim); }
 .gdev {
-  display: flex; align-items: center; gap: 12px; padding: 8px 0 8px 12px;
-  border-left: 1px solid var(--cat-hair); margin-left: 4px;
+  display: flex; align-items: center; gap: 14px; min-height: 42px; padding: 5px 0 5px 14px;
+  border-left: 1px solid var(--cat-line-strong); margin-left: 5px;
 }
+/* A fixed width, so a two-digit id does not push its name out of line with the one-digit ids above. */
 .gdev i {
-  flex: none; min-width: 26px; text-align: center;
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium); font-style: normal;
-  color: var(--cat-text); background: var(--cat-ink-700); border-radius: var(--r-sm); padding: 2px 8px;
+  flex: none; width: 36px; padding: 3px 0; text-align: center;
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: 400; font-style: normal;
+  color: var(--cat-white); background: var(--cat-surface-2); border-radius: 6px;
 }
-.gdev span { font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gdev span { font-family: var(--sans); font-size: 14px; font-weight: 400; color: var(--cat-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The breaker panel, at the shape a glance can read: which slots are taken, and where the gaps
-   are. */
-.gpower { display: grid; grid-template-columns: repeat(auto-fit, minmax(30px, 1fr)); gap: 4px; }
+   are. A slot in use is lit, the way a quick control that is on is lit; a free one is grey. */
+.gpower { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px; }
 .gslot {
-  aspect-ratio: 1; border-radius: var(--r-sm); background: var(--cat-ink-900); display: grid; place-items: center;
-  font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium); color: var(--cat-muted); min-width: 0;
+  aspect-ratio: 1; border-radius: 8px; background: var(--cat-surface-2); display: grid; place-items: center;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim); min-width: 0;
 }
-.gslot[data-on="true"] { background: color-mix(in srgb, var(--cat-data) 32%, var(--cat-ink-900)); color: var(--cat-white); }
-.gpowerkey { margin-top: 16px; display: grid; gap: 8px; }
-.gpowerkey div { display: flex; gap: 12px; font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-text); }
+.gslot[data-on="true"] { background: var(--cat-body); color: #000000; }
+.gpowerkey { margin-top: 18px; display: grid; }
+.gpowerkey div {
+  display: flex; align-items: baseline; gap: 14px; padding: 9px 0;
+  font-family: var(--sans); font-size: 14px; font-weight: 400; color: var(--cat-body);
+}
+.gpowerkey div + div { border-top: 1px solid var(--cat-hair); }
 .gpowerkey b { flex: none; min-width: 26px; font-family: var(--sans); font-weight: var(--cat-w-medium); color: var(--cat-white); }
 
 .gfoot {
-  width: 100%; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--hair-dense);
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  width: 100%; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--cat-hair);
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
-.ghint { font-family: var(--sans); font-size: var(--fs-13); font-weight: 500; color: var(--cat-muted); }
+.ghint { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim); }
 
 /* ---- camera rows (garage card and Systemcore page) ----
-   The vision surface. The dot is shaped as well as coloured, and a camera that is actually failing
-   tints its whole row, because a 9px dot at the left of a list is not enough area to find at a
-   glance in a pit. */
+   The vision surface. A camera's state is the small light at the start of its row, shaped as well as
+   coloured - a circle when healthy, a diamond when it needs a look, a square when it has failed - and
+   said again in words under its name. The row itself is never tinted: that was a wash of amber or red
+   across a list, which is the colour Tesla keeps to a light. */
 .gcams { display: flex; flex-direction: column; }
-.gcam { display: grid; grid-template-columns: 9px 1fr auto; align-items: center; gap: 12px; padding: 8px; border-radius: var(--r-sm); }
+.gcam { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 14px; padding: 12px 0; }
 .gcam + .gcam { border-top: 1px solid var(--cat-hair); }
-.gcam i { width: 9px; height: 9px; border-radius: 50%; background: var(--cat-muted); }
+.gcam i { width: 9px; height: 9px; border-radius: 50%; background: var(--cat-faint); }
 .gcam[data-state="OK"] i, .gcam[data-state="NO_TARGETS"] i { background: var(--cat-ok); }
 .gcam[data-state="HOT"] i, .gcam[data-state="LOW_FPS"] i,
 .gcam[data-state="REJECTING"] i, .gcam[data-state="NO_NT"] i {
   background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg);
 }
 .gcam[data-state="DISCONNECTED"] i, .gcam[data-state="STALE"] i { background: var(--cat-bad); border-radius: 1px; }
-.gcam[data-state="HOT"], .gcam[data-state="LOW_FPS"],
-.gcam[data-state="REJECTING"], .gcam[data-state="NO_NT"] { background: color-mix(in srgb, var(--cat-warn) 9%, transparent); }
-.gcam[data-state="DISCONNECTED"], .gcam[data-state="STALE"] { background: color-mix(in srgb, var(--cat-bad) 12%, transparent); }
-.gcam .n { font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); min-width: 0; letter-spacing: 0; }
-.gcam .n small { display: block; font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gcam .m { font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-text); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gcam .n { font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white); min-width: 0; letter-spacing: 0; line-height: 1.35; }
+.gcam .n small { display: block; margin-top: 2px; font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcam .m { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-body); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---- about, as the last section ----
-   The one section that is a document rather than a set of rows, so it keeps its masthead — but at
-   the scale of a page inside something, not a page of its own. */
-.mast { display: flex; align-items: flex-start; gap: 20px; margin-top: 8px; }
-.mastbolt { width: 40px; height: 40px; flex: none; fill: var(--cat-coral); margin-top: 4px; }
-.mastname { min-width: 0; flex: 1; }
-.mastname h1 { margin: 0; font-size: var(--fs-32); font-weight: 800; letter-spacing: -0.04em; line-height: 0.95; color: var(--cat-white); }
-/* The family and the product are not the same word. Setting them at different weights on two lines
-   says so without a second colour. The family goes above, quiet and letterspaced, and the product
-   below in the display weight — the same order of emphasis as the identity's wordmark, which reads
-   thin "Catalyst" then bold "Console" in the top bar. It used to be the other way up, so the two
-   marks in one program disagreed about which word was the product. The tracking is not the label
-   tracking and should not be: 0.42em is the mark's own, doing the work of spanning the name below
-   it rather than the work of separating capitals. */
-.mastname h1 span {
-  display: block; margin-bottom: 0.3em; color: var(--cat-muted);
-  font-size: var(--fs-13); font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none;
+   The one section that is a document rather than a set of rows, laid out the way Tesla lays out its
+   Software page: the product's mark and name, what it is, and the version beside it. */
+.mast { display: flex; align-items: center; gap: 20px; }
+.mastbolt {
+  width: 64px; height: 64px; flex: none; padding: 16px;
+  border-radius: 16px; background: var(--cat-surface-1); fill: var(--cat-white);
 }
-.mastname p { margin: 16px 0 0; font-size: var(--fs-15); color: var(--cat-text); line-height: 1.55; max-width: 42ch; }
-.mastver { text-align: right; flex: none; padding-top: 4px; }
-/* The version is the identity's own badge — a capsule with a lit dot, exactly as the launch material
-   draws it — so everything about how it looks comes from `.cat-pill`. All this rule has left to do is
-   keep it a capsule: a `display: block` here outranked the primitive and stretched it across the
-   column with the dot stranded at one end. Tabular figures because `.cat-pill` sets no `font`
-   shorthand, so the root's declaration reaches it and a version is a number. */
-.mastver .cat-pill { font-variant-numeric: tabular-nums; }
-.mastver small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
+.mastname { min-width: 0; flex: 1; }
+.mastname h1 { margin: 0; font-size: 28px; font-weight: var(--cat-w-medium); letter-spacing: 0; line-height: 1.2; color: var(--cat-white); }
+.mastname h1 span { color: var(--cat-white); }
+.mastname p { margin: 4px 0 0; font-size: var(--fs-15); color: var(--cat-dim); line-height: 1.5; }
+.mastver { text-align: right; flex: none; }
+/* The version, in a grey capsule. The identity draws this badge in its signal colour with a lit dot; in
+   here colour is for state, and a version is not one, so both come off. Tabular figures because
+   `.cat-pill` sets no `font` shorthand, so the root's declaration reaches it and a version is a number. */
+.mastver .cat-pill {
+  height: 32px; padding: 0 14px; border: 0; background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); font-size: 14px; font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums;
+}
+.mastver .cat-pill::before { display: none; }
+.mastver small { display: block; margin-top: 6px; font-size: var(--fs-13); letter-spacing: 0; text-transform: none; color: var(--cat-dim); font-weight: 400; }
 
 /* The one moving thing on the page. An instrument sweeps a line across its face when it is awake;
    this does that once every eight seconds and then rests, which is the difference between a signal
-   and a decoration. */
-.sweep { position: relative; height: 1px; margin: 28px 0 32px; background: var(--cat-hair); overflow: hidden; }
-.sweep i { position: absolute; inset: 0 auto 0 0; width: 34%; background: linear-gradient(90deg, transparent, var(--cat-coral), transparent); animation: sweep 8s cubic-bezier(0.45, 0, 0.4, 1) infinite; }
+   and a decoration. In white, because it is neither a state nor the primary action. */
+.sweep { position: relative; height: 1px; margin: 32px 0; background: var(--cat-hair); overflow: hidden; }
+.sweep i { position: absolute; inset: 0 auto 0 0; width: 34%; background: linear-gradient(90deg, transparent, rgb(var(--draw-light) / 0.6), transparent); animation: sweep 8s cubic-bezier(0.45, 0, 0.4, 1) infinite; }
 @keyframes sweep {
   0% { transform: translateX(-100%); opacity: 0; }
   6% { opacity: 1; }
@@ -1854,75 +2054,78 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   100% { transform: translateX(294%); opacity: 0; }
 }
 
-.ah { margin: 0 0 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
-.alead { margin: 0 0 20px; font-size: var(--fs-13); color: var(--cat-text); line-height: 1.55; }
+.ah { margin: 0 0 6px; font-size: 20px; line-height: 1.3; letter-spacing: 0; text-transform: none; color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.alead { margin: 0 0 16px; font-size: var(--fs-15); color: var(--cat-dim); line-height: 1.55; }
 
-.rulelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0 44px; }
+.rulelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0 40px; }
 .rulelist li {
-  display: grid; grid-template-columns: 62px 1fr; gap: 24px;
-  padding: 24px 0; border-top: 1px solid var(--cat-hair);
+  display: grid; grid-template-columns: 44px 1fr; gap: 20px;
+  padding: 22px 0; border-top: 1px solid var(--cat-hair);
 }
-/* Outlined rather than filled: at this size a solid crimson numeral would out-shout the sentence it
-   is numbering, and the sentence is the point. */
+/* The number in the grey the rows' explanations are, so it counts the rule without competing with it. */
 .rn {
-  display: block; font-family: var(--sans); font-size: var(--fs-24); font-weight: var(--cat-w-semi);
-  line-height: 1; letter-spacing: -0.05em; color: color-mix(in srgb, var(--cat-coral) 35%, transparent);
-  -webkit-text-fill-color: transparent; -webkit-text-stroke: 1.2px color-mix(in srgb, var(--cat-coral) 80%, transparent);
+  display: block; font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
+  line-height: 1.5; letter-spacing: 0; color: var(--cat-dim);
 }
-.rulelist h3 { margin: 0 0 8px; font-size: var(--fs-18); font-weight: var(--cat-w-semi); letter-spacing: var(--track-head); line-height: 1.25; color: var(--cat-white); }
+.rulelist h3 { margin: 0 0 8px; font-size: 17px; font-weight: var(--cat-w-medium); letter-spacing: 0; line-height: 1.35; color: var(--cat-white); }
 /* Scoped to the list items: unscoped, this outranks .alead and flattens the lead paragraph into
    the same size as the rule bodies. */
-.rulelist li p { margin: 0; font-size: var(--fs-13); line-height: 1.7; color: var(--cat-text); max-width: 66ch; }
+.rulelist li p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--cat-dim); max-width: 66ch; }
 /* An optical match, not a step: mono at the same pixel size reads a shade larger than the sans it
    is sitting inside. */
 .rulelist li code { font-family: var(--mono); font-size: 0.94em; color: var(--cat-white); }
 
 .diag { margin-top: 44px; }
-.dgrid { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(134px, 1fr)); gap: 1px; background: var(--cat-hair); border-radius: var(--r); overflow: hidden; }
-.dcell { background: var(--cat-ink-800); padding: 16px; min-width: 0; }
-.dcell b { display: block; font-family: var(--sans); font-size: var(--fs-18); font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; letter-spacing: var(--track-head); color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dcell small { display: block; margin-top: 4px; font-size: var(--fs-12); letter-spacing: 0; text-transform: none; color: var(--cat-muted); font-weight: var(--cat-w-semi); }
-.assets { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: var(--fs-13); color: var(--cat-text); font-weight: var(--cat-w-medium); }
+.dgrid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.dcell { background: var(--cat-surface-1); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+.dcell b { display: block; font-family: var(--sans); font-size: 22px; font-weight: 400; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: 0; color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcell small { display: block; margin-top: 4px; font-size: var(--fs-13); letter-spacing: 0; text-transform: none; color: var(--cat-dim); font-weight: 400; }
+.assets { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; font-size: 14px; color: var(--cat-dim); font-weight: 400; }
 .asset { display: inline-flex; align-items: center; gap: 8px; }
-.asset b { color: var(--cat-white); font-family: var(--mono); font-weight: var(--cat-w-medium); }
+.asset b { color: var(--cat-white); font-family: var(--sans); font-weight: var(--cat-w-medium); }
 
 .acols { display: grid; grid-template-columns: 1fr; gap: 44px; margin-top: 44px; }
-.keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 12px 0 0; font-size: var(--fs-13); }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 14px 0 0; font-size: 14px; }
 .keys dt { display: flex; gap: 4px; align-items: center; }
-.keys dd { margin: 0; color: var(--cat-text); align-self: center; }
-/* A filled cap rather than an outlined one, for the same reason the inputs lost their borders:
-   this panel is built out of fills and hairlines. */
+.keys dd { margin: 0; color: var(--cat-body); align-self: center; }
+/* A filled cap rather than an outlined one, for the same reason the fields lost their borders: this
+   panel is built out of fills and hairlines. A key is typed, so it is the mono face. */
 kbd {
+  display: inline-grid; place-items: center; min-width: 28px; height: 26px; padding: 0 8px;
   font-family: var(--mono); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  background: var(--cat-ink-700); border: 0; border-radius: var(--r-sm); padding: 4px 8px;
-  min-width: 22px; text-align: center; color: var(--cat-white);
+  background: var(--cat-surface-2); border: 0; border-radius: 6px; color: var(--cat-white);
 }
 
-.links { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.links { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .alink {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  border: 1px solid var(--cat-hair); border-radius: var(--r-sm);
-  background: var(--cat-ink-800); color: var(--cat-white);
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
-  padding: 12px 16px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px;
+  border: 0; border-radius: 12px;
+  background: var(--cat-surface-1); color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium);
+  padding: 0 18px; cursor: pointer; text-align: left;
   transition:
     background-color var(--cat-dur-effect) var(--cat-ease-effect),
     transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
-.alink:hover { background: var(--cat-ink-700); }
-.alink:active { background: var(--tile-4); transform: scale(0.99); }
-.alink small { margin-left: auto; font-family: var(--sans); font-size: var(--fs-12); font-weight: 500; color: var(--cat-muted); }
-.credit { margin: 20px 0 0; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); }
+.alink:hover { background: var(--cat-surface-2); }
+.alink:active { background: var(--cat-surface-3); transform: scale(0.99); }
+.alink small { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim); }
+/* The chevron Tesla ends a row with when pressing it goes somewhere else. */
+.alink::after {
+  content: ""; flex: none; width: 7px; height: 7px; margin: 0 2px 0 4px;
+  border-top: 1.8px solid var(--cat-dim); border-right: 1.8px solid var(--cat-dim); transform: rotate(45deg);
+}
+.credit { margin: 20px 0 0; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-dim); }
 
-.relnotes { margin-top: 20px; background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r); padding: 20px; }
-.relnotes .ah { margin-bottom: 12px; }
-.relnotes span { color: var(--cat-text); }
+.relnotes { margin-top: 20px; background: var(--cat-surface-1); border: 0; border-radius: 16px; padding: 20px 24px; }
+.relnotes .ah { margin-bottom: 12px; font-size: 17px; }
+.relnotes span { color: var(--cat-white); }
 /* Preformatted because it is someone else's plain text and its line breaks are the only structure
    it has. Wrapped rather than scrolled sideways: a release note is read, not inspected. */
 .relnotes pre {
   margin: 0; max-height: 260px; overflow: auto;
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; line-height: 1.62;
-  color: var(--cat-text); white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--sans); font-size: 14px; font-weight: 400; line-height: 1.62;
+  color: var(--cat-body); white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 /* ============================================================== systemcore ====
@@ -1932,44 +2135,42 @@ kbd {
    Every value can be absent, and absent is an em dash and a flat bar rather than a zero. That
    distinction carries the whole page: 0% storage used and no answer from the storage sensor look
    identical as a number and mean opposite things. */
-.core { margin-top: 24px; }
+.core { margin-top: 28px; }
 .core[data-live="false"] > *:not(.cempty) { display: none; }
 .core[data-live="true"] .cempty { display: none; }
 
 .cvitals {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-  gap: 12px; margin-bottom: 24px;
+  gap: 12px; margin-bottom: 12px;
 }
 .cvital {
   position: relative; overflow: hidden;
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r);
-  padding: 16px;
+  background: var(--cat-surface-1); border: 0; border-radius: 16px;
+  padding: 18px 20px 20px;
 }
 /* Same severity vocabulary as the board: an edge stripe, solid for a fault and hatched for a
    degradation, so the four vitals can be ranked without reading any of the numbers. */
 .cvital::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent;
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: transparent;
 }
 .cvital[data-level="warn"]::before { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 6px, transparent 6px 11px); }
 .cvital[data-level="crit"]::before { background: var(--cat-bad); }
-.cvk {
-  font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
-}
-.cvn { display: flex; align-items: baseline; gap: 4px; margin: 8px 0 12px; }
+.cvk { font-size: 14px; font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none; color: var(--cat-dim); }
+.cvn { display: flex; align-items: baseline; gap: 4px; margin: 10px 0 14px; }
 .cvn b {
-  font-size: var(--fs-32); font-weight: 650; letter-spacing: var(--track-head); line-height: 1;
+  font-size: 34px; font-weight: 400; letter-spacing: 0; line-height: 1;
   font-variant-numeric: tabular-nums; color: var(--cat-white);
 }
-.cvn span { font-size: var(--fs-15); color: var(--cat-muted); font-weight: 500; }
-.cvsub { margin-top: 8px; font-size: var(--fs-12); color: var(--cat-muted); font-variant-numeric: tabular-nums; }
+.cvn span { font-size: var(--fs-15); color: var(--cat-dim); font-weight: 400; }
+.cvsub { margin-top: 10px; font-size: var(--fs-13); color: var(--cat-dim); font-variant-numeric: tabular-nums; }
 
-/* One bar treatment for every proportion on the page, so a reader learns to read it once. No width
-   transition, for the same reason as the board's: paintSettings runs inside the same 10 Hz paint. */
+/* One bar treatment for every proportion on the page, so a reader learns to read it once. White, as a
+   reading is on the board; amber and red only once the reading is a state. No width transition, for
+   the same reason as the board's: paintSettings runs inside the same 10 Hz paint. */
 .ctrack { height: 4px; border-radius: 999px; background: var(--cat-track); overflow: hidden; }
-.ctrack.big { height: 8px; }
+.ctrack.big { height: 6px; }
 .ctrack > i {
-  display: block; height: 100%; width: 0; border-radius: 999px; background: var(--cat-ok);
+  display: block; height: 100%; width: 0; border-radius: 999px; background: var(--cat-data);
   transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .ctrack > i[data-level="warn"] { background: var(--cat-warn); }
@@ -1978,97 +2179,123 @@ kbd {
 .cvital[data-level="crit"] .cvn b { color: var(--cat-bad); }
 
 .ccard {
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r);
-  padding: 16px; margin-bottom: 12px;
+  background: var(--cat-surface-1); border: 0; border-radius: 16px;
+  padding: 20px 24px 22px; margin-bottom: 12px;
 }
 .ccard[hidden] { display: none; }
-.ccard h3 { margin: 0; font-size: var(--fs-15); font-weight: 650; letter-spacing: var(--track-head); color: var(--cat-white); }
-.cnote { margin: 8px 0 16px; font-size: var(--fs-13); line-height: 1.55; color: var(--cat-muted); max-width: 62ch; }
+.ccard h3 { margin: 0 0 14px; font-size: 17px; font-weight: var(--cat-w-medium); line-height: 1.35; letter-spacing: 0; color: var(--cat-white); }
+.ccard h3:has(+ .cnote) { margin-bottom: 0; }
+.cnote { margin: 4px 0 16px; font-size: var(--fs-13); line-height: 1.55; color: var(--cat-dim); max-width: 72ch; }
 
-/* CAN, grouped by controller. The group is a labelled band rather than a heading per bus, because
-   what matters is which buses sit together, not the buses themselves. */
-.cbuses { display: flex; flex-direction: column; gap: 16px; }
-.cgroup { border-left: 2px solid var(--cat-hair-str); padding-left: 12px; }
+/* CAN, grouped by controller. The group is a quiet label over its buses rather than a heading per
+   bus, because what matters is which buses sit together, not the buses themselves. */
+.cbuses { display: flex; flex-direction: column; gap: 18px; }
 .cgroup > h4 {
-  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
+  margin: 0 0 10px; font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
-.cbus { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 12px; }
-.cbus + .cbus { margin-top: 8px; }
-.cbus > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-text); }
-.cbus > b { font-size: var(--fs-13); text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.cbus { display: grid; grid-template-columns: 72px 1fr 56px; align-items: center; gap: 14px; }
+.cbus + .cbus { margin-top: 10px; }
+.cbus > span { font-family: var(--mono); font-size: var(--fs-13); color: var(--cat-white); }
+.cbus > b { font-size: var(--fs-15); text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .cbus[data-idle="true"] > span,
-.cbus[data-idle="true"] > b { color: var(--cat-muted); }
+.cbus[data-idle="true"] > b { color: var(--cat-dim); }
 
-.cfaults { margin-top: 16px; font-size: var(--fs-13); color: var(--cat-text); }
+.cfaults { margin-top: 16px; font-size: var(--fs-13); color: var(--cat-body); }
 .cfaults:empty { display: none; }
-.cfaults b { color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.cfaults b { color: var(--cat-white); font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; }
 .cfaults .bad { color: var(--cat-bad); }
 
 .cwear { margin-top: 4px; }
 .cwearrow {
   display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 12px;
-  font-size: var(--fs-13); color: var(--cat-text);
+  font-size: 14px; color: var(--cat-body);
 }
-.cwearrow b { font-size: var(--fs-13); font-weight: 650; }
-.cwearrow b.ok { color: var(--cat-ok); }
+.cwearrow b { font-size: 14px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .cwearrow b.warn { color: var(--cat-warn); }
 .cwearrow b.crit { color: var(--cat-bad); }
 
-.crows { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0 32px; }
+.crows { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 36px; }
 .crow {
   display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  padding: 8px 0; border-bottom: 1px solid var(--cat-hair); font-size: var(--fs-13);
+  padding: 11px 0; border-bottom: 1px solid var(--cat-hair); font-size: 14px;
 }
-.crow > span { color: var(--cat-text); }
-.crow > b { font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; text-align: right; color: var(--cat-white); }
-.crow > b.dim { color: var(--cat-muted); font-weight: 500; }
-.crow .sub { color: var(--cat-muted); font-size: var(--fs-12); margin-left: 8px; }
-.crows.tight .crow { padding: 4px 0; font-size: var(--fs-13); }
+.crow > span { color: var(--cat-dim); }
+/* `pretty`, so a long value such as a board's model name wraps without leaving one word on a line. */
+.crow > b { font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; text-align: right; color: var(--cat-white); text-wrap: pretty; }
+.crow > b.dim { color: var(--cat-body); font-weight: 400; }
+.crow .sub { color: var(--cat-dim); font-size: var(--fs-13); font-weight: 400; margin-left: 8px; }
+.crows.tight .crow { padding: 8px 0; }
 
 .cempty {
-  display: flex; flex-direction: column; gap: 8px; padding: 32px;
-  background: var(--cat-ink-800); border: 1px solid var(--cat-hair); border-radius: var(--r);
+  display: flex; flex-direction: column; gap: 8px; padding: 28px;
+  background: var(--cat-surface-1); border: 0; border-radius: 16px;
 }
-.cempty b { font-size: var(--fs-15); font-weight: 650; color: var(--cat-white); }
-.cempty span { font-size: var(--fs-13); line-height: 1.6; color: var(--cat-text); max-width: 64ch; }
-.cempty code { font-family: var(--mono); font-size: var(--fs-12); background: var(--cat-ink-700); padding: 1px 8px; border-radius: var(--r-sm); }
+.cempty b { font-size: 16px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.cempty span { font-size: 14px; line-height: 1.6; color: var(--cat-dim); max-width: 64ch; }
+.cempty code { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-white); background: var(--cat-surface-2); padding: 2px 8px; border-radius: 6px; }
 
 /* ---- what the on-device agent adds ----
    Same visual language as the cards above, because the reader should not have to know which values
    arrived over NetworkTables and which came from the agent. */
-.ccores { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.ccore { display: grid; grid-template-columns: 26px 1fr 42px; align-items: center; gap: 8px; }
-.ccore > span { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-muted); }
-.ccore > b { font-size: var(--fs-12); text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
-.ccore .mhz { display: block; font-size: var(--fs-12); color: var(--cat-muted); font-weight: 500; }
+.ccores { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 32px; }
+.ccore { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 12px; }
+.ccore > span { font-family: var(--mono); font-size: var(--fs-13); color: var(--cat-dim); }
+.ccore > b { font-size: 14px; line-height: 1.25; text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.ccore .mhz { display: block; font-size: var(--fs-12); color: var(--cat-dim); font-weight: 400; }
 
-.csplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
+.csplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 28px; }
 .csplit h4 {
-  margin: 0 0 8px; font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi);
-  letter-spacing: 0; text-transform: none; color: var(--cat-muted);
+  margin: 0 0 6px; font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
 
-.ccounters { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 24px; }
+.ccounters { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 28px; }
 .ccounters:empty { display: none; }
-.ccounter { font-size: var(--fs-12); color: var(--cat-text); font-variant-numeric: tabular-nums; }
+.ccounter { font-size: var(--fs-13); color: var(--cat-body); font-variant-numeric: tabular-nums; }
 .ccounter b { color: var(--cat-white); font-weight: var(--cat-w-medium); }
 .ccounter .bad { color: var(--cat-bad); }
-.ccounter .name { font-family: var(--mono); color: var(--cat-muted); }
+.ccounter .name { font-family: var(--mono); color: var(--cat-dim); }
 
+/* The program's own output, behind a disclosure drawn here: the platform's triangle is the last piece
+   of browser chrome on the page. */
 .clog { margin-top: 16px; }
-.clog summary { cursor: pointer; font-size: var(--fs-13); color: var(--cat-text); user-select: none; padding: 4px 0; }
-.clog summary:hover { color: var(--cat-white); }
+.clog summary {
+  display: inline-flex; align-items: center; gap: 10px; list-style: none; cursor: pointer; user-select: none;
+  padding: 6px 0; font-size: 14px; font-weight: var(--cat-w-medium); color: var(--cat-white);
+}
+.clog summary::-webkit-details-marker { display: none; }
+.clog summary::before {
+  content: ""; width: 6px; height: 6px; margin: 0 2px;
+  border-top: 1.8px solid var(--cat-dim); border-right: 1.8px solid var(--cat-dim); transform: rotate(45deg);
+  transition: transform var(--cat-dur-settle) var(--cat-ease-settle);
+}
+.clog[open] summary::before { transform: rotate(135deg); }
+.clog summary:hover::before { border-color: var(--cat-white); }
 .clog pre {
-  margin: 12px 0 0; padding: 12px; max-height: 260px; overflow: auto;
-  background: var(--cat-ink-900); border: 1px solid var(--cat-hair); border-radius: var(--r-sm);
-  font-family: var(--mono); font-size: var(--fs-12); line-height: 1.55; color: var(--cat-text);
+  margin: 12px 0 0; padding: 14px 16px; max-height: 260px; overflow: auto;
+  background: var(--cat-ground); border: 0; border-radius: 12px;
+  font-family: var(--mono); font-size: var(--fs-12); line-height: 1.6; color: var(--cat-body);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
-.cagent { margin-top: 4px; font-size: var(--fs-12); line-height: 1.6; color: var(--cat-muted); }
+.cagent { margin-top: 8px; font-size: var(--fs-13); line-height: 1.6; color: var(--cat-dim); }
 .cagent:empty { display: none; }
-.cagent code { font-family: var(--mono); font-size: var(--fs-12); background: var(--cat-ink-700); padding: 1px 8px; border-radius: var(--r-sm); color: var(--cat-text); }
+.cagent code { font-family: var(--mono); font-size: var(--fs-12); background: var(--cat-surface-2); padding: 2px 8px; border-radius: 6px; color: var(--cat-body); }
+
+/* The motor history table is the board tile's, drawn larger here where there is room for it to be read
+   as a list: the tile's labels and rows at Controls' sizes, and the note about a renumbered motor as a
+   grey chip, since it is history and not a warning. */
+.settings table.mh { font-size: 14px; }
+.settings table.mh th { padding: 0 10px 10px 0; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim); }
+.settings table.mh td { padding: 11px 10px 11px 0; border-top-color: var(--cat-hair); }
+.settings table.mh td.mh-name small { margin-top: 2px; font-size: var(--fs-12); font-weight: 400; color: var(--cat-dim); }
+.settings .mh-past { background: var(--cat-surface-2); color: var(--cat-dim); }
+.settings .ccard .cap { margin-top: 12px; font-size: var(--fs-13); color: var(--cat-dim); line-height: 1.6; }
+.settings .ccard .cap code { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-body); }
+
+/* A shortcut tile and a palette card answer a press where it lands, like the rest of the controls. */
+.qtile, .item { position: relative; overflow: hidden; }
 
 /* ================================================================== press ====
    Every control in this program answered a press by changing colour on the next frame, or by not
@@ -2082,12 +2309,14 @@ kbd {
 
 /* ============================================================ responsive ==== */
 @media (max-width: 1040px) {
-  .settings { grid-template-columns: 188px 1fr; }
-  .sbody { padding: 32px 28px 80px; }
+  /* The list keeps its own clamp; only the page's margins give way. */
+  .sbody { padding: 24px 28px 80px; }
   .mast { flex-wrap: wrap; }
   .mastver { text-align: left; }
   .choice { min-width: 0; }
   .sctl input[type="range"] { width: 168px; }
+  .tr { grid-template-columns: minmax(160px, 1fr) minmax(160px, 1.4fr) 96px; column-gap: 20px; }
+  .sheet { padding: 24px 24px 32px; }
 }
 
 @media (min-width: 1080px) {
@@ -2110,6 +2339,8 @@ kbd {
   .rulelist li { grid-template-columns: 1fr; gap: 8px; }
   .garage { padding: 24px 16px 20px; }
   .gspecs { grid-template-columns: 1fr; gap: 20px; }
+  .cfgrow { grid-template-columns: minmax(0, 1fr); }
+  .lq { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ================================================================= motion ==== */
