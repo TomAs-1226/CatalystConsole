@@ -88,7 +88,13 @@ export const ROBOT = Object.freeze({
   /* The intake slides out of the front: its leading edge is this far ahead of the centre with the slide
      at 0 in, and one inch further for every inch of Deploy/LengthInches. */
   intakeEdgeAtZero: 0.344,
-  deployStowInches: 5.0,
+  /* Stowed means inside the frame perimeter, which is what a robot has to be to start a match and what
+     it drives round like between cycles. The arithmetic: the frame is 28 in long, so its front is
+     356 mm ahead of centre and the bumper's is about 432 mm; the intake's edge is at 344 mm with the
+     slide at zero and at 471 mm at Deploy's STOW of 5 in - 4 cm proud of the bumper. The demo used STOW
+     and drew the intake hanging out of the robot for the whole match. 581's STOW is a real constant, so
+     it is measured from a zero this model does not share; the demo draws the robot legal. */
+  deployStowInches: 0,
   deployOutInches: 11.8,
 });
 

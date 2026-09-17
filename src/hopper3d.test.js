@@ -28,6 +28,35 @@ test("a place is where the packing measured it at either end of the intake's tra
   });
 });
 
+test("places pair by nearest, so a ball takes the shortest move the intake gives it", () => {
+  /* The two lists are each sorted lowest first and the sortings do not line up: deployed rank 2 is in
+     the tray at the front, while stowed rank 2 is at the top of the hopper. Pairing by rank would have
+     that ball swim forward and down through the robot every time the intake moved. */
+  const places = pairPlaces(STOWED, DEPLOYED);
+  assert.deepEqual(places[0], { at: STOWED[0], out: DEPLOYED[0] }, "identical places pair with themselves");
+  assert.deepEqual(places[1], { at: STOWED[1], out: DEPLOYED[1] });
+  /* Nothing is left standing: a stowed place with no partner keeps its own position at both ends. */
+  for (const place of places.slice(0, STOWED.length)) assert.ok(place.at && place.out);
+  /* And a deployed place nobody claimed is a tray place. */
+  assert.deepEqual(places.at(-1), { at: null, out: DEPLOYED[3] });
+});
+
+test("this robot's own places stand still: everything it has stowed it also has deployed", async () => {
+  const { readFile } = await import("node:fs/promises");
+  let manifest = null;
+  try {
+    manifest = JSON.parse(await readFile(new URL("./vendor/robot.json", import.meta.url), "utf8"));
+  } catch {
+    return;
+  }
+  const places = pairPlaces(manifest.hopper.ballCentres.stowed, manifest.hopper.ballCentres.deployed);
+  for (const place of places) {
+    if (!place.at) continue;
+    const moved = Math.hypot(place.at[0] - place.out[0], place.at[1] - place.out[1], place.at[2] - place.out[2]);
+    assert.ok(moved < 1e-9, `a hopper place moves ${moved.toFixed(3)} m when the intake slides`);
+  }
+});
+
 test("a place the robot has either way never moves out from under its ball", () => {
   const places = pairPlaces(STOWED, DEPLOYED);
   for (const u of [0, 0.3, 0.7, 1]) assert.equal(slotPresence(places[0], u), 1);

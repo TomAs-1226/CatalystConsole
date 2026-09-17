@@ -46,11 +46,29 @@ const APPEARS_BY = 0.92;
  * tenth has nowhere to be. Drawing one anyway is what put a ball inside the shooter.
  */
 export function pairPlaces(stowed = [], deployed = []) {
-  const count = Math.max(stowed.length, deployed.length);
-  return Array.from({ length: count }, (_, rank) => ({
-    at: stowed[rank] ?? null,
-    out: deployed[rank] ?? null,
+  /* Paired by nearest, not by rank. Both lists are sorted lowest first, and the two sortings do not
+     line up: with the intake out the low places are in the tray at the front, so rank 3 stowed is at the
+     top of the hopper while rank 3 deployed is 200 mm forward and 100 mm down. Pairing those would have
+     the ball swim across the robot every time the intake moved. Nearest-first pairing gives each ball
+     the shortest move there is - for this robot, none at all: every place it has stowed is a place it
+     also has deployed, so the six in the hopper stand still and only the tray's seven come and go. */
+  const pairs = [];
+  stowed.forEach((a, i) => deployed.forEach((b, j) => {
+    pairs.push({ i, j, d: Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) });
   }));
+  pairs.sort((p, q) => p.d - q.d || p.i - q.i || p.j - q.j);
+  const paired = new Map();
+  const takenOut = new Set();
+  for (const p of pairs) {
+    if (paired.has(p.i) || takenOut.has(p.j)) continue;
+    paired.set(p.i, p.j);
+    takenOut.add(p.j);
+  }
+  const places = stowed.map((at, i) => ({ at, out: deployed[paired.get(i)] ?? at }));
+  deployed.forEach((out, j) => {
+    if (!takenOut.has(j)) places.push({ at: null, out });
+  });
+  return places;
 }
 
 /** Where a place is with the intake `u` of the way out: 0 stowed, 1 fully deployed. */
