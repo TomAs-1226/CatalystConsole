@@ -607,6 +607,17 @@ export function createField(canvas, opts) {
       mode = next;
     },
 
+    /** Start the camera high over the robot and let the ordinary easing bring it down to its place -
+     *  the swing Tesla's view makes down behind the car when it shifts out of Park. Called when the
+     *  board comes back from Park, so the field arrives rather than cutting in. */
+    arrive() {
+      if (disposed) return;
+      const at = robot.visible ? robot.position : new THREE.Vector3(0, 0, 0);
+      camera.position.set(at.x - 1.5, 17, at.z + 3);
+      target.set(at.x, 0, at.z);
+      camera.lookAt(target);
+    },
+
     /** Draw one frame right now. Used when the dashboard tab comes back, so the field is current the
      *  instant it is on screen rather than one animation frame later. */
     redraw() {

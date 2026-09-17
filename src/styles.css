@@ -925,7 +925,11 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.45) 60%, transparent);
   pointer-events: none;
 }
+.car-speed-row { display: flex; align-items: stretch; gap: 14px; }
 .car-speed { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+/* The power meter: a hairline track the height of the speed, filling white from the bottom. */
+.car-power { position: relative; width: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.car-power i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; border-radius: 2px; background: #ffffff; transition: height 0.25s var(--cat-ease-smooth); }
 .car-speed .n { font-size: clamp(44px, 7.2vh, 72px); letter-spacing: -0.03em; }
 /* No speed to show: a quiet dash at a smaller size, rather than a 72px bar where a number would be. */
 .car-speed .n[data-empty="true"] { font-size: clamp(28px, 4vh, 40px); color: var(--cat-faint); }
@@ -1076,53 +1080,125 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    The loudest thing on the screen, and the only thing allowed to be. It floats over the view
    rather than pushing it down, so a camera dropping out mid-match changes what the driver sees and
    not where their tiles are. */
-/* Tesla's alert: a rounded dark card near the top of the screen, a telltale symbol in the level's
-   colour, a sentence in white. Centred over the cards rather than across the car panel, and narrow,
-   so the speed and the scene behind it stay readable while it is up. The symbol is a shape as well as
-   a colour - a triangle to check, a square for a fault, a circle for a note, the same square and
-   circle the status bar's dots use - so the level still reads in greyscale. An octagon was tried for
-   the fault and at this size it could not be told from the circle. */
+/* Tesla's in-vehicle alert, as the owner's manual draws it: a dark capsule with an outlined symbol in
+   the level's colour, a white line over a grey one, and a grey capsule button at the end. It comes down
+   from the top, stays a few seconds, and goes back up into the triangle in the status bar (app.js holds
+   the timing). Centred over the board and never wider than it needs to be, so the car panel's speed
+   and the cards behind stay readable while it is up. */
 .notices {
-  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 20;
-  width: min(620px, calc(100% - 2 * var(--gutter)));
-  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20;
+  width: min(640px, calc(100% - 2 * var(--gutter)));
+  display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none;
 }
 .notices[hidden] { display: none; }
 .notice {
-  display: flex; align-items: center; gap: 14px; padding: 12px 18px 12px 14px;
-  border-radius: 16px;
-  background: rgba(44, 44, 46, 0.97);
-  border: 0;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  font-size: var(--fs-15);
-  /* No fill mode. A filled animation keeps owning `opacity` after it ends and outranks the
-     stylesheet, so `[data-stale="true"]` below would never dim the notice it is there to dim. */
-  animation: noticeIn var(--cat-dur-release) var(--cat-ease-release);
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 14px; max-width: 100%;
+  padding: 10px 10px 10px 18px;
+  border-radius: 999px;
+  background: rgba(30, 30, 32, 0.97);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: noticeIn var(--cat-dur-release) var(--cat-ease-release) both;
 }
-.notice::before {
-  flex: none; content: ""; width: 26px; height: 26px;
-  background: var(--cat-info);
-  /* A note: a circle. */
-  clip-path: circle(50%);
+.notice[data-leaving="true"] { animation: noticeOut 0.36s var(--cat-ease-smooth) both; }
+.notice .nicon { flex: none; width: 26px; height: 26px; display: grid; place-items: center; color: var(--cat-info); }
+.notice .nicon svg { width: 26px; height: 26px; }
+.notice.warn .nicon { color: var(--cat-warn); }
+.notice.error .nicon { color: var(--cat-bad); }
+.notice .ntext { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.notice .nt {
+  font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.notice.warn::before {
-  background: var(--cat-warn);
-  /* Check: a rounded-off triangle, Tesla's amber warning shape. */
-  clip-path: polygon(50% 4%, 97% 90%, 3% 90%);
+.notice .nd {
+  font-size: var(--fs-13); color: var(--cat-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.notice.error::before {
-  background: var(--cat-bad);
-  /* Fault: a square. */
-  clip-path: inset(3px round 4px);
+.notice .nbtn {
+  flex: none; margin-left: 10px; height: 34px; padding: 0 16px; border: 0; border-radius: 999px;
+  background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); cursor: pointer;
 }
-.notice .nt { font-weight: var(--cat-w-medium); color: var(--cat-white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.notice .nd { color: var(--cat-dim); font-family: var(--mono); font-size: var(--fs-12); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.notice .nk {
-  margin-left: auto; font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
-  letter-spacing: 0; text-transform: none; color: var(--cat-dim); flex: none;
+.notice .nbtn:hover { background: var(--cat-surface-3); }
+.notice .nclose {
+  flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; background: transparent; color: var(--cat-dim); cursor: pointer;
 }
-.notice[data-stale="true"] { opacity: 0.45; }
-@keyframes noticeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.notice .nclose svg { width: 18px; height: 18px; }
+.notice .nclose:hover { background: var(--cat-surface-2); color: var(--cat-white); }
+@keyframes noticeIn { from { opacity: 0; transform: translateY(-18px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes noticeOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-14px) scale(0.97); } }
+
+/* The triangle the alerts wait in, top right, as Tesla keeps its own: amber while something needs a
+   look, red when something is at fault, grey for a note. A figure beside it counts them. */
+.alert-ind {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  color: var(--cat-warn);
+}
+.alert-ind[hidden] { display: none; }
+.alert-ind svg { width: 18px; height: 18px; }
+.alert-ind b { font-weight: var(--cat-w-medium); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.alert-ind[data-level="error"] { color: var(--cat-bad); }
+.alert-ind[data-level="info"] { color: var(--cat-dim); }
+.alert-ind:hover, .alert-ind[aria-expanded="true"] { background: var(--cat-surface-2); }
+
+/* The list: a dark rounded sheet under the triangle, active alerts first and then the ones that
+   cleared this session, each a row with the symbol, the words and how long ago. */
+.alertpop {
+  position: fixed; top: 50px; right: var(--gutter); z-index: 55;
+  width: min(420px, calc(100vw - 2 * var(--gutter))); max-height: min(560px, calc(100vh - 140px));
+  display: flex; flex-direction: column;
+  background: #1e1e20; border-radius: 18px;
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: popIn var(--cat-dur-release) var(--cat-ease-release) both;
+}
+.alertpop[hidden] { display: none; }
+.alertpop-head { display: flex; align-items: center; padding: 16px 12px 8px 20px; }
+.alertpop-head b { flex: 1; font-size: 18px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.alertpop-close {
+  width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; color: var(--cat-dim); cursor: pointer;
+}
+.alertpop-close svg { width: 18px; height: 18px; }
+.alertpop-close:hover { background: var(--cat-surface-2); color: var(--cat-white); }
+.alertpop-body { overflow: auto; padding: 0 8px 12px; }
+.alertpop-body::-webkit-scrollbar { width: 8px; }
+.alertpop-body::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
+.asec { padding: 12px 12px 6px; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim); }
+.aempty { padding: 14px 12px; font-size: var(--fs-13); color: var(--cat-dim); }
+.arow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; }
+.arow + .arow { box-shadow: inset 0 1px 0 var(--cat-hair); }
+.arow .nicon { flex: none; width: 22px; height: 22px; color: var(--cat-info); }
+.arow .nicon svg { width: 22px; height: 22px; display: block; }
+.arow.warn .nicon { color: var(--cat-warn); }
+.arow.error .nicon { color: var(--cat-bad); }
+.arow .ntext { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.arow .nt { font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow .nd { font-size: var(--fs-13); color: var(--cat-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow .awhen { flex: none; font-size: var(--fs-12); color: var(--cat-faint); font-variant-numeric: tabular-nums; }
+@keyframes popIn { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+/* The autonomous routine in the dock, set like Tesla's temperature: chevrons either side of a small
+   label over the value. Greyed and inert while the robot is enabled. */
+.dock-auto { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; margin-left: 4px; }
+.dock-auto[hidden] { display: none; }
+.dock-auto .chev {
+  flex: none; width: 36px; height: 48px; padding: 0; border: 0; border-radius: 10px;
+  display: grid; place-items: center; background: transparent; color: var(--cat-dim); cursor: pointer;
+}
+.dock-auto .chev svg { width: 20px; height: 20px; }
+.dock-auto .chev:hover:not(:disabled) { background: var(--cat-surface-1); color: var(--cat-white); }
+.dock-auto .chev:disabled { opacity: 0.35; cursor: default; }
+.dock-auto-txt { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 220px; line-height: 1.2; }
+.dock-auto-txt small { font-size: var(--fs-12); color: var(--cat-dim); font-weight: var(--cat-w-medium); }
+.dock-auto-txt b {
+  font-size: 17px; font-weight: var(--cat-w-medium); color: var(--cat-white);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.dock-auto[data-locked="true"] .dock-auto-txt b { color: var(--cat-body); }
+@media (max-width: 1360px) { .dock-auto-txt { max-width: 150px; } }
 
 /* ============================================= sheets (tune / logs / topics / can) ==== */
 .sheetwrap { grid-template-columns: 1fr; overflow: hidden; }
@@ -2048,4 +2124,106 @@ kbd {
   .ssec[data-active="true"] { animation: none; }
   .tower[data-active="true"] .status { animation: none; }
   .notice { animation: none; }
+}
+
+/* ===================================================================== park ====
+   Tesla's screen while the car is parked: nothing but the car, lit on a dark stage, and a few words
+   around it. Full bleed between the status bar and the dock - no card, no gutter - because this is
+   the one view that is a picture rather than a panel. It fades in over the board once the robot has
+   been disabled a moment, and out again as soon as it is enabled; once it has covered the board, the
+   board stops drawing (below), so the two 3D scenes are never rendered at the same time. */
+.park {
+  position: absolute; inset: 0; z-index: 10; overflow: hidden;
+  background: #000000;
+}
+.park[hidden] { display: none; }
+.park[data-state="in"] { animation: parkIn 0.52s var(--cat-ease-smooth) both; }
+.park[data-state="out"] { animation: parkOut 0.52s var(--cat-ease-smooth) both; pointer-events: none; }
+@keyframes parkIn { from { opacity: 0; transform: scale(1.025); } to { opacity: 1; transform: none; } }
+@keyframes parkOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.985); } }
+.app[data-park="on"] .view.board { display: none; }
+
+.park-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.park-canvas:active { cursor: grabbing; }
+.park-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.park-lines line { stroke: rgba(255, 255, 255, 0.42); stroke-width: 1; }
+.park-lines circle { fill: #ffffff; }
+
+/* The name and the charge, top left, the way Tesla sets a car's name over its range. */
+.park-head { position: absolute; top: 28px; left: 36px; pointer-events: none; }
+.park-name { font-size: 30px; font-weight: var(--cat-w-medium); color: var(--cat-white); line-height: 1.15; }
+.park-sub { margin-top: 4px; font-size: var(--fs-15); color: var(--cat-dim); }
+.park-batt { display: flex; align-items: baseline; margin-top: 18px; }
+.park-batt .n { font-size: clamp(44px, 6.5vh, 64px); }
+.park-batt .n[data-empty="true"] { font-size: 34px; color: var(--cat-faint); }
+.park-batt .u { font-size: var(--fs-13); }
+
+/* A callout: a small grey name over a white value, centred over the hairline that joins it to the
+   part. app.js places each one every frame the model moves. */
+.park-callouts { position: absolute; inset: 0; pointer-events: none; }
+.callout {
+  position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center;
+  white-space: nowrap; line-height: 1.2; will-change: transform;
+}
+.callout[hidden] { display: none; }
+.callout small { font-size: var(--fs-12); color: var(--cat-dim); font-weight: var(--cat-w-medium); }
+.callout b { font-size: var(--fs-15); color: var(--cat-white); font-weight: var(--cat-w-medium); }
+
+/* Tesla's cards along the bottom of the car panel: dark, rounded, a label over a value over a line. */
+.park-cards {
+  position: absolute; left: 36px; right: 36px; bottom: 26px;
+  display: flex; gap: 12px; flex-wrap: wrap; pointer-events: none;
+}
+.pcard {
+  pointer-events: auto;
+  min-width: 210px; max-width: 320px; padding: 14px 18px; border-radius: 16px;
+  background: rgba(28, 28, 30, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex; flex-direction: column; line-height: 1.3;
+}
+.pcard small { font-size: var(--fs-12); color: var(--cat-dim); font-weight: var(--cat-w-medium); }
+.pcard b {
+  margin-top: 2px; font-size: 18px; font-weight: var(--cat-w-medium); color: var(--cat-white);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pcard span { margin-top: 2px; font-size: var(--fs-13); color: var(--cat-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.park-dash {
+  position: absolute; top: 24px; right: 28px;
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 12px;
+  border: 0; border-radius: 999px; background: rgba(44, 44, 46, 0.9); color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); cursor: pointer;
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.park-dash svg { width: 18px; height: 18px; }
+.park-dash:hover { background: rgba(58, 58, 60, 0.95); }
+.park-hint {
+  position: absolute; right: 32px; bottom: 30px; pointer-events: none;
+  font-size: var(--fs-12); color: var(--cat-faint);
+}
+/* On a short window the cards give way first, then the callouts' values keep only the value. */
+@media (max-height: 700px) {
+  .park-cards { display: none; }
+  .park-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .park[data-state="in"], .park[data-state="out"] { animation-duration: 0.01ms; }
+}
+/* The drive-mode letters take a press when the robot is disabled: it parks the view, Tesla's P. */
+.app[data-linked="false"] .gears, .app[data-live="false"] .gears { cursor: pointer; }
+
+/* Tesla's profile slot: a person and a name, here the team. */
+.profile { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.profile[hidden] { display: none; }
+.profile svg { width: 16px; height: 16px; color: var(--cat-body); }
+
+/* Opening an app. Tesla's apps rise over the map as a sheet rather than cutting in, so a view that
+   becomes active comes up the last few pixels and fades in on the release role; the board, which is
+   where every app closes back to, only fades. */
+.view.sheetwrap[data-active="true"] { animation: appRise 0.46s var(--cat-ease-release) both; }
+.view.board[data-active="true"] { animation: boardFade 0.32s var(--cat-ease-smooth) both; }
+@keyframes appRise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+@keyframes boardFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .view.sheetwrap[data-active="true"], .view.board[data-active="true"] { animation: none; }
 }

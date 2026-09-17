@@ -41,6 +41,11 @@
         </div>
       </div>
       <div class="sb-map">
+        <!-- Tesla's profile, for a robot: the team the controller answers to. -->
+        <span class="profile" id="profile" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20c.9-3.6 3.8-5.6 7.2-5.6s6.3 2 7.2 5.6"/></svg>
+          <span id="profileName"></span>
+        </span>
         <span class="idt" id="ident"><span class="idstate">no robot</span></span>
         <!-- "Is anything on the other end of this", in the status bar's own voice: a glyph and a word
              each, no pills. -->
@@ -55,6 +60,12 @@
              Counts come from the robot's device roster when it publishes one, and from what can be
              seen on the wire when it does not; the tooltip says which. -->
         <div class="devstrip" id="devStrip" role="status" aria-label="Connected hardware" hidden></div>
+        <!-- Tesla's alert triangle, top right: where an alert goes once its pop-up has had its few
+             seconds. Present only while something is active; it opens the list of them. -->
+        <button class="alert-ind" id="alertInd" data-level="warn" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="alertPop" title="Alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6 21.6 20.2H2.4z"/><path d="M12 9.8v4.6" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></svg>
+          <b id="alertCount">0</b>
+        </button>
         <span class="clock" id="clock" aria-label="Time"></span>
       </div>
     </header>
@@ -64,6 +75,37 @@
            dropping out mid-match changes what the driver sees and not where their tiles are. -->
       <div class="notices" id="notices" role="status" aria-live="polite" hidden></div>
       <div class="view board" role="tabpanel" aria-labelledby="tab-board" data-view="board" data-active="true" id="board"></div>
+
+      <!-- Park. Tesla's screen when the car is not being driven: the car's own model, alone on a dark
+           stage, large enough to fill the view, and free to be turned with a finger. Console shows the
+           robot the same way whenever it is disabled or there is no robot, and steps aside the moment it
+           is enabled. Callouts name the parts that matter, joined to the model by hairlines that follow
+           it as it turns; cards along the bottom carry what a pit wants to know before a match. -->
+      <section class="park" id="park" hidden aria-label="Robot">
+        <canvas class="park-canvas" id="parkCanvas"></canvas>
+        <svg class="park-lines" id="parkLines" aria-hidden="true"></svg>
+        <div class="park-head">
+          <div class="park-name" id="parkName">Robot</div>
+          <div class="park-sub" id="parkSub">No robot</div>
+          <div class="park-batt"><span class="n" id="parkVolts">—</span><span class="u">V</span></div>
+        </div>
+        <div class="park-callouts" id="parkCallouts">
+          <div class="callout" hidden data-anchor="top"><small>Vision</small><b data-c="vision">—</b></div>
+          <div class="callout" hidden data-anchor="battery"><small>Battery</small><b data-c="battery">—</b></div>
+          <div class="callout" hidden data-anchor="drivetrain"><small>Drivetrain</small><b data-c="drivetrain">—</b></div>
+          <div class="callout" hidden data-anchor="bumper"><small>Motors</small><b data-c="motors">—</b></div>
+        </div>
+        <div class="park-cards">
+          <div class="pcard"><small>Match</small><b id="parkMatch">—</b><span id="parkMatchSub"></span></div>
+          <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
+          <div class="pcard"><small>Health</small><b id="parkHealth">—</b><span id="parkHealthSub"></span></div>
+        </div>
+        <button class="park-dash" id="parkDash" title="Show the dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1.6"/><rect x="13" y="4" width="7" height="5" rx="1.6"/><rect x="13" y="11" width="7" height="9" rx="1.6"/><rect x="4" y="15" width="7" height="5" rx="1.6"/></svg>
+          Dashboard
+        </button>
+        <div class="park-hint" id="parkHint">Drag to look around · double-click to reset</div>
+      </section>
 
       <div class="view sheetwrap" role="tabpanel" id="view-tune" aria-labelledby="tab-tune" data-view="tune">
         <div class="sheet" id="tuneSheet"></div>
@@ -105,6 +147,18 @@
           <small id="stateSrc">Searching…</small>
           <b id="stateName">No robot</b>
         </div>
+      </div>
+      <!-- The autonomous routine, set the way Tesla sets the cabin temperature: a chevron either side
+           of the value. It writes the same key the chooser tile writes, and it locks while the robot
+           is enabled, since a routine is only read when auto begins. Hidden until a chooser exists. -->
+      <div class="dock-auto" id="dockAuto" hidden>
+        <button class="chev" id="autoPrev" aria-label="Previous auto routine">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg>
+        </button>
+        <div class="dock-auto-txt"><small>Auto</small><b id="autoName">—</b></div>
+        <button class="chev" id="autoNext" aria-label="Next auto routine">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>
+        </button>
       </div>
       <div class="grow"></div>
       <!-- A tablist is one tab stop with arrow keys inside it, not five tab stops in a row. The roving
@@ -150,6 +204,20 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v18l15-9z"/></svg>
         Demo data
       </button>
+    </div>
+
+    <!-- The alert list, opened from the triangle in the status bar: what is active now, then what has
+         cleared this session. A pop-up over the board rather than a page, the way Tesla opens its
+         alerts over the map, and never modal - nothing here may stand between a driver and the
+         board. -->
+    <div class="alertpop" id="alertPop" role="dialog" aria-label="Alerts" hidden>
+      <div class="alertpop-head">
+        <b>Alerts</b>
+        <button class="alertpop-close" id="alertPopClose" aria-label="Close alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="alertpop-body" id="alertPopBody"></div>
     </div>
   </div>
 

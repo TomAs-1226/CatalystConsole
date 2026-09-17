@@ -1787,7 +1787,10 @@ define("field", {
     body.innerHTML = `
       <canvas class="fieldcanvas" data-x="canvas"></canvas>
       <div class="car-head">
-        <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
+        <div class="car-speed-row">
+          <div class="car-power" title="Speed against the drivetrain's top speed"><i data-x="power"></i></div>
+          <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
+        </div>
         <div class="car-stats">
           <span>x <b data-x="fx">—</b> m</span>
           <span>y <b data-x="fy">—</b> m</span>
@@ -1876,6 +1879,9 @@ define("field", {
     }
     x.speed.textContent = state.speed == null ? "—" : state.speed < 0.05 ? "0.0" : state.speed.toFixed(1);
     x.speed.dataset.empty = String(state.speed == null);
+    // Tesla's power meter, the line beside the speed: how much of the drivetrain's top speed is in use.
+    const top = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null) || 4.5;
+    x.power.style.height = `${(clamp01((state.speed ?? 0) / top) * 100).toFixed(1)}%`;
     /* The readouts are the estimator's numbers wherever they are. The drawing is held inside the
        walls: a robot rendered through a wall, or off the slab entirely, tells the driver nothing
        that the chip does not say better. */
@@ -3296,6 +3302,11 @@ function paintHeader() {
   $("#battFill").setAttribute("width", volts === null ? "0" : (19 * clamp01((volts - 10.5) / (12.8 - 10.5))).toFixed(1));
   batt.dataset.level = volts === null ? "none" : volts < 10.5 ? "critical" : volts < 11.5 ? "low" : "ok";
 
+  /* The team, where Tesla shows whose profile is driving. */
+  const team = linked ? (num("/Catalyst/Systemcore/TeamNumber", null) || num("/Catalyst/Robot/Identity/TeamNumber", null)) : null;
+  $("#profile").hidden = !team;
+  if (team && $("#profileName").textContent !== String(team)) $("#profileName").textContent = String(team);
+
   /* Tesla's clock, in the status line. Written only when the minute changes, not ten times a second. */
   const now = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const clockEl = $("#clock");
@@ -3392,36 +3403,410 @@ function paintDeviceStrip() {
 /* --------------------------------------------------------------------- notices */
 
 const noticeSeen = new Map();
+/** When each active notice was last put up as a pop-up, and at what level. */
+const toastShown = new Map();
+/** Notices that have cleared this session, newest first, for the alert list. */
+const noticeHistory = [];
+const HISTORY_MAX = 20;
+/* How long a pop-up stays before it folds into the triangle. Tesla's go in a few seconds; a fault
+ * stays longer because it is the one worth being sure was seen. */
+const TOAST_MS = { error: 10000, warn: 6000, info: 5000 };
+const NOTICE_RANK = { error: 0, warn: 1, info: 2 };
 
-/* The bar over the board. Fed by devices.js from the robot's own vision health rows, its error
- * alerts and the auto start check; held on screen for the same alertHoldMs the alerts tile uses,
- * so a notice that flaps reads as one steady, fading line rather than a strobe. It never takes a
- * click and never blocks anything - rule two. */
+/* Outline symbols in the level's colour, the way Tesla draws its alert icons: a triangle to check, an
+ * octagon for a fault, a circle for a note. Shape as well as colour, so the level reads in greyscale. */
+const NOTICE_ICONS = {
+  warn: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6 21.6 20.2H2.4z"/><path d="M12 9.8v4.6" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+  error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M8.2 2.8h7.6l5.4 5.4v7.6l-5.4 5.4H8.2l-5.4-5.4V8.2z"/><path d="M12 7.6v5.6" stroke-linecap="round"/><circle cx="12" cy="16.4" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+};
+
+const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : "Robot");
+
+/* Alerts, the way Tesla shows them. A notice that is new - or has just become more serious - comes up
+ * as a pop-up capsule over the board for a few seconds, then goes away on its own and waits in the
+ * triangle at the top right, which opens the list of everything active and everything that cleared
+ * this session. Fed by devices.js from the robot's vision health rows, its error alerts and the auto
+ * start check, and held for the same alertHoldMs the alerts tile uses, so a notice that flaps is one
+ * steady alert rather than a pop-up every second. It never blocks anything - rule two. */
 function paintNotices() {
   const bar = $("#notices");
   const linked = nt.status.connected || demo.on;
   const now = performance.now();
   if (linked) {
-    for (const n of computeNotices(ntView, { enabled: ds.enabled })) noticeSeen.set(n.key, { ...n, at: now });
+    for (const n of computeNotices(ntView, { enabled: ds.enabled })) {
+      const prev = noticeSeen.get(n.key);
+      noticeSeen.set(n.key, { ...n, at: now, since: prev?.since ?? Date.now() });
+    }
   }
   for (const [key, entry] of noticeSeen) {
-    if (!linked || now - entry.at > settings.alertHoldMs) noticeSeen.delete(key);
+    if (!linked || now - entry.at > settings.alertHoldMs) {
+      noticeSeen.delete(key);
+      toastShown.delete(key);
+      noticeHistory.unshift({ ...entry, cleared: Date.now() });
+      if (noticeHistory.length > HISTORY_MAX) noticeHistory.length = HISTORY_MAX;
+    }
   }
-  const rank = { error: 0, warn: 1, info: 2 };
-  const list = [...noticeSeen.values()].map((n) => ({ ...n, stale: n.at !== now }));
-  list.sort((a, b) => rank[a.level] - rank[b.level]);
+  const active = [...noticeSeen.values()].sort((a, b) => NOTICE_RANK[a.level] - NOTICE_RANK[b.level]);
 
-  const sig = list.map((n) => `${n.level}:${n.key}:${n.text}:${n.detail}:${n.stale}`).join("|");
-  if (bar.dataset.sig === sig) return;
-  bar.dataset.sig = sig;
-  bar.hidden = list.length === 0;
-  bar.innerHTML = list.map((n) => {
-    const kind = n.key.startsWith("vision") ? "vision" : n.key.startsWith("auto") ? "auto" : "robot";
-    return `<div class="notice ${n.level}" data-stale="${n.stale}"><div class="nt">${escapeHtml(n.text)}</div>`
-      + (n.detail ? `<div class="nd">${escapeHtml(n.detail)}</div>` : "")
-      + `<span class="nk">${kind}</span></div>`;
-  }).join("");
+  // Which are pop-ups right now: new ones, ones that got worse, and ones still inside their time.
+  const toasts = [];
+  for (const n of active) {
+    const shown = toastShown.get(n.key);
+    if (!shown || NOTICE_RANK[n.level] < NOTICE_RANK[shown.level]) {
+      toastShown.set(n.key, { at: now, level: n.level, dismissed: false });
+      toasts.push(n);
+    } else if (!shown.dismissed && now - shown.at < (TOAST_MS[n.level] ?? 6000)) {
+      toasts.push(n);
+    }
+  }
+  paintToasts(bar, toasts.slice(0, 3));
+  paintAlertIndicator(active);
+  if (!$("#alertPop").hidden) paintAlertPop(active);
 }
+
+/* The pop-ups are kept by key rather than redrawn, so one arriving does not restart the others, and one
+ * leaving can slide away instead of vanishing mid-read. */
+function paintToasts(bar, toasts) {
+  const want = new Map(toasts.map((n) => [n.key, n]));
+  for (const node of [...bar.children]) {
+    if (!want.has(node.dataset.key) && node.dataset.leaving !== "true") {
+      node.dataset.leaving = "true";
+      setTimeout(() => node.remove(), 380);
+    }
+  }
+  toasts.forEach((n, i) => {
+    let node = [...bar.children].find((c) => c.dataset.key === n.key && c.dataset.leaving !== "true");
+    const sig = `${n.level}|${n.text}|${n.detail}`;
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "notice";
+      node.dataset.key = n.key;
+      node.setAttribute("role", n.level === "error" ? "alert" : "status");
+      bar.appendChild(node);
+    }
+    if (node.dataset.sig !== sig) {
+      node.dataset.sig = sig;
+      node.className = `notice ${n.level}`;
+      node.innerHTML =
+        `<span class="nicon">${NOTICE_ICONS[n.level] || NOTICE_ICONS.info}</span>` +
+        `<span class="ntext"><span class="nt">${escapeHtml(n.text)}</span>` +
+        `<span class="nd">${escapeHtml(n.detail || noticeKind(n.key))}</span></span>` +
+        `<button class="nbtn" type="button">Details</button>` +
+        `<button class="nclose" type="button" aria-label="Dismiss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>`;
+      node.querySelector(".nbtn").onclick = () => openAlertPop(true);
+      node.querySelector(".nclose").onclick = () => {
+        const shown = toastShown.get(n.key);
+        if (shown) shown.dismissed = true;
+        paintNotices();
+      };
+    }
+    // Keep the order the ranking asked for without rebuilding anything.
+    if (bar.children[i] !== node) bar.insertBefore(node, bar.children[i] || null);
+  });
+  bar.hidden = bar.children.length === 0;
+}
+
+function paintAlertIndicator(active) {
+  const ind = $("#alertInd");
+  ind.hidden = active.length === 0;
+  if (!active.length) return;
+  const level = active[0].level;
+  if (ind.dataset.level !== level) ind.dataset.level = level;
+  const count = String(active.length);
+  if ($("#alertCount").textContent !== count) $("#alertCount").textContent = count;
+  ind.title = `${count} active alert${active.length === 1 ? "" : "s"}`;
+}
+
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`;
+}
+
+function paintAlertPop(active) {
+  const body = $("#alertPopBody");
+  const row = (n, when) =>
+    `<div class="arow ${n.level}"><span class="nicon">${NOTICE_ICONS[n.level] || NOTICE_ICONS.info}</span>` +
+    `<span class="ntext"><span class="nt">${escapeHtml(n.text)}</span>` +
+    `<span class="nd">${escapeHtml(n.detail ? `${noticeKind(n.key)} · ${n.detail}` : noticeKind(n.key))}</span></span>` +
+    `<span class="awhen">${when}</span></div>`;
+  const html =
+    (active.length
+      ? `<div class="asec">Active</div>` + active.map((n) => row(n, ago(Date.now() - n.since))).join("")
+      : `<div class="aempty">Nothing is active.</div>`) +
+    (noticeHistory.length
+      ? `<div class="asec">Earlier this session</div>` +
+        noticeHistory.map((n) => row(n, `cleared ${ago(Date.now() - n.cleared)} ago`)).join("")
+      : "");
+  if (body.dataset.html !== html) {
+    body.dataset.html = html;
+    body.innerHTML = html;
+  }
+}
+
+function openAlertPop(open) {
+  const pop = $("#alertPop");
+  pop.hidden = !open;
+  $("#alertInd").setAttribute("aria-expanded", String(open));
+  if (open) paintAlertPop([...noticeSeen.values()].sort((a, b) => NOTICE_RANK[a.level] - NOTICE_RANK[b.level]));
+}
+
+$("#alertInd").onclick = () => openAlertPop($("#alertPop").hidden);
+$("#alertPopClose").onclick = () => openAlertPop(false);
+document.addEventListener("pointerdown", (e) => {
+  const pop = $("#alertPop");
+  if (pop.hidden || !(e.target instanceof Element)) return;
+  if (!e.target.closest("#alertPop, #alertInd, .notice")) openAlertPop(false);
+});
+// Escape closes the list before anything else it might mean, which is why this listens in the capture
+// phase: the list is the thing on top.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#alertPop").hidden) {
+    openAlertPop(false);
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
+
+/* ------------------------------------------------------------------ dock: the auto routine */
+
+/* The routine the robot will run, set from the dock with a chevron either side, the way Tesla sets the
+ * cabin temperature. Same key the chooser tile writes. Locked while the robot is enabled: a routine is
+ * read when auto begins, and a tap mid-match would change nothing but what the screen says. */
+const AUTO_BASE = "/Auto Selector";
+function paintDockAuto() {
+  const box = $("#dockAuto");
+  const options = (nt.status.connected || demo.on) ? (arr(`${AUTO_BASE}/options`) || []) : [];
+  box.hidden = options.length === 0;
+  if (!options.length) return;
+  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const name = $("#autoName");
+  if (name.textContent !== chosen) name.textContent = chosen;
+  box.title = chosen;
+  const locked = ds.enabled;
+  $("#autoPrev").disabled = locked;
+  $("#autoNext").disabled = locked;
+  box.dataset.locked = String(locked);
+}
+function stepAuto(dir) {
+  const options = arr(`${AUTO_BASE}/options`) || [];
+  if (!options.length || ds.enabled) return;
+  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const at = Math.max(0, options.indexOf(chosen));
+  ntSet(`${AUTO_BASE}/selected`, options[(at + dir + options.length) % options.length]);
+  paintDockAuto();
+}
+$("#autoPrev").onclick = () => stepAuto(-1);
+$("#autoNext").onclick = () => stepAuto(1);
+
+/* ------------------------------------------------------------------------------------- park */
+
+/* How long the robot has to stay disabled before the board steps aside for Park. Long enough that a
+ * disable to reset something does not throw the view around; longer again with the FMS attached, to
+ * ride out the few seconds between auto and teleop, when a real match disables the robot on purpose. */
+const PARK_ENTER_MS = 2500;
+const PARK_ENTER_FMS_MS = 8000;
+/* The fade between Park and the board, matching the CSS below it. */
+const PARK_FADE_MS = 520;
+
+const parkState = {
+  on: false,
+  since: null,          // when the robot was last seen disabled, for the delay above
+  dismissed: false,     // "Dashboard" was pressed: stay on the board until the next enable
+  scene: null,
+  loading: false,
+  failed: false,
+  offFrame: null,
+  hideTimer: null,
+};
+
+/** The robot's size and module layout from its spec sheet, in the shape park3d.js takes. */
+function parkRobotSpec() {
+  const n = (k) => num(`${SPEC_ROOT}${k}`, null) ?? undefined;
+  const flat = arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`);
+  const modules = Array.isArray(flat) && flat.length >= 8 && flat.length % 2 === 0
+    ? Array.from({ length: flat.length / 2 }, (_, i) => [flat[i * 2], flat[i * 2 + 1]])
+    : undefined;
+  return {
+    frameLength: n("Chassis/FrameLengthMeters"),
+    frameWidth: n("Chassis/FrameWidthMeters"),
+    bumperLength: n("Chassis/BumperLengthMeters"),
+    bumperWidth: n("Chassis/BumperWidthMeters"),
+    bumperThickness: n("Chassis/BumperThicknessMeters"),
+    height: n("Chassis/HeightMeters"),
+    modules,
+  };
+}
+
+function parkWanted(now) {
+  if (settings.parkView === false) return false;
+  if (activeView() !== "board") return false;
+  const linked = nt.status.connected || demo.on;
+  if (linked && ds.enabled) {
+    parkState.since = null;
+    parkState.dismissed = false;
+    return false;
+  }
+  if (parkState.dismissed) return false;
+  if (parkState.since === null) parkState.since = now;
+  const wait = !linked ? 0 : ds.fms ? PARK_ENTER_FMS_MS : PARK_ENTER_MS;
+  return now - parkState.since >= wait;
+}
+
+function loadParkScene() {
+  if (parkState.scene || parkState.loading || parkState.failed) return;
+  parkState.loading = true;
+  /* three.js and the model are only fetched when Park is first shown, the way the field view loads
+   * its scene only when a field tile exists. */
+  import("./park3d.js")
+    .then((mod) => {
+      parkState.loading = false;
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      parkState.scene = mod.createPark($("#parkCanvas"), { reducedMotion: reduced });
+      parkState.scene.setRobot(parkRobotSpec());
+      parkState.scene.setAlliance(alliance());
+      parkState.offFrame = parkState.scene.onFrame(placeCallouts);
+      parkState.scene.setActive(parkState.on);
+    })
+    .catch((err) => {
+      parkState.loading = false;
+      parkState.failed = true;
+      console.warn("park view unavailable", err);
+      $("#parkHint").textContent = "The robot model could not be drawn on this machine.";
+    });
+}
+
+function showPark() {
+  const el = $("#park");
+  clearTimeout(parkState.hideTimer);
+  el.hidden = false;
+  el.dataset.state = "in";
+  app.dataset.park = "entering";
+  loadParkScene();
+  parkState.scene?.setActive(true);
+  // The board stops drawing once Park covers it, so two scenes are never rendered at once.
+  parkState.hideTimer = setTimeout(() => { if (parkState.on) app.dataset.park = "on"; }, PARK_FADE_MS);
+}
+
+function hidePark() {
+  const el = $("#park");
+  clearTimeout(parkState.hideTimer);
+  app.dataset.park = "leaving";
+  el.dataset.state = "out";
+  /* The board is back underneath before Park starts to fade, so the fade shows the board arriving
+   * rather than a black gap; its field view redraws on the first frame it is visible again. */
+  for (const entry of live.values()) {
+    entry.spec.onShow?.(entry.state);
+    entry.state.scene?.arrive?.();
+  }
+  parkState.hideTimer = setTimeout(() => {
+    if (parkState.on) return;
+    el.hidden = true;
+    app.dataset.park = "off";
+    parkState.scene?.setActive(false);
+  }, PARK_FADE_MS);
+}
+
+/* The callouts follow the model as it turns: each label sits above its part, and a hairline runs down
+ * from the label to a dot on the part. Anchors come from the renderer in canvas pixels, recomputed from
+ * its camera every frame it draws. */
+function placeCallouts() {
+  if (!parkState.scene || !parkState.on) return;
+  const anchors = parkState.scene.anchors();
+  const canvas = $("#parkCanvas");
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const svg = $("#parkLines");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  let lines = "";
+  const rise = Math.max(56, Math.min(120, h * 0.12));
+  for (const label of document.querySelectorAll("#parkCallouts .callout")) {
+    const a = anchors?.[label.dataset.anchor];
+    if (!a || !a.visible) { label.hidden = true; continue; }
+    label.hidden = false;
+    const lx = Math.max(70, Math.min(w - 70, a.x));
+    const ly = Math.max(72, a.y - rise);
+    label.style.transform = `translate(${lx.toFixed(1)}px, ${ly.toFixed(1)}px) translate(-50%, -100%)`;
+    lines += `<line x1="${lx.toFixed(1)}" y1="${(ly + 6).toFixed(1)}" x2="${a.x.toFixed(1)}" y2="${a.y.toFixed(1)}"/>`
+      + `<circle cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="3"/>`;
+  }
+  svg.innerHTML = lines;
+}
+
+/* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
+ * three cards. Written only when they change; Park repaints with the rest of the board at 10 Hz. */
+function paintParkInfo() {
+  const linked = nt.status.connected || demo.on;
+  const setText = (sel, text) => { const el = $(sel); if (el && el.textContent !== text) el.textContent = text; };
+
+  const name = linked ? (str(`${SPEC_ROOT}Identity/Name`, "") || "Robot") : "Robot";
+  const team = linked ? num(`${SPEC_ROOT}Identity/TeamNumber`, null) : null;
+  setText("#parkName", team ? `${name} · ${team}` : name);
+  const side = alliance();
+  setText("#parkSub", !linked
+    ? (nt.status.address ? `Looking for ${nt.status.address}…` : "No robot")
+    : [ds.estop ? "Emergency stopped" : "Disabled", side && `${side === "red" ? "Red" : "Blue"} alliance`, demo.on && "demo data"]
+        .filter(Boolean).join(" · "));
+
+  const voltKey = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"].find((k) => has(k));
+  const volts = linked && voltKey ? num(voltKey, null) : null;
+  setText("#parkVolts", volts === null ? "—" : volts.toFixed(1));
+  $("#parkVolts").dataset.empty = String(volts === null);
+
+  const summary = linked ? deviceSummary(ntView) : null;
+  const count = (c) => (!c || !c.expected ? "—" : `${c.connected ?? 0}/${c.expected}`);
+  setText('[data-c="vision"]', summary ? `${count(summary.cameras)} cameras` : "—");
+  setText('[data-c="motors"]', summary ? `${count(summary.motors)} motors` : "—");
+  setText('[data-c="battery"]', volts === null ? "—" : `${volts.toFixed(1)} V`);
+  const modules = linked ? num(`${SPEC_ROOT}Drivetrain/Modules`, null) : null;
+  const drive = linked ? str(`${SPEC_ROOT}Drivetrain/Type`, "") : "";
+  setText('[data-c="drivetrain"]', modules ? `${drive || "Drive"} · ${modules} modules` : (drive || "—"));
+
+  const event = str("/FMSInfo/EventName", "");
+  const match = num("/FMSInfo/MatchNumber", null);
+  setText("#parkMatch", match ? `Match ${match}` : linked ? "Practice" : "—");
+  setText("#parkMatchSub", [event, side && `${side === "red" ? "Red" : "Blue"} alliance`].filter(Boolean).join(" · ") || "No event");
+
+  const options = linked ? (arr("/Auto Selector/options") || []) : [];
+  const chosen = str("/Auto Selector/selected", null) ?? str("/Auto Selector/active", null);
+  setText("#parkAuto", options.length ? (chosen || options[0]) : "—");
+  setText("#parkAutoSub", options.length ? `${options.length} routines · change it from the dock` : "No chooser published");
+
+  const loop = linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null;
+  const active = noticeSeen.size;
+  setText("#parkHealth", !linked ? "—" : active ? `${active} alert${active === 1 ? "" : "s"}` : "All clear");
+  setText("#parkHealthSub", loop === null ? "Loop time unknown" : `Loop ${loop.toFixed(1)} ms`);
+
+  if (parkState.scene) {
+    if (parkState.lastAlliance !== side) { parkState.lastAlliance = side; parkState.scene.setAlliance(side); }
+    const spec = JSON.stringify(parkRobotSpec());
+    if (parkState.lastSpec !== spec) { parkState.lastSpec = spec; parkState.scene.setRobot(JSON.parse(spec)); }
+  }
+}
+
+function paintPark() {
+  const want = parkWanted(performance.now());
+  if (want !== parkState.on) {
+    parkState.on = want;
+    if (want) showPark(); else hidePark();
+  }
+  if (parkState.on) paintParkInfo();
+}
+
+$("#parkDash").onclick = () => {
+  parkState.dismissed = true;
+  paintPark();
+};
+/* Tesla's P, for a robot: pressing the lit D while the robot is disabled parks the view again after
+ * "Dashboard" put it away. */
+$("#gears").addEventListener("click", () => {
+  const linked = nt.status.connected || demo.on;
+  if (linked && ds.enabled) return;
+  parkState.dismissed = false;
+  parkState.since = -Infinity;
+  paintPark();
+});
 
 
 
@@ -5168,6 +5553,8 @@ function paint() {
   standDownOverlaysOnEnable();
   paintHeader();
   paintNotices();
+  paintDockAuto();
+  paintPark();
 
   for (const entry of live.values()) {
     try {
