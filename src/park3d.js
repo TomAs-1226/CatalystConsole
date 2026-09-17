@@ -9,8 +9,8 @@
  *
  * Going into Drive, the stage hands the robot to the field view the way Tesla's parked car shrinks into
  * its driving visualisation: the camera flies from the showroom angle to the exact shot the field tile
- * has of the robot, while the app shrinks the stage onto that tile, and the floor fades so the field
- * shows round the robot as it lands. Coming back into Park it flies the other way. See `fly`.
+ * has of the robot, so the robot itself travels onto the tile, while the stage's floor and ground fade
+ * and the board settles in behind it. Coming back into Park it flies the other way. See `fly`.
  *
  * Cost control, because this shares the laptop with the Driver Station:
  *   * Frames are drawn on demand. A still stage costs nothing: the loop stops the moment nothing is
@@ -354,10 +354,17 @@ export function cubicBezier(x1, y1, x2, y2) {
   };
 }
 
-/* The flight's timing: a gentle start and a long, soft landing, the shape of Tesla's camera moves
-   between Park and Drive. The robot is still settling onto the field as the board around it arrives,
-   rather than stopping dead and waiting. */
-export const flightEase = cubicBezier(0.5, 0, 0.12, 1);
+/* The flight's timing: a critically damped spring, run over its settling time. It starts from rest,
+   moves most of the way almost at once, and then settles with no overshoot - the console's own
+   --cat-ease-smooth curve, which is the same spring (response 0.55 s, damping 1 settles in 0.84 s).
+   A camera move answers the shift into Drive the instant it happens and lands softly, instead of
+   waiting on a slow ease-in. */
+const SETTLE_K = 9.56;
+export function flightEase(t) {
+  const u = Math.min(1, Math.max(0, t));
+  const shape = (x) => 1 - (1 + SETTLE_K * x) * Math.exp(-SETTLE_K * x);
+  return shape(u) / shape(1);
+}
 
 /** Hermite smoothstep of `x` from `a` to `b`. */
 function smooth(a, b, x) {
@@ -801,7 +808,7 @@ export function createPark(canvas, opts) {
       const [from, to] = flight.floor;
       /* The floor goes early on the way out, so the field shows round the robot for most of the move,
          and comes late on the way back, once the robot is clear of the tile. */
-      const fade = to < from ? smooth(0, 0.5, eased) : smooth(0.35, 0.95, eased);
+      const fade = to < from ? smooth(0, 0.4, eased) : smooth(0.45, 0.95, eased);
       floorUniforms.uOpacity.value = from + (to - from) * fade;
       try {
         flight.onProgress?.(eased, raw, flight.shot);
@@ -1187,6 +1194,18 @@ export function createPark(canvas, opts) {
      * held, with the stage out of the viewer's hands, until the next flight or setActive(false).
      */
     fly,
+
+    /** Draw a frame now rather than on the next animation frame: the first frame of a flight that
+     *  takes the robot over from another view has to be on screen before that view hides its own. */
+    renderNow() {
+      if (!active || disposed) return;
+      resize();
+      if (!sized.w || !sized.h) return;
+      const now = performance.now();
+      step(0, now);
+      draw();
+      lastFrame = now;
+    },
 
     /** True while a flight is under way or a landed shot is being held. */
     get flying() {

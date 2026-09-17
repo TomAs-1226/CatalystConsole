@@ -2521,10 +2521,13 @@ kbd {
 /* Opening an app. Tesla's apps rise over the map as a sheet rather than cutting in, so a view that
    becomes active comes up the last few pixels and fades in on the release role; the board, which is
    where every app closes back to, only fades. */
-.view.sheetwrap[data-active="true"] { animation: appRise 0.46s var(--cat-ease-release) both; }
-.view.board[data-active="true"] { animation: boardFade 0.32s var(--cat-ease-smooth) both; }
+/* Only when a view is opened, not whenever it is displayed again: the board is hidden under Park and
+   shown again by the moves in and out of Park, which fade and scale it themselves, and an animation
+   restarting there would override them and flash the board in after the move had finished. */
+.view.sheetwrap[data-entering] { animation: appRise 0.46s var(--cat-ease-release) both; }
+.view.board[data-entering] { animation: boardFade 0.32s var(--cat-ease-smooth) both; }
 @keyframes appRise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
 @keyframes boardFade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .view.sheetwrap[data-active="true"], .view.board[data-active="true"] { animation: none; }
+  .view.sheetwrap[data-entering], .view.board[data-entering] { animation: none; }
 }

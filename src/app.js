@@ -2667,7 +2667,21 @@ function showView(name) {
     t.tabIndex = on ? 0 : -1;
   }
   for (const v of document.querySelectorAll(".view")) {
+    const opening = v.dataset.view === name && v.dataset.active !== "true";
     v.dataset.active = String(v.dataset.view === name);
+    if (opening) {
+      /* The opening animation runs once, for opening, and is then taken off, so the view showing again
+         for any other reason - the board coming back from Park - does not replay it. */
+      v.dataset.entering = "";
+      const done = (e) => {
+        /* A tile's own animation ending bubbles up here too; only the view's counts. */
+        if (e && e.target !== v) return;
+        delete v.dataset.entering;
+        v.removeEventListener("animationend", done);
+      };
+      v.addEventListener("animationend", done);
+      setTimeout(done, 700);
+    }
   }
   if (name === "logs") paintLogs();
   if (name === "tune") paintTune();
@@ -3798,9 +3812,6 @@ const parkState = {
   offFrame: null,
   hideTimer: null,
   move: 0,              // counts moves between Park and Drive; a newer one cuts an older one short
-  boardAnims: [],       // the tiles' own animations during a move
-  boardDirection: null,
-  clip: null,           // where the stage is clipped to, mid-move
 };
 
 /* The battery from the same keys, in the same order, the header's cell and the battery tile read, so
@@ -3943,20 +3954,25 @@ function loadParkScene() {
 
 /* ---- the moves between Park and Drive ----
  *
- * Tesla's shift out of Park: the parked car shrinks into its driving visualisation and the map comes
- * in round it. Here the robot on the Park stage flies onto the field tile - the stage's camera travels
- * to the exact shot the field view has of the robot while the stage shrinks onto the tile - and the
- * board's other tiles come out from behind it. The field view then takes the robot over in the same
- * frame, so it is one robot the whole way. Going into Park runs the same move backwards: the robot
- * lifts off the field and grows back into the stage as the board steps away.
+ * Tesla's shift out of Park: the parked car shrinks into its driving visualisation and the world comes
+ * in round it. Here the robot on the Park stage travels onto the field tile - the stage's camera flies
+ * to the exact shot the field view has of the robot, so the robot itself shrinks, turns and settles
+ * into place - while the stage's black ground and floor fade and the board comes up behind it, from a
+ * touch larger than life to its place, as one piece. The field view takes the robot over in the frame
+ * it lands. Going into Park runs the same path backwards: the robot lifts off the field and grows back
+ * into the middle as the board recedes into the dark behind it.
  *
- * Getting to the board is never held up for the show. The board is there under the stage from the
- * first frame of the move out, tiles are live while they arrive, and a move is cut short the instant
- * the robot's state changes again. With nothing to hand over - no field tile, no pose yet, reduced
- * motion - Park simply fades. */
+ * One thing moves - the robot, on a critically damped spring - and everything else is a fade or a
+ * slight scale of a whole layer, so the compositor carries it and nothing is laid out mid-move. There
+ * are no edges sweeping across the board, and nothing is revealed piecemeal.
+ *
+ * Getting to the board is never held up for the show. It is live under the stage from the first frame
+ * out, and a move is cut short and reversed from exactly where it is the instant the robot's state
+ * changes again. With nothing to hand over - no field tile, no robot on it, reduced motion - Park
+ * simply fades. */
 
-const DRIVE_MOVE_MS = 850;     // out of Park: brisk, a match may be starting
-const PARK_MOVE_MS = 1050;     // into Park: nothing is waiting on it
+const DRIVE_MOVE_MS = 840;     // into Drive: the spring's settling time at a 0.55 s response
+const PARK_MOVE_MS = 1070;     // into Park: 0.7 s response, a slower, more deliberate lift
 
 function reducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -3969,111 +3985,69 @@ function ramp(a, b, x) {
 }
 
 /**
- * The field tile that can take the robot from Park or give it back: its entry, its scene, its canvas
- * as a rectangle measured from Park's canvas, and its corner radius. Null when there is no such tile
- * or it has nothing on screen to hand over.
+ * The field tile that can take the robot from Park or give it back: its entry, its scene, and its canvas
+ * as a rectangle measured from Park's canvas, as the board lays it out at rest. Null when there is no
+ * such tile.
  */
 function fieldHandover() {
+  const board = $("#board");
   const park = $("#parkCanvas").getBoundingClientRect();
   if (!park.width || !park.height) return null;
-  for (const entry of live.values()) {
-    if (entry.item.type !== "field" || !entry.state.scene || !entry.tile?.isConnected) continue;
-    const r = entry.body.querySelector("[data-x=canvas]")?.getBoundingClientRect();
-    if (!r || r.width < 40 || r.height < 40) continue;
-    return {
-      entry,
-      scene: entry.state.scene,
-      rect: { x: r.left - park.left, y: r.top - park.top, w: r.width, h: r.height },
-      full: { x: 0, y: 0, w: park.width, h: park.height },
-      radius: parseFloat(getComputedStyle(entry.tile).borderTopLeftRadius) || 0,
-    };
+  /* Measured with the board at its resting size, even mid-move, so a move cut short lands where the
+     robot will really be drawn. */
+  const scaled = board.style.transform;
+  board.style.transform = "";
+  try {
+    for (const entry of live.values()) {
+      if (entry.item.type !== "field" || !entry.state.scene || !entry.tile?.isConnected) continue;
+      const r = entry.body.querySelector("[data-x=canvas]")?.getBoundingClientRect();
+      if (!r || r.width < 40 || r.height < 40) continue;
+      const b = board.getBoundingClientRect();
+      return {
+        entry,
+        scene: entry.state.scene,
+        rect: { x: r.left - park.left, y: r.top - park.top, w: r.width, h: r.height },
+        /* The board grows and shrinks about the field tile, so it seems to come out of the car panel
+           and to go back into it. */
+        origin: `${(r.left + r.width / 2 - b.left).toFixed(1)}px ${(r.top + r.height / 2 - b.top).toFixed(1)}px`,
+      };
+    }
+    return null;
+  } finally {
+    board.style.transform = scaled;
   }
-  return null;
 }
 
-/** Clip the Park stage to `rect` (from its own top-left), with rounded corners of `radius`. */
-function clipPark(el, rect, radius, full) {
-  const top = Math.max(0, rect.y);
-  const left = Math.max(0, rect.x);
-  const right = Math.max(0, full.w - rect.x - rect.w);
-  const bottom = Math.max(0, full.h - rect.y - rect.h);
-  el.style.clipPath = `inset(${top.toFixed(1)}px ${right.toFixed(1)}px ${bottom.toFixed(1)}px ${left.toFixed(1)}px round ${Math.max(0, radius).toFixed(1)}px)`;
-  parkState.clip = { rect, radius };
+/* The board's own fade and scale during a move, written straight to its style every frame. */
+function styleBoard(opacity, scale, origin) {
+  const board = $("#board");
+  board.style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
+  board.style.transform = Math.abs(scale - 1) < 1e-4 ? "" : `scale(${scale.toFixed(4)})`;
+  if (origin !== undefined) board.style.transformOrigin = origin;
 }
 
-function mixRect(a, b, t) {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, w: a.w + (b.w - a.w) * t, h: a.h + (b.h - a.h) * t };
+function restBoard() {
+  const board = $("#board");
+  board.style.opacity = "";
+  board.style.transform = "";
+  board.style.transformOrigin = "";
 }
 
-/* The board's tiles other than `except`, each with its distance and direction from `except`'s centre
-   (or the board's, with no tile to measure from), nearest first. */
-function boardTiles(except) {
-  const board = $("#board").getBoundingClientRect();
-  const from = except ? except.getBoundingClientRect() : board;
-  const ox = from.left + from.width / 2;
-  const oy = from.top + from.height / 2;
-  const out = [];
-  for (const entry of live.values()) {
-    const tile = entry.tile;
-    if (!tile || tile === except || !tile.isConnected) continue;
-    const r = tile.getBoundingClientRect();
-    const dx = r.left + r.width / 2 - ox;
-    const dy = r.top + r.height / 2 - oy;
-    const d = Math.hypot(dx, dy) || 1;
-    out.push({ tile, d, ux: dx / d, uy: dy / d });
-  }
-  return out.sort((a, b) => a.d - b.d);
+/* Where a move cut short left things, so the next move starts from what is on screen. */
+function boardOpacityNow() {
+  const set = $("#board").style.opacity;
+  if (set !== "") return Number(set);
+  return app.dataset.park === "on" ? 0 : 1;
 }
-
-function stopBoardAnimations() {
-  for (const animation of parkState.boardAnims) animation.cancel();
-  parkState.boardAnims = [];
+function boardScaleNow() {
+  const match = /scale\(([\d.]+)\)/.exec($("#board").style.transform);
+  return match ? Number(match[1]) : 1;
 }
-
-/* The tiles come out from behind the car panel: each starts a little toward the field tile and moves
-   out to its place, nearest first. */
-function revealBoard(fieldTile, delay) {
-  if (reducedMotion()) return;
-  const leaving = parkState.boardAnims.filter((a) => a.playState !== "finished" || a.effect?.getComputedTiming().progress !== null);
-  if (parkState.boardAnims.length && parkState.boardDirection === "out") {
-    /* Cut short on the way out: send the tiles back from wherever they had got to. */
-    for (const animation of leaving) animation.reverse();
-    parkState.boardDirection = "in";
-    return;
-  }
-  stopBoardAnimations();
-  parkState.boardDirection = "in";
-  parkState.boardAnims = boardTiles(fieldTile).map(({ tile, ux, uy }, i) =>
-    tile.animate(
-      [
-        { opacity: 0, transform: `translate(${(-ux * 26).toFixed(1)}px, ${(-uy * 26).toFixed(1)}px) scale(0.97)` },
-        { opacity: 1, transform: "none" },
-      ],
-      { duration: 560, delay: delay + i * 50, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" }
-    )
-  );
-}
-
-/* The tiles step back toward the car panel as the robot lifts off it, farthest first. */
-function concealBoard(fieldTile) {
-  if (reducedMotion()) return;
-  if (parkState.boardAnims.length && parkState.boardDirection === "in") {
-    for (const animation of parkState.boardAnims) animation.reverse();
-    parkState.boardDirection = "out";
-    return;
-  }
-  stopBoardAnimations();
-  parkState.boardDirection = "out";
-  const tiles = boardTiles(fieldTile).reverse();
-  parkState.boardAnims = tiles.map(({ tile, ux, uy }, i) =>
-    tile.animate(
-      [
-        { opacity: 1, transform: "none" },
-        { opacity: 0, transform: `translate(${(-ux * 20).toFixed(1)}px, ${(-uy * 20).toFixed(1)}px) scale(0.97)` },
-      ],
-      { duration: 380, delay: i * 28, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }
-    )
-  );
+function groundNow(el) {
+  const match = /rgba?\([^)]*?,\s*([\d.]+)\)$/.exec(el.style.backgroundColor);
+  if (match) return Number(match[1]);
+  if (el.style.backgroundColor) return 1;
+  return el.hidden ? 0 : 1;
 }
 
 function showPark() {
@@ -4082,18 +4056,22 @@ function showPark() {
   const move = ++parkState.move;
   loadParkScene();
   const scene = parkState.scene;
+  const cutShort = Boolean(scene?.flying) && !el.hidden;
   const onBoard = app.dataset.park !== "on";
-  /* The stage has to be laid out to be measured against. It shows nothing until the move below has
-     decided how it starts: every style set before this function returns lands in the same frame. */
+  const ground = cutShort ? groundNow(el) : 0;
+  const boardFrom = cutShort ? boardOpacityNow() : 1;
+  const scaleFrom = cutShort ? boardScaleNow() : 1;
+  /* Laid out so it can be measured, and see-through until the move has decided how it starts: every
+     style written before this function returns lands in the same frame. */
   el.hidden = false;
-  if (!scene?.flying) el.style.clipPath = "inset(50%)";
+  if (!cutShort) el.style.backgroundColor = "rgba(0, 0, 0, 0)";
   const hand = scene && onBoard && !reducedMotion() ? fieldHandover() : null;
-  const shot = hand ? hand.scene.shot() : null;
+  const shot = hand && !cutShort ? hand.scene.shot() : null;
 
-  if (!hand || !shot) {
+  if (!hand || (!cutShort && !shot)) {
     /* Nothing to lift off the field: fade in. */
-    el.style.clipPath = "";
     el.style.backgroundColor = "";
+    restBoard();
     el.dataset.ui = "on";
     el.dataset.state = "in";
     app.dataset.park = "entering";
@@ -4105,16 +4083,8 @@ function showPark() {
     return;
   }
 
-  /* The stage starts as the field tile: clipped to it, with no ground of its own, drawing the robot
-     where the field view draws it. */
-  const cutShort = scene.flying;
-  const fromClip = cutShort && parkState.clip ? parkState.clip : { rect: hand.rect, radius: hand.radius };
   el.dataset.state = "fly";
   el.dataset.ui = "off";
-  if (!cutShort) {
-    clipPark(el, hand.rect, hand.radius, hand.full);
-    el.style.backgroundColor = "rgba(0, 0, 0, 0)";
-  }
   app.dataset.park = "entering";
   paintParkInfo();
   scene.setActive(true);
@@ -4123,24 +4093,27 @@ function showPark() {
     to: "stage",
     duration: PARK_MOVE_MS,
     onProgress(eased, raw) {
-      clipPark(el, mixRect(fromClip.rect, hand.full, eased), fromClip.radius * (1 - eased), hand.full);
-      el.style.backgroundColor = `rgba(0, 0, 0, ${ramp(0.3, 0.8, eased).toFixed(3)})`;
+      /* The board recedes first, into the car panel it came out of; the dark comes up behind the robot
+         as it lifts; the stage's words come back once it is nearly home. */
+      const away = ramp(0, 0.45, eased);
+      styleBoard(boardFrom * (1 - away), scaleFrom + (0.965 - scaleFrom) * ramp(0, 0.7, eased), hand.origin);
+      el.style.backgroundColor = `rgba(0, 0, 0, ${(ground + (1 - ground) * ramp(0.1, 0.6, eased)).toFixed(3)})`;
       if (raw > 0.7 && el.dataset.ui !== "on") el.dataset.ui = "on";
     },
   });
+  /* The stage's first frame is drawn now, with the robot exactly where the field view has it, so the
+     field view's own robot can go in the same frame without a flicker of neither or both. */
+  scene.renderNow();
   hand.scene.setRobotShown(false);
   hand.entry.tile.dataset.handover = "true";
-  concealBoard(hand.entry.tile);
 
-  flight.then(() => {
-    if (move !== parkState.move) return;
+  flight.then((landed) => {
+    if (!landed || move !== parkState.move) return;
     app.dataset.park = "on";
     delete el.dataset.state;
     el.dataset.ui = "on";
-    el.style.clipPath = "";
     el.style.backgroundColor = "";
-    parkState.clip = null;
-    stopBoardAnimations();
+    restBoard();
     hand.scene.setRobotShown(true);
     delete hand.entry.tile.dataset.handover;
     placeCallouts();
@@ -4152,57 +4125,62 @@ function hidePark() {
   clearTimeout(parkState.hideTimer);
   const move = ++parkState.move;
   const scene = parkState.scene;
-  /* The board is back under the stage from the first frame, live, for the tiles to come out onto. */
+  const ground = groundNow(el);
+  const boardFrom = app.dataset.park === "on" ? 0 : boardOpacityNow();
+  const scaleFrom = app.dataset.park === "on" ? 1.03 : boardScaleNow();
+  /* The board is back under the stage from the first frame, live, drawn but not yet seen. */
   app.dataset.park = "leaving";
-  for (const entry of live.values()) entry.spec.onShow?.(entry.state);
   const hand = scene && !el.hidden && !reducedMotion() ? fieldHandover() : null;
-  if (hand) hand.scene.settle();
+  if (hand) {
+    styleBoard(boardFrom, scaleFrom, hand.origin);
+    /* The field view is told the robot is enabled before it is asked where its camera will be, so the
+       stage lands on the driving camera and not on the parked one it is about to leave. */
+    hand.entry.spec.update(hand.entry.body, hand.entry.item.cfg, hand.entry.refs, hand.entry.tile, hand.entry.state);
+    hand.scene.settle();
+  }
+  for (const entry of live.values()) entry.spec.onShow?.(entry.state);
   const shot = hand ? hand.scene.shot() : null;
 
   if (!hand || !shot) {
     /* Nothing to land on: fade out over the board, whose field view swings in from above. */
+    restBoard();
     el.dataset.state = "out";
-    el.style.clipPath = "";
     el.style.backgroundColor = "";
     for (const entry of live.values()) entry.state.scene?.arrive?.();
-    revealBoard(null, 80);
     parkState.hideTimer = setTimeout(() => {
       if (parkState.on || move !== parkState.move) return;
       el.hidden = true;
       app.dataset.park = "off";
       parkState.scene?.setActive(false);
-      stopBoardAnimations();
     }, PARK_FADE_MS);
     return;
   }
 
-  const fromClip = parkState.clip || { rect: hand.full, radius: 0 };
   hand.scene.setRobotShown(false);
   hand.entry.tile.dataset.handover = "true";
   el.dataset.state = "fly";
   el.dataset.ui = "off";
-  const startGround = el.style.backgroundColor ? Number(/[\d.]+\)$/.exec(el.style.backgroundColor)?.[0].slice(0, -1) ?? 1) : 1;
-  revealBoard(hand.entry.tile, 180);
   scene
     .fly({
       from: "current",
       to: { ...shot, rect: hand.rect },
       duration: DRIVE_MOVE_MS,
       onProgress(eased) {
-        clipPark(el, mixRect(fromClip.rect, hand.rect, eased), fromClip.radius + (hand.radius - fromClip.radius) * eased, hand.full);
-        el.style.backgroundColor = `rgba(0, 0, 0, ${(startGround * (1 - ramp(0.05, 0.5, eased))).toFixed(3)})`;
+        /* The dark lifts as the robot starts to move, and the board comes up behind it and settles to
+           its size as the robot lands. */
+        el.style.backgroundColor = `rgba(0, 0, 0, ${(ground * (1 - ramp(0.02, 0.42, eased))).toFixed(3)})`;
+        styleBoard(boardFrom + (1 - boardFrom) * ramp(0.05, 0.5, eased), scaleFrom + (1 - scaleFrom) * eased, hand.origin);
       },
     })
-    .then(() => {
-      if (move !== parkState.move) return;
+    .then((landed) => {
+      if (!landed || move !== parkState.move) return;
       /* Landed: the field view takes the robot over in the same frame the stage goes. */
       hand.scene.setRobotShown(true);
       hand.scene.redraw();
       el.hidden = true;
       delete el.dataset.state;
-      el.style.clipPath = "";
       el.style.backgroundColor = "";
-      parkState.clip = null;
+      restBoard();
       app.dataset.park = "off";
       scene.setActive(false);
       delete hand.entry.tile.dataset.handover;

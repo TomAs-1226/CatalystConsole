@@ -499,15 +499,17 @@ test("a cubic Bézier timing function runs from 0 to 1, and the linear one is th
   near(ease(0.5), 0.8024, 2e-3, "ease at 0.5");
 });
 
-test("the flight's timing never runs backwards and lands softly", () => {
+test("the flight's timing never runs backwards, starts from rest and lands softly", () => {
   let last = 0;
   for (let i = 1; i <= 100; i++) {
     const v = flightEase(i / 100);
     assert.ok(v >= last - 1e-9, `monotonic at ${i}`);
     last = v;
   }
-  assert.ok(flightEase(0.9) > 0.97, "most of the way there with a tenth of the time left");
-  assert.ok(flightEase(0.1) < 0.1, "a gentle start");
+  assert.ok(flightEase(0.9) > 0.99, "all but there with a tenth of the time left");
+  assert.ok(flightEase(0.01) < 0.01, "starting from rest");
+  assert.equal(flightEase(0), 0);
+  assert.equal(flightEase(1), 1);
 });
 
 const shotA = { eye: [0, 1, 3], look: [0, 0.3, 0], fov: 30, rect: { x: 0, y: 10, w: 1400, h: 800 } };
