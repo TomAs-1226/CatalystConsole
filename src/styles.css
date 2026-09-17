@@ -517,39 +517,29 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---- the severity channel -------------------------------------------------
-   This is the whole point of the redesign. app.js marks a bad value by putting `crit` or `warn` on
-   the element holding it, and nothing above that value ever said anything — so a red digit in the
-   corner of a 3x2 tile was competing for attention with every other digit on the board.
-   `:has()` lifts that mark to the tile, twice over:
+   app.js marks a bad value by putting `crit` or `warn` on the element holding it, and nothing above
+   that value ever said anything — so a red digit in the corner of a 3x2 tile was competing for
+   attention with every other digit on the board. `:has()` lifts that mark to the tile as a word in
+   its header, Check or Fault, on a small pill of the level's tint, because a word is read faster than
+   a colour is decoded and it survives greyscale. Summary before detail: you learn that this tile is
+   the problem before you read which number in it is.
 
-     a stripe down the left edge, solid for a fault and hatched for a degradation, which is a
-     texture difference and therefore survives greyscale; and
+   Tesla says a state with a lamp and a word rather than by marking up the card, and so does this.
+   There used to be a stripe down the tile's left edge as well, solid for a fault and hatched for a
+   degradation; a hatched amber line on a dark card read as a rendering fault rather than as a state.
+   All that is left of it is the faintest wash of the level over the tile's ground, enough to find the
+   tile from across a pit and too little to compete with the word.
 
-     a word in the tile header, because "FAULT" is read faster than a colour is decoded.
-
-   Summary before detail: you learn that this tile is the problem before you read which number in
-   it is the problem.
-
-   The stripe is always in the layout with a transparent fill, so a state change repaints and never
-   reflows — these selectors are re-evaluated every time app.js rewrites a className, ten times a
-   second. */
-.t::before {
-  content: "";
-  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: transparent;
-  pointer-events: none;
-}
-.t:has(.warn)::before,
-.t.tower[data-soon="true"]::before {
-  background: repeating-linear-gradient(
-    180deg, var(--cat-warn) 0 6px, transparent 6px 11px);
-}
+   Paint only: these selectors are re-evaluated every time app.js rewrites a className, ten times a
+   second, and a background never reflows. */
+.t:has(.warn),
+.t.tower[data-soon="true"] { background-color: color-mix(in srgb, var(--cat-warn) 2.5%, var(--cat-surface-1)); }
 /* `.al.error` is the alert manager's word for the same thing `.crit` means everywhere else in
    app.js — a raised error is a fault, and a tile holding one must not rank below a tile holding a
    warning. Listed rather than folded in, because the two names come from two different publishers
    and neither is going to change. */
-.t:has(.crit)::before,
-.t:has(.al.error)::before { background: var(--cat-bad); }
+.t:has(.crit),
+.t:has(.al.error) { background-color: color-mix(in srgb, var(--cat-bad) 3%, var(--cat-surface-1)); }
 
 /* The label is the launch material's eyebrow: mono, small, tracked, quiet. It names the tile and says
    nothing else, so the value under it is the first thing read. */
@@ -572,19 +562,18 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-semi); letter-spacing: 0;
   line-height: 1.25;
 }
+/* The two pills are one shape in two levels: a tint and a word, no ring. */
 .t:has(.warn) > .h::after,
 .t.tower[data-soon="true"] > .h::after {
   display: block; content: "Check";
-  background: color-mix(in srgb, var(--cat-warn) 20%, transparent);
+  background: var(--cat-warn-tint);
   color: var(--cat-warn);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-warn) 45%, transparent);
 }
 .t:has(.crit) > .h::after,
 .t:has(.al.error) > .h::after {
   display: block; content: "Fault";
   background: var(--cat-bad-tint);
   color: var(--cat-bad);
-  box-shadow: none;
 }
 
 .t .fill { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -628,25 +617,23 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .brand { color: var(--cat-coral); }
 .dim { color: var(--cat-muted); }
 
-/* A reading that is fine is ink, not green.
+/* A reading is ink, whatever state it is in.
  *
  * Every numeric widget sets `ok` on its own value while the robot is healthy, so a good match put a
  * green battery beside a green loop time beside a green sparkline beside the hub's green pill — and
  * a board where the normal state is coloured is a board where colour has stopped meaning anything.
- * Colour is reserved for a reading that is NOT fine; those keep `warn` and `crit`, and they keep
- * the rule under the digits as their second channel. The state chips are unaffected: a chip exists
- * to say which state a thing is in. */
-.n.ok, .gv.ok, .mv.ok { color: var(--cat-white); }
-
-/* Second channel on the number itself, for the tile that holds several and where the header badge
-   cannot say which one. A rule under the digits, not a colour on them — text-decoration paints and
-   never reflows, which matters on an element rewritten ten times a second. */
-.n.crit, .n.warn, .gauge .gv.crit {
-  text-decoration: underline;
-  text-decoration-thickness: 3px;
-  text-underline-offset: 6px;
-  text-decoration-skip-ink: none;
-}
+ * A reading that is NOT fine keeps `warn` or `crit` on it, but its digits stay white too: an endgame
+ * clock or a low battery set in 50px amber was the largest patch of colour on the board, and Tesla
+ * keeps colour to its lamps and its words. The state is said by the word in the tile's header - Check
+ * or Fault - on its small tinted pill. The state chips are unaffected: a chip exists to say which
+ * state a thing is in.
+ *
+ * A tile that holds several readings cannot say with its header which one it means, so the label
+ * under or beside the flagged reading says it too: a triangle for a check, a square for a fault,
+ * in the level's colour - Tesla's telltale, set in words. That replaced a thick rule drawn under the
+ * digits, which read as a bar graph rather than as a warning. */
+.n.ok, .gv.ok, .mv.ok,
+.n.warn, .n.crit { color: var(--cat-white); }
 
 /* ---- bars ----
    No transition on `width`. app.js writes .style.width straight from NetworkTables at 10 Hz, and a
@@ -788,12 +775,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-family: var(--readout); font-size: min(var(--fs-32), 34cqh); font-weight: 400;
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.05;
   color: var(--cat-white);
-  /* The severity rule under a flagged cell. Inset shadow, so switching it on is a repaint and the
-     three cells beside it never move. */
-  box-shadow: none;
 }
-.mv.warn { box-shadow: inset 0 -3px 0 var(--cat-warn); }
-.mv.crit { box-shadow: inset 0 -3px 0 var(--cat-bad); }
 .ml {
   font-family: var(--sans); font-size: var(--fs-13); color: var(--cat-dim); margin-top: 6px;
   letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium);
@@ -805,6 +787,14 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .mv.warn + .ml::before { content: "\25B2  "; }
 .mv.crit + .ml { color: var(--cat-bad); }
 .mv.crit + .ml::before { content: "\25A0  "; }
+/* The same telltale on the Systemcore tile's rows, where the label sits beside its reading, and on
+   the one ring of several on a gauge tile that has passed its redline. */
+.t .row:has(> .n.warn) > .k { color: var(--cat-warn); }
+.t .row:has(> .n.warn) > .k::before { content: "\25B2  "; }
+.t .row:has(> .n.crit) > .k { color: var(--cat-bad); }
+.t .row:has(> .n.crit) > .k::before { content: "\25A0  "; }
+.gauge:has(.gv.crit) > .gl { color: var(--cat-bad); }
+.gauge:has(.gv.crit) > .gl::before { content: "\25A0  "; }
 
 /* ---- short tiles ----
    What gives when a tile has less room than the anatomy was drawn for. Gaps close before anything is
@@ -847,21 +837,27 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 
 /* ---- alert rows ----
-   Ground tint as well as a stripe: a hairline of colour on the left of a 12px row is not enough
-   area to register from a driver's station, and the tint is what makes an error row read as a
-   block before any of its words are read. Texture separates the two levels in greyscale. */
+   A row of Tesla's alert list: a small light at the start and the words in white after it. The
+   light carries the level twice, in colour and in the shape the status dots use - a circle for a
+   note, a diamond for a check, a square for a fault - so the list reads in greyscale. The words are
+   never coloured and the row is never tinted: a list of amber sentences on amber ground was the
+   loudest thing on the board, and the tile's own Check or Fault already says it from across a pit. */
 .al {
-  display: flex; gap: 8px; align-items: flex-start;
-  font-size: var(--fs-13); line-height: 1.45;
-  padding: 8px; border-radius: var(--r-sm);
+  display: flex; gap: 12px; align-items: flex-start;
+  font-size: var(--fs-13); line-height: 1.45; color: var(--cat-body);
+  padding: 7px 0;
 }
+/* `.warn` and `.crit` colour anything they sit on; on a row they only name the level. */
+.al.warn, .al.error { color: var(--cat-body); }
 .al + .al { border-top: 1px solid var(--hair-dense); }
-.al .b { width: 3px; align-self: stretch; border-radius: 999px; flex: none; background: var(--cat-muted); }
+/* Centred on the first line, however many lines the words take. */
+.al .b {
+  flex: none; width: 7px; height: 7px; margin: calc(0.725em - 3.5px) 1px 0;
+  border-radius: 50%; background: var(--cat-faint);
+}
 .al.info .b { background: var(--cat-info); }
-.al.warn .b { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 5px, transparent 5px 9px); }
-.al.error .b { background: var(--cat-bad); }
-.al.warn { background: color-mix(in srgb, var(--cat-warn) 9%, transparent); }
-.al.error { background: color-mix(in srgb, var(--cat-bad) 12%, transparent); }
+.al.warn .b { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
+.al.error .b { background: var(--cat-bad); border-radius: 1px; }
 .al .s { display: block; color: var(--cat-muted); font-family: var(--mono); font-size: var(--fs-12); margin-top: 4px; }
 
 /* ---- auto chooser ---- */
@@ -917,9 +913,11 @@ table.mh td .dim { color: var(--cat-muted); font-weight: 500; }
 table.mh td.mh-bar { min-width: 130px; }
 table.mh td.mh-bar .track { display: inline-block; width: 64px; height: 6px; margin: 0 8px 0 0; vertical-align: middle; }
 table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--cat-data); border-radius: 999px; }
+/* How many identities a motor has had before this one. History, not a warning, so it is a grey chip
+   on the board as it is in Settings. */
 .mh-past {
   display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--cat-warn) 16%, transparent); color: var(--cat-warn);
+  background: var(--cat-surface-2); color: var(--cat-dim);
   font-family: var(--sans); font-size: var(--fs-12); font-weight: var(--cat-w-medium);
 }
 
@@ -2184,14 +2182,18 @@ kbd {
   background: var(--cat-surface-1); border: 0; border-radius: 16px;
   padding: 18px 20px 20px;
 }
-/* Same severity vocabulary as the board: an edge stripe, solid for a fault and hatched for a
-   degradation, so the four vitals can be ranked without reading any of the numbers. */
-.cvital::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: transparent;
+/* Same severity vocabulary as the board: the word on a small pill beside the name, Check or Fault,
+   so the four vitals can be ranked without reading any of the numbers and without colour alone. */
+.cvk {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px;
+  font-size: 14px; font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none; color: var(--cat-dim);
 }
-.cvital[data-level="warn"]::before { background: repeating-linear-gradient(180deg, var(--cat-warn) 0 6px, transparent 6px 11px); }
-.cvital[data-level="crit"]::before { background: var(--cat-bad); }
-.cvk { font-size: 14px; font-weight: var(--cat-w-medium); letter-spacing: 0; text-transform: none; color: var(--cat-dim); }
+.cvital[data-level] .cvk::after {
+  flex: none; padding: 2px 10px; border-radius: 999px;
+  font-size: var(--fs-12); font-weight: var(--cat-w-semi); line-height: 1.35;
+}
+.cvital[data-level="warn"] .cvk::after { content: "Check"; background: var(--cat-warn-tint); color: var(--cat-warn); }
+.cvital[data-level="crit"] .cvk::after { content: "Fault"; background: var(--cat-bad-tint); color: var(--cat-bad); }
 .cvn { display: flex; align-items: baseline; gap: 4px; margin: 10px 0 14px; }
 .cvn b {
   font-size: 34px; font-weight: 400; letter-spacing: 0; line-height: 1;
@@ -2211,8 +2213,6 @@ kbd {
 }
 .ctrack > i[data-level="warn"] { background: var(--cat-warn); }
 .ctrack > i[data-level="crit"] { background: var(--cat-bad); }
-.cvital[data-level="warn"] .cvn b { color: var(--cat-warn); }
-.cvital[data-level="crit"] .cvn b { color: var(--cat-bad); }
 
 .ccard {
   background: var(--cat-surface-1); border: 0; border-radius: 16px;
@@ -2326,7 +2326,6 @@ kbd {
 .settings table.mh th { padding: 0 10px 10px 0; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim); }
 .settings table.mh td { padding: 11px 10px 11px 0; border-top-color: var(--cat-hair); }
 .settings table.mh td.mh-name small { margin-top: 2px; font-size: var(--fs-12); font-weight: 400; color: var(--cat-dim); }
-.settings .mh-past { background: var(--cat-surface-2); color: var(--cat-dim); }
 .settings .ccard .cap { margin-top: 12px; font-size: var(--fs-13); color: var(--cat-dim); line-height: 1.6; }
 .settings .ccard .cap code { font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-body); }
 

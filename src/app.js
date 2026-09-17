@@ -855,7 +855,7 @@ define("tower", {
     { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
       hint: "Optional override: seconds until the state flips." },
     { key: "warn", label: "Warn at", type: "number", def: 5,
-      hint: "Seconds before a change when the tile turns amber." },
+      hint: "Seconds before a change when the tile starts to say Check." },
   ],
   render(body) {
     body.innerHTML = `
