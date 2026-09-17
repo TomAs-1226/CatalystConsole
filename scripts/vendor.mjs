@@ -20,6 +20,9 @@ const files = [
   ["node_modules/three/build/three.module.min.js", "three.module.min.js"],
   ["node_modules/three/examples/jsm/loaders/GLTFLoader.js", "loaders/GLTFLoader.js"],
   ["node_modules/three/examples/jsm/utils/BufferGeometryUtils.js", "utils/BufferGeometryUtils.js"],
+  // A skinned mesh cloned the ordinary way keeps pointing at the original skeleton, so every copy of the
+  // driver would move together. This is the clone that rebinds one.
+  ["node_modules/three/examples/jsm/utils/SkeletonUtils.js", "utils/SkeletonUtils.js"],
   // The interface face. Console is drawn after Tesla's in-car screens, whose own typeface is
   // proprietary; Figtree is the openly licensed face nearest it in proportion and weight. Two subsets,
   // Latin and Latin Extended, so an event or team name with an accent does not fall back mid-word.

@@ -105,7 +105,7 @@ export function driverPose(t, { crossed = null } = {}) {
     adduct: 0.12,
     /* The same angle both sides, so the two forearms end up parallel rather than crossing in an X. */
     across: [1.05, 1.05],
-    elbow: 1.9,
+    elbow: 1.55,
   };
 
   /* The elbows close before the arms come across, because that is the order a person does it in and
@@ -401,8 +401,8 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(STAGE_FOV, 16 / 9, 0.1, 40);
-  camera.position.set(3.6, 1.35, 2.6);
-  camera.lookAt(0.1, 0.98, 0);
+  camera.position.set(2.75, 1.38, 1.95);
+  camera.lookAt(0.05, 0.97, 0);
 
   /* The same studio the robot stands in: a low ambient, a key over the camera's shoulder, a cool rim
      from behind that draws the figure's edge out of a dark panel. */
@@ -439,8 +439,33 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
-  const rig = createDriver({ colour });
+  /* The built-in figure goes up straight away, and the baked model - if the team has run
+     `npm run driver-cad` - replaces it when it has loaded. Neither the panel nor the choreography knows
+     which one it is drawing: both rigs take the same pose. */
+  let wanted = colour;
+  let rig = createDriver({ colour });
+  let pose = applyPose;
   scene.add(rig.root);
+  loadDriverModel().then(async (asset) => {
+    if (!asset || disposed) return;
+    let better = null;
+    try {
+      better = await createModelDriver(asset, { colour: wanted });
+    } catch (err) {
+      console.warn("the baked driver would not load; keeping the built-in figure", err);
+      return;
+    }
+    if (disposed) {
+      better.dispose();
+      return;
+    }
+    scene.remove(rig.root);
+    rig.dispose();
+    rig = better;
+    pose = applyModelPose;
+    scene.add(rig.root);
+    wake();
+  });
 
   let sized = { w: 0, h: 0, dpr: 0 };
   function resize() {
@@ -481,7 +506,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
     lastFrame = now;
     resize();
     if (!sized.w || !sized.h) return;
-    applyPose(rig, driverPose(t, standing ? { crossed: true } : {}));
+    pose(rig, driverPose(t, standing ? { crossed: true } : {}));
     renderer.render(scene, camera);
     /* Reduced motion gets the standing figure and nothing else moving. */
     if (playing || !reduced) raf = requestAnimationFrame(tick);
@@ -511,6 +536,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
       wake();
     },
     setColour(next) {
+      if (next) wanted = next;
       rig.setColour(next);
       wake();
     },
@@ -536,4 +562,147 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
       renderer.dispose();
     },
   };
+}
+
+/* ---- the baked figure ---- */
+
+/**
+ * The figure from `npm run driver-cad`, if it has been baked: `{ manifest, scene }`, or null. Loaded
+ * once per page, like the robot's CAD.
+ */
+let loadingModel = null;
+export function loadDriverModel() {
+  loadingModel ??= (async () => {
+    const response = await fetch("./vendor/driver.json").catch(() => null);
+    if (!response || !response.ok) return null;
+    const manifest = await response.json();
+    if (manifest?.version !== 1) return null;
+    const { GLTFLoader } = await import("./vendor/loaders/GLTFLoader.js");
+    const gltf = await new GLTFLoader().loadAsync(`./vendor/${manifest.model?.file ?? "driver.glb"}`);
+    return { manifest, scene: gltf.scene };
+  })().catch((err) => {
+    console.warn("no driver model baked; drawing the built-in figure", err);
+    return null;
+  });
+  return loadingModel;
+}
+
+/**
+ * A rig around the baked model, with the same surface as `createDriver` so `applyPose` can drive either.
+ *
+ * Posing someone else's skeleton means not caring how its bones are built. The angles here are in the
+ * console's frame - x forward, rotation about z swings a limb forward - and each bone is given the world
+ * orientation it has at rest, turned by that angle, expressed back in whatever local frame its parent
+ * happens to be in: `local = parentWorld⁻¹ · turn · restWorld`. That works on any rig whose bones are
+ * named, without knowing which way any of them points.
+ */
+export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
+  const { clone: cloneSkinned } = await import("./vendor/utils/SkeletonUtils.js");
+  const names = asset.manifest.bones;
+  /* A skinned mesh cloned the ordinary way keeps its original skeleton, so two figures on one page would
+     move as one. */
+  const model = cloneSkinned(asset.scene);
+  const suit = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour), roughness: 0.58, metalness: 0.05, dithering: true });
+  const bones = new Map();
+  model.traverse((o) => {
+    if (o.isBone) bones.set(o.name, o);
+    if (o.isMesh || o.isSkinnedMesh) {
+      o.material = suit;
+      /* The bounding box of a skinned mesh is its bind pose, which is not where it is once it is posed. */
+      o.frustumCulled = false;
+    }
+  });
+
+  /* A hand modelled in a T-pose is flat with the fingers splayed, which reads as a mannequin holding
+     still. A light curl at every joint of every finger is what a hand does when nobody is using it, and
+     it costs one pass at build time. Fingers close about their own first axis on a rig built this way. */
+  for (const [name, bone] of bones) {
+    if (/Index|Middle|Ring|Pinky|Thumb/.test(name)) bone.rotateX(/Thumb/.test(name) ? 0.22 : 0.36);
+  }
+
+  const root = new THREE.Group();
+  root.name = "driver";
+  const body = new THREE.Group();
+  body.name = "driver-body";
+  body.add(model);
+  root.add(body);
+  root.updateMatrixWorld(true);
+
+  /* Where every bone sits at rest, in the world. Read once. */
+  const rest = new Map();
+  for (const [name, bone] of bones) rest.set(name, bone.getWorldQuaternion(new THREE.Quaternion()));
+
+  const turn = new THREE.Quaternion();
+  const about = new THREE.Quaternion();
+  const want = new THREE.Quaternion();
+  const parentWorld = new THREE.Quaternion();
+  const X = new THREE.Vector3(1, 0, 0);
+  const Y = new THREE.Vector3(0, 1, 0);
+  const Z = new THREE.Vector3(0, 0, 1);
+
+  /**
+   * Turn `name` from where it rests, by three world-space rotations in a fixed order: about x first,
+   * which is what tips a limb out to the side, then about z, which swings it forward, then about y,
+   * which turns the whole limb about the body. Written out rather than left to an Euler, because the
+   * order is the whole meaning of it.
+   */
+  function place(name, x, y, z) {
+    const bone = bones.get(name);
+    if (!bone) return;
+    turn.setFromAxisAngle(X, x);
+    turn.premultiply(about.setFromAxisAngle(Z, z));
+    turn.premultiply(about.setFromAxisAngle(Y, y));
+    want.copy(turn).multiply(rest.get(name));
+    bone.parent.updateWorldMatrix(true, false);
+    bone.parent.getWorldQuaternion(parentWorld);
+    bone.quaternion.copy(parentWorld.invert()).multiply(want);
+  }
+
+  return {
+    root,
+    body,
+    model,
+    materials: [suit],
+    /* Posed by `applyPose`, which knows only these two. */
+    place,
+    names,
+    setColour(next) {
+      if (next) suit.color.set(next);
+    },
+    dispose() {
+      suit.dispose();
+      model.traverse((o) => {
+        if (o.isMesh || o.isSkinnedMesh) o.geometry?.dispose();
+      });
+    },
+  };
+}
+
+/** Put a baked rig in the pose `driverPose` returned. Parents before children, so a chain composes. */
+export function applyModelPose(rig, pose) {
+  rig.body.position.set(pose.x, pose.y, 0);
+  rig.body.rotation.y = pose.turn;
+  rig.body.rotation.z = pose.lean;
+
+  const n = rig.names;
+  rig.place(n.hips, 0, 0, -pose.weight);
+  for (const name of n.spine) rig.place(name, 0, 0, -pose.chest / n.spine.length);
+  for (const name of n.neck) rig.place(name, 0, pose.head.turn / 2, -pose.head.lift / 2);
+  rig.place(n.head, 0, pose.head.turn / 2, -pose.head.lift / 2);
+
+  for (const [index, side] of [n.left, n.right].entries()) {
+    /* A rigged figure is modelled in a T, arms straight out, so before any of the choreography applies
+       the arms have to come down to where a person's arms are: a quarter turn about the forward axis,
+       less the few degrees a standing arm holds away from the body. The legs are already modelled
+       hanging, so they need nothing. */
+    const hang = (index === 0 ? -1 : 1) * (Math.PI / 2 - 0.14);
+    const swing = pose.shoulder[index] + pose.forward[index];
+    rig.place(side.shoulder, hang + pose.adduct[index], pose.across[index], swing);
+    /* The elbow's flex is on top of whatever the shoulder did, because a forearm is carried by its arm. */
+    rig.place(side.elbow, hang + pose.adduct[index], pose.across[index], swing + pose.elbow[index]);
+    rig.place(side.hand, hang + pose.adduct[index], pose.across[index], swing + pose.elbow[index]);
+    rig.place(side.hip, 0, 0, pose.hip[index]);
+    rig.place(side.knee, 0, 0, pose.hip[index] + pose.knee[index]);
+    rig.place(side.foot, 0, 0, pose.hip[index] + pose.knee[index] + pose.ankle[index]);
+  }
 }
