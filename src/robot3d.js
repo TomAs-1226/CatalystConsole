@@ -475,7 +475,7 @@ function buildRobot(spec, mat, keep) {
     crown = new THREE.Vector3(postX, H, 0);
     reach = Math.hypot(Math.abs(postX) + Math.max(hoodR, plateW / 2), postZ + 0.005);
     /* Balls leave over the crown of the hood, toward the front: a generic shooter, like the rest. */
-    muzzle = { point: new THREE.Vector3(postX + hoodR * 0.5, H - 0.01, 0), forward: new THREE.Vector3(1, 0, 0), wheelRadius: Math.max(0.03, hoodR - 0.05) };
+    muzzle = { point: new THREE.Vector3(postX + hoodR * 0.5, H - 0.01, 0), forward: new THREE.Vector3(1, 0, 0), wheelRadius: Math.max(0.03, hoodR - 0.05), width: hoodWidth };
   }
 
   /* Anchors for the callouts, in the robot's frame, each with the direction its surface faces so the
@@ -843,7 +843,9 @@ export function createRobotModel(opts = {}) {
       if (!m) return null;
       const launch = ((90 - (Number.isFinite(hoodDeg) ? hoodDeg : 30)) * Math.PI) / 180;
       const direction = m.forward.clone().multiplyScalar(Math.cos(launch)).setY(Math.sin(launch)).normalize();
-      return { point: m.point.clone(), direction, wheelRadius: m.wheelRadius };
+      /* FUEL goes out abreast across the shooter, as many lanes as fit its width. */
+      const lanes = Math.max(1, Math.min(4, Math.floor(m.width / 0.15)));
+      return { point: m.point.clone(), direction, wheelRadius: m.wheelRadius, across: new THREE.Vector3(0, 0, 1), lanes, laneSpacing: lanes > 1 ? Math.min(0.17, m.width / lanes) : 0 };
     },
     /** The upright cylinders that frame the robot for a camera (see park3d.js's silhouette). */
     get parts() { return built ? built.parts : []; },

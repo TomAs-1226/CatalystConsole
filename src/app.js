@@ -26,7 +26,7 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
-import { createHopper, hasMechanisms, readMechanisms } from "./mechanisms.js";
+import { createHopper, FEED_RATE, hasMechanisms, readMechanisms } from "./mechanisms.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -275,11 +275,11 @@ function demoTick() {
     const dt = Math.min(0.25, Math.max(0, (now - m.at) / 1000));
     m.at = now;
     const lap = (((tm * 0.42) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    const phase = !enabled ? "idle" : lap < 2.2 ? "intake" : lap < 2.9 ? "prepare" : lap < 4.7 ? "score" : "idle";
+    const phase = !enabled ? "idle" : lap < 2.2 ? "intake" : lap < 2.9 ? "prepare" : lap < 3.9 ? "score" : "idle";
     const follow = (value, goal, seconds) => goal + (value - goal) * Math.exp(-dt / seconds);
     const hoodGoal = phase === "prepare" || phase === "score" ? 27 + 7 * Math.sin(tm * 0.9) : 13;
     const shooterGoal = phase === "prepare" || phase === "score" ? 1600 / 60 : enabled ? 750 / 60 : 0;
-    const deployGoal = phase === "intake" ? 11.8 : phase === "score" && lap > 3.4 ? 5 : enabled ? 11.8 : 5;
+    const deployGoal = phase === "intake" ? 11.8 : phase === "score" && lap > 3.3 ? 5 : enabled ? 11.8 : 5;
     m.hood = follow(m.hood, hoodGoal, 0.12);
     m.shooter = follow(m.shooter, shooterGoal, 0.35);
     m.deploy = follow(m.deploy, deployGoal, 0.18);
@@ -4455,7 +4455,7 @@ const driveLog = { current: null, last: null };
  * in either view, so the field view's volley and the balls in the hopper agree, and it starts each match
  * from the preload the moment autonomous begins. `fired` only ever counts up; the field view launches a
  * ball for each one it has not seen. */
-const mechanismState = { now: null, at: null, fired: 0, wasEnabled: false, hopper: createHopper() };
+const mechanismState = { now: null, at: null, fired: 0, wasEnabled: false, hopper: createHopper({ feedRate: FEED_RATE }) };
 
 function trackMechanisms(now) {
   const linked = nt.status.connected || demo.on;

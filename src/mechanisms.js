@@ -16,14 +16,12 @@ export const FUEL_DIAMETER_M = 0.15;
 export const PRELOAD_FUEL = 8;
 export const GRAVITY = 9.81;
 
-/* The two HUBS, centred on each alliance's side of the field in WPILib field metres, as the field model's
-   collision map finds them (the tall 1.2 m squares at x 4.03-5.23 and 11.33-12.53, y 3.43-4.63), and the
-   height of their openings. The height is the one the robot's shot table agrees with (see fitKeep). */
-export const HUB_CENTRES_M = [[4.63, 4.03], [11.93, 4.03]];
-export const HUB_OPENING_HEIGHT_M = 1.83;
-export const HUB_OPENING_RADIUS_M = 0.5;
-/* The share of the flywheel's surface speed a FUEL ball keeps, fitted to team 5805's shot table. */
+/* The share of the flywheel's surface speed a FUEL ball keeps, fitted to team 5805's shot table (see
+   fitKeep). It only shapes how the shot is drawn leaving the robot; nothing downstream depends on it. */
 export const LAUNCH_KEEP = 0.81;
+/* How many FUEL the shooter takes abreast, and how many it gets through a second while it feeds. */
+export const SHOOTER_LANES = 4;
+export const FEED_RATE = 12;
 
 const INCH = 0.0254;
 
@@ -99,7 +97,7 @@ export function isFeeding(m, minShooterRps = 8) {
  * step() returns how many balls left through the shooter in that step, so the views launch one ball each;
  * the fraction left over carries to the next step, so the cadence holds at any frame rate.
  */
-export function createHopper({ capacity = 40, intakeRate = 5, feedRate = 8, ejectRate = 6, preload = PRELOAD_FUEL } = {}) {
+export function createHopper({ capacity = 40, intakeRate = 6, feedRate = 8, ejectRate = 6, preload = PRELOAD_FUEL } = {}) {
   const cap = Math.max(1, capacity);
   let fill = Math.min(cap, Math.max(0, preload));
   let owed = 0;

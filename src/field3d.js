@@ -26,13 +26,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
-import {
-  HUB_CENTRES_M,
-  HUB_OPENING_HEIGHT_M,
-  HUB_OPENING_RADIUS_M,
-  LAUNCH_KEEP,
-  launchSpeed,
-} from "./mechanisms.js";
+import { FEED_RATE, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -547,7 +541,6 @@ export function createField(canvas, opts) {
       );
       poseLength = meta.lengthMeters;
       poseWidth = meta.widthMeters;
-      placeHubs();
     } else {
       /* No baked map, or an axis order this quarter turn does not handle. Centring the bounding box is
          off by however much structure stands outside one wall and not the other — 0.835 m on the 2026
@@ -605,6 +598,9 @@ export function createField(canvas, opts) {
         return flatMat;
       });
       obj.material = Array.isArray(obj.material) ? next : next[0];
+      /* The field's FUEL - several hundred instances of one ball - lends its colour to the balls the robot
+         shoots, so they read as the same thing. */
+      if (obj.isInstancedMesh && obj.count >= 400 && !Array.isArray(obj.material)) shots.setColour(obj.material.color);
     });
 
     cad.add(model);
@@ -635,33 +631,64 @@ export function createField(canvas, opts) {
   model.setSpec({});
   robot.add(model.root);
 
-  /* FUEL the robot shoots (see shots3d.js), in the robot's scene and under its lights. The app counts the
-     balls that leave (see mechanisms.js createHopper); each one it reports is launched here from the
-     shooter's exit, spread over the tenth of a second the count covers so a volley reads as a stream. */
-  const shots = createShots({ openingHeight: HUB_OPENING_HEIGHT_M, openingRadius: HUB_OPENING_RADIUS_M });
-  robotScene.add(shots.root);
-  function placeHubs() {
-    shots.setHubs(HUB_CENTRES_M.map(([fx, fy]) => ({ x: fx - poseLength / 2, z: -(fy - poseWidth / 2) })));
-  }
-  placeHubs();
+  /* The robot shooting (see shots3d.js): drawn in the field's scene, like the field's own FUEL. The app
+     counts the balls that leave the hopper (see mechanisms.js createHopper) and they go out here in
+     volleys, up to four abreast across the shooter, each ball a little early or late and a little off
+     the others in speed and angle, the way a real shooter's stream looks. */
+  const shots = createShots();
+  scene.add(shots.root);
   let mechanisms = null;
   let firedSeen = null;
-  const launches = [];
+  let queued = 0;
+  let nextVolley = 0;
+  const launches = [];      // { at, lane, lanes, speed, pitch, yaw }, soonest first
+  /* About a standard deviation's worth of noise from three uniform numbers, cheaply. */
+  const wobble = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.15;
 
-  function launchBall(now) {
+  function volley(now) {
+    if (!(queued > 0) || now < nextVolley) return;
+    const lanes = model.muzzle(30)?.lanes ?? SHOOTER_LANES;
+    const count = Math.min(lanes, queued);
+    queued -= count;
+    const order = Array.from({ length: lanes }, (_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    for (const lane of order.slice(0, count)) {
+      launches.push({
+        at: now + Math.random() * 70,
+        lane,
+        lanes,
+        speed: 1 + wobble() * 0.03,
+        pitch: (wobble() * 1.4 * Math.PI) / 180,
+        yaw: (wobble() * 1.8 * Math.PI) / 180,
+      });
+    }
+    launches.sort((a, b) => a.at - b.at);
+    /* The next volley when the feed has brought this many balls up, give or take. */
+    nextVolley = now + ((count / FEED_RATE) * 1000) * (0.85 + Math.random() * 0.3);
+  }
+
+  const launchFrom = new THREE.Vector3();
+  const launchAlong = new THREE.Vector3();
+  const upward = new THREE.Vector3(0, 1, 0);
+  function launchBall(shot, now) {
     if (!mechanisms || !robot.visible || unplaced || !model.root.visible) return;
     const muzzle = model.muzzle(mechanisms.hoodDeg);
     if (!muzzle) return;
-    model.root.updateMatrixWorld();
-    const from = muzzle.point.applyMatrix4(model.root.matrixWorld);
-    const direction = muzzle.direction.transformDirection(model.root.matrixWorld);
-    const speed = launchSpeed(mechanisms.shooterRps ?? 0, muzzle.wheelRadius, LAUNCH_KEEP);
+    const speed = launchSpeed(mechanisms.shooterRps ?? 0, muzzle.wheelRadius, LAUNCH_KEEP) * shot.speed;
     if (!(speed > 1)) return;
+    model.root.updateMatrixWorld();
+    const offset = (shot.lane - (shot.lanes - 1) / 2) * muzzle.laneSpacing;
+    launchFrom.copy(muzzle.point).addScaledVector(muzzle.across, offset).applyMatrix4(model.root.matrixWorld);
+    launchAlong.copy(muzzle.direction).applyAxisAngle(muzzle.across, shot.pitch).applyAxisAngle(upward, shot.yaw)
+      .transformDirection(model.root.matrixWorld);
     const vx = reported ? reported.vx : 0;
     const vz = reported ? reported.vz : 0;
     shots.launch(
-      [from.x, from.y, from.z],
-      [direction.x * speed + vx, direction.y * speed, direction.z * speed + vz],
+      [launchFrom.x, launchFrom.y, launchFrom.z],
+      [launchAlong.x * speed + vx, launchAlong.y * speed, launchAlong.z * speed + vz],
       now
     );
   }
@@ -1091,15 +1118,12 @@ export function createField(canvas, opts) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
       model.setEnvironment(environment.texture);
-      shots.setEnvironment(environment.texture);
     }
-    while (launches.length && launches[0] <= now) {
-      launches.shift();
-      launchBall(now);
-    }
+    volley(now);
+    while (launches.length && launches[0].at <= now) launchBall(launches.shift(), now);
     const shotsMoving = shots.step(now);
     draw();
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0;
     dirty = false;
   }
 
@@ -1107,9 +1131,7 @@ export function createField(canvas, opts) {
   function draw() {
     placeFog();
     /* The studio faces the lens, as it does on the Park stage. */
-    const yaw = Math.atan2(camera.position.x - target.x, camera.position.z - target.z);
-    model.aim(yaw);
-    shots.aim(yaw);
+    model.aim(Math.atan2(camera.position.x - target.x, camera.position.z - target.z));
     renderer.autoClear = true;
     renderer.render(scene, camera);
     renderer.autoClear = false;
@@ -1175,9 +1197,9 @@ export function createField(canvas, opts) {
              watching. */
           firedSeen = state.fired;
         } else if (state.fired > firedSeen) {
-          const count = Math.min(12, state.fired - firedSeen);
-          const now = performance.now();
-          for (let i = 0; i < count; i++) launches.push(now + (i * 100) / count);
+          /* Queued for the volleys, and never more than a couple of volleys behind: a tab that was hidden
+             does not come back to a minute of shooting to catch up on. */
+          queued = Math.min(queued + state.fired - firedSeen, SHOOTER_LANES * 3);
           firedSeen = state.fired;
           dirty = true;
         }
