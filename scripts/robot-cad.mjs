@@ -20,6 +20,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { baseName, classifyFace, classifyPart, materialColour, partName } from "./robot-cad/classify.mjs";
+import { buildSolids, clearOfSolids, partTriangles } from "./robot-cad/clearance.mjs";
 import { cross, creaseNormals, dot, multiply, normalize, principalAxes, scale, sub, add, transformDirection, transformPoint, length, IDENTITY } from "./robot-cad/geometry.mjs";
 import { robotFrame, moduleName, wpilibAngleDeg, wpilibOrder } from "./robot-cad/frame.mjs";
 import { listInstances, readGltfFile } from "./robot-cad/gltf-read.mjs";
@@ -828,12 +829,53 @@ function buildManifest(c) {
   const rb = ball / 2;
   const volume = (b) => (b.max[0] - b.min[0]) * (b.max[1] - b.min[1]) * (b.max[2] - b.min[2]);
   const ballVolume = (Math.PI / 6) * ball ** 3;
-  /* Ball centres that fit the real section (the floor slopes, which boxes cannot follow). */
+  /* Ball centres that fit the real section (the floor slopes, which boxes cannot follow) - and then are
+     checked against the robot's own triangles. The section is a description of the volume, not of the
+     robot: printed uprights, the shooter's side plates and brackets stand inside it, and a ball packed
+     only against the analytic walls sat half way through one of them. On a view where the robot fills
+     the screen that reads as a hole in the picture, so every candidate centre is tested for clearance
+     against the parts that could be in the way (see robot-cad/clearance.mjs).
+
+     The intake is tested where it is for the packing being checked: back at its stop for the stowed
+     packing, out at MAX_LENGTH for the deployed one. */
   const inStatic = (p) => p[0] >= back + rb && p[0] <= hopperFront + rb && p[1] <= topInner - rb && Math.abs(p[2]) <= wallInner - rb && (p[1] - floorTop(p[0])) / Math.hypot(1, p[0] < floorEnd ? floorSlope : 0) >= rb;
   const inExtension = (p) => extension && p[0] >= extension.min[0] && p[0] <= extension.max[0] - rb && p[1] >= extension.min[1] + rb && p[1] <= extension.max[1] - rb && Math.abs(p[2]) <= extension.max[2] - rb;
-  const staticPack = packBalls((p) => inStatic(p) && p[0] <= hopperFront - rb, { min: [back, 0, -wallInner], max: [hopperFront, topInner, wallInner] }, ball);
-  const deployedPack = extension ? packBalls((p) => inStatic(p) || inExtension(p), { min: [back, 0, -wallInner], max: [extension.max[0], topInner, wallInner] }, ball) : staticPack;
+
+  const hopperRegion = {
+    min: [back - ball, floorTop(hopperFront) - ball, -wallInner - ball],
+    max: [(extension ? extension.max[0] : hopperFront) + ball, topInner + ball, wallInner + ball],
+  };
+  const inRegion = (box) => [0, 1, 2].every((k) => box.max[k] >= hopperRegion.min[k] && box.min[k] <= hopperRegion.max[k]);
+  const intakeSlideSet = new Set(c.intakeParts);
+  const toStow = scale(c.slide.axis, -c.cadExtension);
+  const toMaxSlide = scale(c.slide.axis, CODE.deploy.maxIn * INCH - c.cadExtension);
+  const nearby = c.parts.filter((p) => p.keep && inRegion(partBox(p)));
+  const obstacles = (translate) => {
+    const triangles = [];
+    for (const part of nearby) {
+      const moved = intakeSlideSet.has(part) ? translate : null;
+      const box = partBox(part);
+      const shifted = moved
+        ? { min: [box.min[0] + moved[0], box.min[1] + moved[1], box.min[2] + moved[2]], max: [box.max[0] + moved[0], box.max[1] + moved[1], box.max[2] + moved[2]] }
+        : box;
+      if (!inRegion(shifted)) continue;
+      /* Appended one at a time: spreading a part's triangles into the array overflows the stack, and
+         some of these parts have tens of thousands of numbers. */
+      for (const v of partTriangles(part, { translate: moved })) triangles.push(v);
+    }
+    return buildSolids(triangles, ball);
+  };
+  const stowedSolids = obstacles(toStow);
+  const deployedSolids = obstacles(toMaxSlide);
+  /* A hair under the radius: a ball resting on a roller or against a wall is touching it, and a packing
+     that refuses contact fits nothing at all. */
+  const skin = rb - 0.0015;
+  const staticPack = packBalls((p) => inStatic(p) && p[0] <= hopperFront - rb && clearOfSolids(stowedSolids, p, skin), { min: [back, 0, -wallInner], max: [hopperFront, topInner, wallInner] }, ball);
+  const deployedPack = extension
+    ? packBalls((p) => (inStatic(p) || inExtension(p)) && clearOfSolids(deployedSolids, p, skin), { min: [back, 0, -wallInner], max: [extension.max[0], topInner, wallInner] }, ball)
+    : staticPack;
   const staticCapacity = staticPack.length;
+  log(`  hopper: ${nearby.length} parts in the way, ${staticPack.length} balls stowed, ${deployedPack.length} deployed`);
 
   /* Intake mouth: under the lowest intake roller, at ball height, when deployed to MAX_LENGTH. */
   const low = c.intakeRollers[0];
@@ -1032,7 +1074,7 @@ function buildManifest(c) {
         byVolume: { stowed: Math.floor((0.64 * boxes.reduce((s, b) => s + volume(b), 0)) / ballVolume), deployed: Math.floor((0.64 * (boxes.reduce((s, b) => s + volume(b), 0) + (extension ? volume(extension) : 0))) / ballVolume) },
       },
       ballCentres: { stowed: staticPack.map(r4), deployed: deployedPack.map(r4), order: "lowest first, so the first N are where N balls settle" },
-      how: "walls: inner faces of the hopper's side polycarbonate; top: underside of the top polycarbonate; back: front of the feeder rollers; floor: the tops of the conveyor rollers, a 44 deg slope down toward the feeder; front: the hopper walls' front edge and, when deployed, the intake's front and side polycarbonate above its rollers. Boxes are slabs with the floor at each slab's middle, so their high end dips a little into the floor; ballCentres and capacity come from the best face-centred-cubic packing of 150 mm balls inside the real sloped section; byVolume is 64% random packing of the boxes' volume.",
+      how: "walls: inner faces of the hopper's side polycarbonate; top: underside of the top polycarbonate; back: front of the feeder rollers; floor: the tops of the conveyor rollers, a 44 deg slope down toward the feeder; front: the hopper walls' front edge and, when deployed, the intake's front and side polycarbonate above its rollers. Boxes are slabs with the floor at each slab's middle, so their high end dips a little into the floor; ballCentres and capacity come from the best face-centred-cubic packing of 150 mm balls inside the real sloped section, with every candidate centre then checked for clearance against the triangles of the parts that could be in the way - the section describes the volume, not the robot, and uprights and side plates stand inside it; byVolume is 64% random packing of the boxes' volume and is an upper bound that ignores everything standing in the hopper.",
       confidence: "medium for the stowed section; low for the deployed extension, whose floor (the intake rollers' tops) is a guess",
     },
     shooter: {

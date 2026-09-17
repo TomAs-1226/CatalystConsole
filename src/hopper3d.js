@@ -6,8 +6,10 @@
  * nearest the feeder, and the rest of the pile moves up behind it the way a conveyor advances a queue. Like
  * the shots, it is a picture of what the estimate says, not a simulation of how the balls move.
  *
- * Places inside the intake travel with it: when it slides back to compact the pile before a shot, the balls
- * it carries ride back with it instead of being dealt out to other places.
+ * Where a ball settles depends on where the intake is, so the CAD analysis measured the packing twice -
+ * with the intake in and with it out - and a place is drawn between its two answers as the intake slides.
+ * The pile compacts as the intake comes in, and the places that only exist inside the deployed tray take
+ * their balls with them, because nine balls fit inside this robot stowed and seventeen with the tray out.
  *
  * Everything here is in the robot's own frame (x front, y up, z right), inside the robot model, so it
  * travels and turns with the robot in both views.
@@ -27,58 +29,48 @@ const ADVANCE_S = 0.22;
 /* Arrivals in a burst are staggered, so a big intake reads as a stream rather than a teleport. */
 const STAGGER_S = 0.07;
 
-/**
- * Where balls sit in a box, in the order they fill it: `min` and `max` are its corners ([x, y, z]),
- * `radius` the balls'. Close-packed layers from the floor up, alternate layers offset into the gaps, a
- * little jitter so a full hopper is not a crystal. Deterministic: the same box packs the same way.
- */
-export function packSlots(min, max, radius = RADIUS) {
-  const slots = [];
-  const d = radius * 2;
-  const rowStep = d * Math.sqrt(3) / 2;
-  const layerStep = d * Math.sqrt(2 / 3);
-  let seed = 12345;
-  const jitter = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return ((seed / 2147483648) - 0.5) * radius * 0.25;
-  };
-  for (let layer = 0; ; layer++) {
-    const y = min[1] + radius + layer * layerStep;
-    if (y > max[1] - radius) break;
-    const shiftX = layer % 2 ? radius : 0;
-    const shiftZ = layer % 2 ? rowStep / 3 : 0;
-    const row = [];
-    for (let r = 0; ; r++) {
-      const z = min[2] + radius + shiftZ + r * rowStep;
-      if (z > max[2] - radius) break;
-      for (let c = 0; ; c++) {
-        const x = min[0] + radius + shiftX + (r % 2 ? radius : 0) + c * d;
-        if (x > max[0] - radius) break;
-        row.push([x + jitter(), y + Math.abs(jitter()) * 0.3, z + jitter()]);
-      }
-    }
-    slots.push(...row);
-  }
-  return slots;
-}
+/* A place that exists only with the intake out appears over this much of the travel, so it fades in as
+   the tray it sits in arrives rather than popping into being at the first millimetre of deploy. */
+const APPEARS_FROM = 0.55;
+const APPEARS_BY = 0.92;
 
 /**
- * The order places fill in: those that stay put before those the intake carries, and within each, the
- * nearest the feeder first - a hopper that feeds from its back fills from its back. `slots` are
- * `{ at: [x, y, z], moves }`; returns their indices in fill order.
+ * The places FUEL settles in, paired by rank between the intake's two ends. `stowed` and `deployed` are
+ * the CAD analysis's own answers - the best packing of real balls inside the real sloped section, with
+ * the intake in and out, lowest first, so the first N of either is where N balls settle. Pairing them by
+ * rank is what lets a ball be drawn part way through the intake's travel: rank 3 with the intake half out
+ * is half way between where it sits stowed and where it sits deployed.
+ *
+ * Ranks past the stowed list are places that exist only while the intake is out. They have no stowed
+ * position at all, which is the honest answer: nine balls fit inside this robot with its intake in, and a
+ * tenth has nowhere to be. Drawing one anyway is what put a ball inside the shooter.
  */
-export function fillOrder(slots, feeder) {
-  const far = (p) => Math.hypot(p[0] - feeder[0], p[1] - feeder[1], p[2] - feeder[2]);
-  return slots
-    .map((slot, index) => ({ index, moves: Boolean(slot.moves), far: far(slot.at) }))
-    .sort((a, b) => Number(a.moves) - Number(b.moves) || a.far - b.far || a.index - b.index)
-    .map((s) => s.index);
+export function pairPlaces(stowed = [], deployed = []) {
+  const count = Math.max(stowed.length, deployed.length);
+  return Array.from({ length: count }, (_, rank) => ({
+    at: stowed[rank] ?? null,
+    out: deployed[rank] ?? null,
+  }));
 }
 
-/** Where a place is with the intake `offset` from where the places were measured. */
-export function slotPosition(slot, offset) {
-  if (!slot.moves || !offset) return slot.at;
-  return [slot.at[0] + offset[0], slot.at[1] + offset[1], slot.at[2] + offset[2]];
+/** Where a place is with the intake `u` of the way out: 0 stowed, 1 fully deployed. */
+export function slotPosition(place, u = 0) {
+  const k = Math.min(1, Math.max(0, u));
+  if (!place.at) return place.out;
+  if (!place.out) return place.at;
+  return [
+    place.at[0] + (place.out[0] - place.at[0]) * k,
+    place.at[1] + (place.out[1] - place.at[1]) * k,
+    place.at[2] + (place.out[2] - place.at[2]) * k,
+  ];
+}
+
+/** How much of a place there is at that extension: 1 for one the robot has either way, a fade for one it
+ *  only has with the intake out. A ball in a place that is going away shrinks into the pile. */
+export function slotPresence(place, u = 0) {
+  if (place.at && place.out) return 1;
+  const ramp = smooth((Math.min(1, Math.max(0, u)) - APPEARS_FROM) / (APPEARS_BY - APPEARS_FROM));
+  return place.out ? ramp : 1 - ramp;
 }
 
 const smooth = (u) => {
@@ -87,16 +79,16 @@ const smooth = (u) => {
 };
 
 /**
- * `slots` are where balls sit: `{ at: [x, y, z], moves }` in the robot frame, `moves` for places inside the
- * intake, or plain [x, y, z] for places that stay put. `mouth` is where balls come in from - the front of
- * the intake's lowest roller at ball height - and `feeder` where they leave to. Returns
+ * `places` are where balls settle, by rank, from `pairPlaces`: `{ at, out }` in the robot frame, either
+ * of them [x, y, z] or null. `mouth` is where balls come in from - the front of the intake's lowest
+ * roller at ball height - and `feeder` where they leave to. Returns
  * { root, setCount, setIntake, step, count, capacity, setColour, dispose }.
  */
-export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a8913e", material: givenMaterial = null }) {
-  const slots = given.map((s) => (Array.isArray(s) ? { at: s, moves: false } : { at: s.at, moves: Boolean(s.moves) }));
-  const order = fillOrder(slots, feeder);
+export function createHopperBalls({ places: given, mouth, feeder, colour = "#a8913e", material: givenMaterial = null }) {
+  const places = given.filter((p) => p && (p.at || p.out));
   let entry = [mouth[0], mouth[1], mouth[2]];
-  let offset = null;
+  /* How far out the intake is, 0 to 1. The places move between their two measured ends with it. */
+  let extension = 0;
   /* An icosphere's triangles are all the same size, which a lat-long sphere's are not, so it reads evenly
      from every side for fewer of them. three.js builds it unindexed, though, and unindexed geometry gets
      one normal per face: the balls came out as visibly faceted lumps. A sphere about the origin has an
@@ -118,7 +110,7 @@ export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a891
     geometry.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
   }
   const material = givenMaterial ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
-  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, slots.length + 8));
+  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, places.length + 8));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -137,27 +129,31 @@ export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a891
   const still = new THREE.Quaternion();
   const size = new THREE.Vector3();
 
-  const placeOf = (rank) => slotPosition(slots[order[Math.min(rank, order.length - 1)]], offset);
+  const placeAt = (rank) => places[Math.min(rank, places.length - 1)];
+  const placeOf = (rank) => slotPosition(placeAt(rank), extension);
 
   /* Where a ball in the pile is drawn at `now`, and whether it is still on its way there. */
   function drawn(ball, now) {
     const home = placeOf(ball.rank);
+    /* A place the robot only has with its intake out takes its ball with it: the ball shrinks into the
+       pile as the place goes, rather than being left standing inside the shooter. */
+    const there = slotPresence(placeAt(ball.rank), extension);
     const t = (now - ball.since) / 1000;
     if (t < 0) return { at: pickupStart(ball), scale: 0, moving: true };
-    if (t < ARRIVE_S) return { at: pickupAt(ball, home, t / ARRIVE_S), scale: Math.min(1, 0.7 + t / 0.08 * 0.3), moving: true };
+    if (t < ARRIVE_S) return { at: pickupAt(ball, home, t / ARRIVE_S), scale: there * Math.min(1, 0.7 + t / 0.08 * 0.3), moving: true };
     if (ball.from) {
       const u = (now - ball.moved) / 1000 / ADVANCE_S;
       if (u < 1) {
         const k = smooth(u);
         return {
           at: [ball.from[0] + (home[0] - ball.from[0]) * k, ball.from[1] + (home[1] - ball.from[1]) * k, ball.from[2] + (home[2] - ball.from[2]) * k],
-          scale: 1,
+          scale: there,
           moving: true,
         };
       }
       ball.from = null;
     }
-    return { at: home, scale: 1, moving: false };
+    return { at: home, scale: there, moving: false };
   }
 
   /* A pickup's path: from the carpet a hand's width in front of the roller, rolling in under it, then up
@@ -183,7 +179,7 @@ export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a891
   }
 
   function setCount(count, now) {
-    const wanted = Math.max(0, Math.min(slots.length, Math.round(count)));
+    const wanted = Math.max(0, Math.min(places.length, Math.round(count)));
     /* Arrivals: each rolled in from the carpet, staggered behind the last, into the next place. */
     while (pile.length < wanted) {
       const since = Math.max(now, lastArrival + STAGGER_S * 1000);
@@ -235,15 +231,18 @@ export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a891
     root,
     setCount,
     step,
-    /** How far the intake is from where the places were measured, [x, y, z] in metres, and where balls
-     *  come in from now. The places inside the intake move with it. */
-    setIntake(nextOffset, nextMouth) {
-      offset = nextOffset ? [nextOffset[0], nextOffset[1], nextOffset[2]] : null;
+    /** How far out the intake is, 0 stowed to 1 deployed, and where balls come in from now. Every place
+     *  moves between the two positions the CAD analysis measured for it. */
+    setIntake(nextExtension, nextMouth) {
+      extension = Math.min(1, Math.max(0, Number(nextExtension) || 0));
       if (nextMouth) entry = [nextMouth[0], nextMouth[1], nextMouth[2]];
     },
-    /** How many balls the hopper can show. */
+    /** How many balls the hopper can show, and how many of those it has room for right now. */
     get capacity() {
-      return slots.length;
+      return places.length;
+    },
+    get room() {
+      return places.reduce((n, place) => n + (slotPresence(place, extension) > 0.5 ? 1 : 0), 0);
     },
     get count() {
       return pile.length;
