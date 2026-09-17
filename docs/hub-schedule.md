@@ -24,13 +24,29 @@ named by the time remaining when it ends.
 Through shifts 1–4 the alliance that scored **more fuel in AUTO** is inactive for shift 1, then they
 alternate. On a tie, FMS picks one at random — so the game data always names an alliance.
 
+## The countdown
+
+The tile's countdown runs to the moment *this alliance's* hub actually changes, not to the end of the
+segment the match is currently in — the two are different for the alliance that is active either side
+of a boundary. An alliance active in shift 4 is also active through end game, so its countdown runs
+straight through to the end of the match rather than warning at 0:30 that the hub is about to close.
+The same goes at the start of teleop: the alliance that is active in shift 1 has been active since the
+transition shift, so its countdown runs through that boundary too. Before the game-specific message
+arrives, a countdown that crosses into a shift can only count to the segment boundary — the transition
+shift counts down "until Shift 1" without saying which way the hub will go.
+
+The countdown turns amber only in the last few seconds before a real change in this alliance's hub
+state, never for a boundary that does not change anything for this alliance. Auto has no countdown at
+all: both hubs score for the whole period by rule, so there is nothing to count down to.
+
 ## Where the console gets it
 
 `/FMSInfo/GameSpecificMessage` is a single character, `R` or `B`, naming the alliance whose goal
 goes inactive first. It is **empty until roughly three seconds after auto ends**, once fuel scoring has
 been assessed.
 
-That is why the tile says *waiting for FMS game data* early in a match rather than guessing. During
+That is why the caption under the tile's strip names the segment and where the state came from rather
+than guessing — "Shift 2 · FMS", "Shift 1 · waiting for FMS", "Transition · both hubs", "Auto". During
 shifts the answer genuinely depends on an auto result nothing else can infer. Auto, the transition
 shift and end game need no game data at all — both hubs are active by rule, and the tile says so.
 

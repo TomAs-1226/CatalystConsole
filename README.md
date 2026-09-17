@@ -485,9 +485,25 @@ raw value.
 ### Hub activation
 
 In REBUILT your alliance HUB stops scoring for part of teleop, so the tile answers one question from
-across the drive station: **is ours active, and how long until that changes.** Colour carries it —
-green while active, amber in the last few seconds before a change, flat grey while inactive — with the
-countdown large underneath.
+across the drive station: **is ours active, and how long until that changes.** The whole card carries
+it — green while this alliance's hub scores, the plain dark card while it does not — with "Active" or
+"Inactive" as large as the tile allows and a lamp beside it (solid green when active, a hollow ring
+when not). Before the game data arrives during a shift the word is "Waiting"; with no match it is "No
+match". The header names the hub — "Red hub", "Blue hub", or "No alliance".
+
+The countdown runs to the moment this alliance's hub actually changes, not to the end of the segment
+it is in: an alliance active in shift 4 stays active through end game, so its countdown runs to the end
+of the match rather than warning that the hub closes at 0:30, and an alliance active in shift 1 counts
+straight through from the transition into it. Before the game data arrives, the transition counts down
+to shift 1 without saying which way it goes. In auto there is no countdown — both hubs score by rule,
+and the tile says so. The countdown turns amber only in the last few seconds (`Warn at`, default 5)
+before a real change.
+
+A strip along the bottom of the card shows auto and the six teleop segments, each as wide as it runs:
+green where this alliance's hub scores, the grey track where it does not, fainter where FMS has not
+said yet. Segments that have already run are dimmed; the current one is taller and darkened up to where
+the match actually is. A ring flashes once around the card when the state changes during a match (not
+with reduced motion).
 
 Terminology, because the manual is specific and it matters here: the **HUB** is the fuel goal, and it
 is the thing that goes active and inactive. The **TOWER** is the climbing structure in the alliance
@@ -515,7 +531,8 @@ depends on an auto result nothing else can infer. Auto, the transition shift and
 data at all: both hubs are active by rule, and the tile says that.
 
 If your robot would rather compute it itself, publish a boolean and a countdown and configure the tile
-to read them — a robot-published answer always wins.
+to read them — a robot-published answer always wins, and the caption underneath the strip then says
+"From the robot".
 
 ### The field view
 

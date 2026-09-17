@@ -9,7 +9,7 @@ robot. Add, remove, resize and rearrange from the dock; the layout is remembered
 | Widget | What it shows |
 | --- | --- |
 | **Match timer** | phase, shift name, countdown, and the shape of the match as three bars |
-| **Hub activation** | whether your alliance hub is scoring, and how long until that changes |
+| **Hub activation** | whether your alliance hub is scoring now, how long until that changes, and the rest of the match |
 | **Auto chooser** | pick the routine — writes the key `SendableChooser` reads |
 
 The hub tile works the schedule out from the rules plus the FMS game-specific message rather than
