@@ -9,14 +9,22 @@
  * Dimensions come from the tile's configuration, so when the season's drawings are in hand you type
  * the two numbers in and the geometry is correct. Nothing is hard-coded to a guess about the layout.
  *
+ * The robot is robot3d.js's model, the same one the Park stage draws, built from the robot's own spec
+ * sheet, so the machine that drives across the field is the machine that was parked. It is Tesla's
+ * driving visualisation for a robot: while the robot is disabled the camera sits off its front corner
+ * the way Tesla's car panel shows the parked car, and when it is enabled the camera swings round behind
+ * it and follows, with the far field fading into the dark the way Tesla's road does.
+ *
  * Cost control, because this runs on the same laptop as the Driver Station:
- *   * 30 fps, not 60, and nothing is animated between poses.
+ *   * Frames are drawn on demand: every display frame, up to 60 a second, while the robot or the
+ *     camera is moving, and about once a second while nothing is.
  *   * Rendering stops entirely when the dashboard tab is not showing.
- *   * No shadow maps, no post-processing, no textures. Flat materials on ~30 meshes.
+ *   * No shadow maps, no post-processing. The field is flat materials; only the robot is lit properly.
  *   * The renderer is disposed properly when the tile goes away.
  */
 
 import * as THREE from "./vendor/three.module.min.js";
+import { createRobotModel, studioEnvironment } from "./robot3d.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -39,20 +47,147 @@ const LINE = T("--draw-line");
    so a field that says "red" and a label that says "red" cannot disagree. */
 const RED = T("--red-alliance");
 const BLUE = T("--blue-alliance");
-const NEUTRAL = T("--draw-shell");      /* a bumper before an alliance is known */
 const FLOOR = T("--draw-floor");
-const BODY = T("--draw-body");
-const BODY_LIT = T("--draw-body-lit");
-const TOWER = T("--draw-tower");
-const WHEEL = T("--draw-wheel");
-const SIGNAL = T("--cat-signal");       /* the nose, and the trail behind it */
-const TRIM = T("--cat-ink-strong");     /* the lit lip, the key light, the centre line */
+const SIGNAL = T("--cat-signal");       /* the trail behind the robot */
+const TRIM = T("--cat-ink-strong");     /* the key light, the centre line */
 const SKY = T("--draw-sky");
 const BOUNCE = T("--draw-bounce");
 const FILL_LIGHT = T("--draw-fill");
 const UNKNOWN = T("--draw-unknown");
 
-const FRAME_MS = 1000 / 30;
+/* Frames while something moves, and the refresh while nothing does. */
+const FRAME_MS = 1000 / 60;
+const IDLE_REFRESH_MS = 1000;
+
+/* The two cameras that follow the robot, as a shot in the robot's own frame (x toward its front, y up,
+   z toward its right), in metres.
+
+   Parked: off the front-left corner at the bearing the Park stage photographs the robot from, near
+   enough that the robot fills a good part of the tile. Handing the robot between Park and this view is
+   then a change of distance and framing, not of angle.
+
+   Driving: behind and above, looking at the ground a little ahead, close enough that the robot reads
+   as the robot and high enough that the field around it reads as where it is. */
+const PARKED_BEARING = Math.PI / 2 + 0.66;   // matches park3d.js's YAW_DEFAULT
+const PARKED_EYE = [
+  Math.sin(PARKED_BEARING) * Math.cos(0.46) * 3.3,
+  0.24 + Math.sin(0.46) * 3.3,
+  Math.cos(PARKED_BEARING) * Math.cos(0.46) * 3.3,
+];
+const PARKED_LOOK = [0, 0.24, 0];
+const CHASE_EYE = [-5.0, 3.5, 0];
+const CHASE_LOOK = [2.2, 0, 0];
+
+/* How the displayed robot follows reported poses. Poses arrive about ten times a second; between them
+   the robot is carried forward along its last velocity for up to one reporting interval, then eased
+   onto the report, so it glides instead of hopping. A jump further than any robot drives between two
+   reports is a pose reset, and the robot is put there at once. */
+const EXTRAPOLATE_S = 0.12;
+const FOLLOW_S = 0.06;
+const TELEPORT_M = 1.5;
+/* The camera turns with the robot, but slowly: a swerve robot can spin on the spot, and a camera that
+   whipped round with it would make a driver sick. */
+const CAMERA_TURN_S = 0.45;
+const CAMERA_SWING_RATE = 2.6;
+
+/* ---- the clearing ----
+ *
+ * The robot drives through the field model's game pieces, and on the REBUILT field that is hundreds of
+ * balls: drawn as they are, it wades through them with half of it hidden. So the field dissolves where
+ * it would get in the way, the way Tesla's visualisation keeps its car clear of whatever it draws round
+ * it: everything standing low on the carpet within about a metre of the robot fades out, and anything
+ * between the camera and the robot fades out too, at any height. It is a dither rather than a blend,
+ * so there is no sorting of transparent geometry to go wrong, and at this size the grain reads as a
+ * soft edge. The carpet itself is never touched. The clearing follows the drawn robot, so pieces
+ * dissolve as it arrives and come back behind it as it leaves. */
+
+const CARVE_VERTEX = /* glsl */ `
+  {
+    /* Every part of the baked field is instanced, so a part's own centre and size come from its
+       instance. A small part - a game piece, a bolt - standing low near the robot shrinks away into
+       itself as the robot comes, and grows back after it has gone. */
+    #ifdef USE_INSTANCING
+      mat4 carvePlace = modelMatrix * instanceMatrix;
+    #else
+      mat4 carvePlace = modelMatrix;
+    #endif
+    vec3 carveCentre = (carvePlace * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float carveSize = length((carvePlace * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+    vCarvePiece = (1.0 - step(0.3, carveSize)) * (1.0 - smoothstep(0.55, 0.8, carveCentre.y));
+    float carveNear = 1.0 - smoothstep(0.85, 1.7, length(carveCentre.xz - uCarveRobot.xz));
+    transformed *= 1.0 - vCarvePiece * carveNear * uCarveAmount;
+    vCarveWorld = (carvePlace * vec4(transformed, 1.0)).xyz;
+  }
+  #include <project_vertex>
+`;
+
+const CARVE_FRAGMENT = /* glsl */ `
+  #include <clipping_planes_fragment>
+  {
+    // Nothing on the carpet's own surface is carved, whatever is near the robot.
+    float onCarpet = 1.0 - smoothstep(0.012, 0.03, vCarveWorld.y);
+
+    // Round the robot, for the larger parts the vertex shader leaves alone: anything standing below
+    // 0.8 m dissolves inside 0.8 m of the robot and is whole again by 1.6 m.
+    float fromRobot = length(vCarveWorld.xz - uCarveRobot.xz);
+    float low = 1.0 - smoothstep(0.55, 0.8, vCarveWorld.y);
+    float nearRobot = mix(mix(1.0, smoothstep(0.8, 1.6, fromRobot), low), 1.0, vCarvePiece);
+
+    // Along the sight line from the lens to the robot: a tube, wider at the lens end, that stops short
+    // of the robot so the clearing round it is left to decide what stands right beside it.
+    vec3 sight = uCarveRobot + vec3(0.0, 0.25, 0.0) - uCarveEye;
+    float along = clamp(dot(vCarveWorld - uCarveEye, sight) / max(dot(sight, sight), 1e-4), 0.0, 1.0);
+    float offLine = length(vCarveWorld - (uCarveEye + sight * along));
+    float radius = mix(1.1, 0.55, along);
+    float window = smoothstep(0.02, 0.12, along) * (1.0 - smoothstep(0.82, 0.94, along));
+    float onLine = mix(1.0, smoothstep(radius * 0.55, radius, offLine), window);
+
+    float keep = mix(1.0, min(nearRobot, onLine), uCarveAmount * (1.0 - onCarpet));
+    float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    if (keep < 0.999 && keep <= grain) discard;
+  }
+`;
+
+/** Teach a field material to dissolve round the robot (see the clearing, above). */
+function carve(material, uniforms) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uCarveRobot = uniforms.uCarveRobot;
+    shader.uniforms.uCarveEye = uniforms.uCarveEye;
+    shader.uniforms.uCarveAmount = uniforms.uCarveAmount;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform float uCarveAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <project_vertex>", CARVE_VERTEX);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform vec3 uCarveEye;\nuniform float uCarveAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <clipping_planes_fragment>", CARVE_FRAGMENT);
+  };
+  material.customProgramCacheKey = () => "field-carve";
+  return material;
+}
+
+/** The shortest signed turn from angle `from` to angle `to`, in radians. */
+function angleTo(from, to) {
+  let d = (to - from) % (2 * Math.PI);
+  if (d > Math.PI) d -= 2 * Math.PI;
+  if (d < -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+/** [x, y, z] turned about the vertical axis the way three.js turns an object with rotation.y = angle. */
+function turnY([x, y, z], angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [x * c + z * s, y, -x * s + z * c];
+}
+
+/** A shot's eye as a bearing, elevation and distance about its look point. */
+function polar(eye, look) {
+  const dx = eye[0] - look[0];
+  const dy = eye[1] - look[1];
+  const dz = eye[2] - look[2];
+  const r = Math.max(1e-6, Math.hypot(dx, dy, dz));
+  return { look: [...look], bearing: Math.atan2(dx, dz), elevation: Math.asin(Math.max(-1, Math.min(1, dy / r))), r };
+}
 
 export function createField(canvas, opts) {
   const length = Number(opts.length) > 1 ? Number(opts.length) : 16.54;
@@ -64,6 +199,10 @@ export function createField(canvas, opts) {
      module could be told a file was missing while it sat on disk. Anyone who read only one of the two
      files would have had no way to know. Default on, so a caller that says nothing gets the model. */
   const useModel = opts.model !== false;
+  const reduced =
+    typeof opts.reducedMotion === "boolean"
+      ? opts.reducedMotion
+      : Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 
   /* The frame poses are mapped through. It starts as the tile's configured field size, which is what
      the procedural outline is drawn from, and is replaced by the baked map's own dimensions when one
@@ -81,9 +220,27 @@ export function createField(canvas, opts) {
     powerPreference: "low-power",
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  /* The robot is lit and tone-mapped exactly as on the Park stage, so it looks the same machine when it
+     is handed over. The field is not: every field material opts out of the curve below, because its
+     greys were chosen as they land on screen and the curve's toe would crush them. */
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(46, 16 / 9, 0.1, 120);
+
+  /* The far field fades into the tile's own background, as Tesla's road fades into the dark, so the
+     robot and what is near it carry the picture and the far side of the field is only context. The
+     distances follow the camera (see placeCamera), so the overhead view, which is far from everything,
+     is not washed out. */
+  const tileGround = (() => {
+    const host = canvas.closest(".t") || canvas.parentElement;
+    const colour = host ? getComputedStyle(host).backgroundColor : "";
+    const parsed = new THREE.Color(NaN, NaN, NaN);
+    if (colour && !/rgba\(.*,\s*0\)$/.test(colour)) parsed.setStyle(colour);
+    return Number.isFinite(parsed.r) ? parsed : new THREE.Color("#1c1c1e");
+  })();
+  scene.fog = new THREE.Fog(tileGround, 12, 34);
 
   scene.add(new THREE.HemisphereLight(SKY, BOUNCE, 0.85));
   const key = new THREE.DirectionalLight(TRIM, 0.55);
@@ -101,6 +258,14 @@ export function createField(canvas, opts) {
    * the outline hides and the real field takes over. The outline is not a placeholder to be ashamed
    * of: it is what renders on a machine that has no model, and it is the thing that always works. */
 
+  /* Where the clearing is (see the clearing, above): the drawn robot, the lens, and how far it is
+     switched on, which eases to nothing while there is no robot on the field to clear round. */
+  const carveUniforms = {
+    uCarveRobot: { value: new THREE.Vector3(0, -100, 0) },
+    uCarveEye: { value: new THREE.Vector3() },
+    uCarveAmount: { value: 0 },
+  };
+
   const field = new THREE.Group();
   scene.add(field);
 
@@ -109,8 +274,8 @@ export function createField(canvas, opts) {
   scene.add(cad);
 
   const flat = (color, opacity = 1) =>
-    new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity });
-  const lit = (color) => new THREE.MeshLambertMaterial({ color });
+    new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, toneMapped: false });
+  const lit = (color) => new THREE.MeshLambertMaterial({ color, toneMapped: false });
 
   /* The venue floor the field sits on. Without it the frame above the far wall is transparent, and a
      hard black wedge across the top of the tile reads as a rendering fault rather than as sky. It sits
@@ -133,7 +298,7 @@ export function createField(canvas, opts) {
     for (let y = 1; y < width; y++) points.push(-length / 2, 0.002, y - width / 2, length / 2, 0.002, y - width / 2);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
-    field.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.22 })));
+    field.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.22, toneMapped: false })));
   }
 
   /* Perimeter wall, plus taller translucent panels where the driver stations are. */
@@ -286,12 +451,13 @@ export function createField(canvas, opts) {
           hsl.s < 0.15 ? 0.3 : 0.31 + hsl.s * 0.08,
           THREE.SRGBColorSpace
         );
-        const flatMat = new THREE.MeshLambertMaterial({
+        const flatMat = carve(new THREE.MeshLambertMaterial({
           color: colour,
           transparent: m.transparent,
           opacity: m.opacity,
           side: m.side,
-        });
+          toneMapped: false,
+        }), carveUniforms);
         remapped.set(m.uuid, flatMat);
         m.dispose();
         return flatMat;
@@ -300,75 +466,89 @@ export function createField(canvas, opts) {
     });
 
     cad.add(model);
-    cad.visible = true;
+    cad.visible = !unplaced;
     field.visible = false;   // the outline steps aside for the real thing
-    backdrop.visible = true; // but the venue floor stays: the model stops at the field edge
+    backdrop.visible = !unplaced; // but the venue floor stays: the model stops at the field edge
+    dirty = true;
     return true;
   }
 
   /* ---- the robot ---- */
 
+  /* `robot` is where the robot is on the field and which way it faces; the model inside it is the same
+     one the Park stage draws. */
   const robot = new THREE.Group();
   robot.visible = false;
   scene.add(robot);
+  const model = createRobotModel({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
+  model.setSpec({});
+  robot.add(model.root);
+  model.onChange(() => { dirty = true; });
+  let environment = null;
 
-  /* Roughly a real FRC robot: a 28 in frame inside 3 in bumpers, about 0.75 m over the bumpers with a
-     superstructure. Everything here exists to answer one question at a glance — where is it pointing —
-     so the shape is deliberately asymmetric front to back and the nose is the brightest thing on it. */
-  const FRAME = 0.71;     // 28 in
-  const BUMPER = 0.08;
-  const OUTER = FRAME + BUMPER * 2;
+  /* The pose the robot was last reported at, its velocity, and the pose it is drawn at. */
+  let reported = null;      // { x, z, heading, vx, vz, vh, at }
+  const shown = { x: 0, z: 0, heading: 0 };
+  let parked = true;
 
-  const belly = new THREE.Mesh(new THREE.BoxGeometry(FRAME, 0.11, FRAME), lit(BODY));
-  belly.position.y = 0.115;
-  robot.add(belly);
+  /* A robot that is on the other end of the link but has not been placed on the field yet - its
+     estimator still at the corner it booted at, no Limelight fix - is drawn on a small stage of its own
+     instead of in that corner: the field goes, and a soft pool of light stands in for the ground. The
+     caller says so with `placed: false`. */
+  let unplaced = false;
+  const pool = (() => {
+    const size = 256;
+    const art = document.createElement("canvas");
+    art.width = size;
+    art.height = size;
+    const context = art.getContext("2d");
+    const glow = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    glow.addColorStop(0, "rgba(58, 58, 60, 0.95)");
+    glow.addColorStop(0.35, "rgba(44, 44, 46, 0.7)");
+    glow.addColorStop(1, "rgba(28, 28, 30, 0)");
+    context.fillStyle = glow;
+    context.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(art);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(5, 5),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.001;
+    mesh.visible = false;
+    mesh.renderOrder = -1;
+    scene.add(mesh);
+    return mesh;
+  })();
 
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(FRAME * 0.94, 0.03, FRAME * 0.94), lit(BODY_LIT));
-  deck.position.y = 0.19;
-  robot.add(deck);
-
-  // A low superstructure, offset back, so the front of the robot is unmistakable from above.
-  const tower = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.5), lit(TOWER));
-  tower.position.set(-0.13, 0.36, 0);
-  robot.add(tower);
-
-  const bumperMat = lit(BLUE);
-  const bumperTrim = lit(TRIM);
-  const bumpers = new THREE.Group();
-  for (const [w, d, x, z] of [
-    [OUTER, BUMPER, 0, -(FRAME + BUMPER) / 2],
-    [OUTER, BUMPER, 0, (FRAME + BUMPER) / 2],
-    [BUMPER, FRAME, -(FRAME + BUMPER) / 2, 0],
-    [BUMPER, FRAME, (FRAME + BUMPER) / 2, 0],
-  ]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.13, d), bumperMat);
-    m.position.set(x, 0.135, z);
-    bumpers.add(m);
-    // A pale lip along the top edge: it catches the light and gives the robot a readable silhouette
-    // against both dark carpet and the pale field structures.
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(w, 0.012, d), bumperTrim);
-    lip.position.set(x, 0.202, z);
-    bumpers.add(lip);
+  function setUnplaced(next) {
+    if (unplaced === next) return;
+    unplaced = next;
+    pool.visible = next;
+    backdrop.visible = !next;
+    field.visible = !next && !cad.children.length;
+    cad.visible = !next && cad.children.length > 0;
+    if (trail) trail.visible = !next;
+    dirty = true;
   }
-  robot.add(bumpers);
 
-  for (const [x, z] of [[-0.26, -0.3], [0.26, -0.3], [-0.26, 0.3], [0.26, 0.3]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 14), lit(WHEEL));
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.075, z);
-    robot.add(wheel);
+  function stepRobot(dt, now) {
+    if (!reported) return false;
+    const ahead = Math.min(Math.max(0, (now - reported.at) / 1000), EXTRAPOLATE_S);
+    const tx = reported.x + reported.vx * ahead;
+    const tz = reported.z + reported.vz * ahead;
+    const th = reported.heading + reported.vh * ahead;
+    const k = reduced ? 1 : 1 - Math.exp(-dt / FOLLOW_S);
+    shown.x += (tx - shown.x) * k;
+    shown.z += (tz - shown.z) * k;
+    shown.heading += angleTo(shown.heading, th) * k;
+    robot.position.set(shown.x, 0, shown.z);
+    robot.rotation.y = shown.heading;
+    const still = Math.abs(tx - shown.x) < 1e-4 && Math.abs(tz - shown.z) < 1e-4 && Math.abs(angleTo(shown.heading, th)) < 1e-4;
+    const coasting = ahead < EXTRAPOLATE_S && (reported.vx !== 0 || reported.vz !== 0 || reported.vh !== 0);
+    return !still || coasting;
   }
-
-  /* The nose. Heading is what you actually read off this view, so it is the one thing on the robot
-     allowed to be the signal colour, and it sits proud of the bumper where nothing can hide it. */
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 3), flat(SIGNAL));
-  nose.rotation.z = -Math.PI / 2;
-  nose.position.set(OUTER / 2 + 0.11, 0.26, 0);
-  robot.add(nose);
-
-  const noseBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34), flat(SIGNAL));
-  noseBar.position.set(OUTER / 2 - 0.02, 0.26, 0);
-  robot.add(noseBar);
 
   /* ---- trail ---- */
 
@@ -378,7 +558,7 @@ export function createField(canvas, opts) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailLen * 3), 3));
     geo.setDrawRange(0, 0);
-    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0.6 }));
+    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0.6, toneMapped: false }));
     trail.frustumCulled = false;
     scene.add(trail);
   }
@@ -410,6 +590,13 @@ export function createField(canvas, opts) {
   const look = new THREE.Vector3(0, 0, 0);
   let orbit = { yaw: -Math.PI / 2, pitch: 0.72, dist: Math.max(length, width) * 0.85 };
 
+  /* The following camera, held as a bearing, elevation and distance about its look point in the
+     robot's frame, and turned by `cameraHeading`, which trails the robot's own heading. Easing those
+     rather than a position is what makes the camera swing round the robot when it goes from parked to
+     driving, instead of cutting straight across the carpet. */
+  let rel = null;
+  let cameraHeading = 0;
+
   /* How far the chase camera has swung away from directly behind the robot to see past something.
      Eased, never snapped: a camera that jumps the instant a truss clips the sight line is more
      disorienting than the obstruction was. */
@@ -419,11 +606,10 @@ export function createField(canvas, opts) {
   const occluder = new THREE.Raycaster();
   const CANDIDATE_SWINGS = [0, 0.55, -0.55, 1.15, -1.15, 1.9, -1.9, Math.PI];
 
-  /** True when something solid sits between a camera at this swing and the robot. */
+  /** True when something solid sits between a chase camera swung by `swing` and the robot. */
   function blockedAt(swing) {
-    const heading = robot.rotation.y + swing;
-    const forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
-    const from = robot.position.clone().addScaledVector(forward, -6.5).add(new THREE.Vector3(0, 5.4, 0));
+    const eye = turnY(CHASE_EYE, robot.rotation.y + swing);
+    const from = new THREE.Vector3(robot.position.x + eye[0], eye[1], robot.position.z + eye[2]);
     const toRobot = robot.position.clone().add(new THREE.Vector3(0, 0.25, 0)).sub(from);
     const distance = toRobot.length();
     occluder.set(from, toRobot.normalize());
@@ -434,7 +620,7 @@ export function createField(canvas, opts) {
   /* Only meaningful once the CAD is loaded — the procedural outline has nothing tall enough to hide
      behind, and raycasting against it every frame would be work for no answer. */
   function updateOcclusion(now) {
-    if (!cad.visible || !robot.visible || mode !== "chase") { swingTarget = 0; return; }
+    if (!cad.visible || !robot.visible || mode !== "chase" || parked) { swingTarget = 0; return; }
     if (now - lastOcclusionCheck < 250) return;   // four times a second is plenty and costs nothing
     lastOcclusionCheck = now;
 
@@ -455,23 +641,67 @@ export function createField(canvas, opts) {
     return Math.max(byWidth, byLength) * 1.08;
   }
 
+  /** The shot the following camera wants, as polar coordinates in the robot's frame. */
+  function wantedRel() {
+    if (parked) return polar(PARKED_EYE, PARKED_LOOK);
+    const eye = turnY(CHASE_EYE, chaseSwing);
+    const lookAt = turnY(CHASE_LOOK, chaseSwing);
+    return polar(eye, lookAt);
+  }
+
+  /** The camera's present position as polar coordinates in the robot's frame, to ease on from. */
+  function relFromCamera() {
+    const eye = turnY([camera.position.x - robot.position.x, camera.position.y, camera.position.z - robot.position.z], -cameraHeading);
+    const lookAt = turnY([target.x - robot.position.x, target.y, target.z - robot.position.z], -cameraHeading);
+    return polar(eye, lookAt);
+  }
+
+  /** Move the camera one step toward where it wants to be. Returns true while it is still moving. */
   function placeCamera(dt) {
+    let moving = false;
+    swingTarget = parked ? 0 : swingTarget;
+    // Swing eases more slowly still — this one is a deliberate move around an obstruction, and it
+    // should read as the camera choosing a better angle rather than as a glitch.
+    const swingStep = (swingTarget - chaseSwing) * (1 - Math.exp(-dt * 2.2));
+    chaseSwing += swingStep;
+    if (Math.abs(swingTarget - chaseSwing) > 1e-3) moving = true;
+
+    if (mode === "chase" && robot.visible) {
+      const headingStep = angleTo(cameraHeading, robot.rotation.y);
+      cameraHeading += reduced ? headingStep : headingStep * (1 - Math.exp(-dt / CAMERA_TURN_S));
+      if (Math.abs(angleTo(cameraHeading, robot.rotation.y)) > 1e-3) moving = true;
+
+      const want = wantedRel();
+      if (!rel) rel = relFromCamera();
+      const k = reduced ? 1 : 1 - Math.exp(-dt * CAMERA_SWING_RATE);
+      for (let i = 0; i < 3; i++) rel.look[i] += (want.look[i] - rel.look[i]) * k;
+      rel.bearing += angleTo(rel.bearing, want.bearing) * k;
+      rel.elevation += (want.elevation - rel.elevation) * k;
+      rel.r = Math.exp(Math.log(rel.r) + (Math.log(want.r) - Math.log(rel.r)) * k);
+      const settled =
+        Math.abs(angleTo(rel.bearing, want.bearing)) < 1e-3 &&
+        Math.abs(want.elevation - rel.elevation) < 1e-3 &&
+        Math.abs(want.r - rel.r) < 1e-3 &&
+        want.look.every((v, i) => Math.abs(v - rel.look[i]) < 1e-3);
+      if (!settled) moving = true;
+
+      const flat = Math.cos(rel.elevation) * rel.r;
+      const eye = turnY([rel.look[0] + Math.sin(rel.bearing) * flat, rel.look[1] + Math.sin(rel.elevation) * rel.r, rel.look[2] + Math.cos(rel.bearing) * flat], cameraHeading);
+      const lookAt = turnY(rel.look, cameraHeading);
+      camera.position.set(robot.position.x + eye[0], eye[1], robot.position.z + eye[2]);
+      target.set(robot.position.x + lookAt[0], lookAt[1], robot.position.z + lookAt[2]);
+      camera.lookAt(target);
+      return moving;
+    }
+
+    rel = null;
     if (mode === "top") {
       desired.set(0, topHeight(), 0.01);
       look.set(0, 0, 0);
     } else if (mode === "chase") {
-      /* High and well back, looking down at the robot rather than along the carpet. A low chase
-         camera fills half the tile with sky and the other half with the square metre the robot is
-         standing on, which tells a driver nothing — what they want is where they are on the field. */
-      const heading = robot.rotation.y + chaseSwing;
-      const forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
-      desired.copy(robot.position).addScaledVector(forward, -6.5).add(new THREE.Vector3(0, 5.4, 0));
-      look.copy(robot.position).addScaledVector(forward, 2.0);
-      look.y = 0.0;
-      if (!robot.visible) {
-        desired.set(-length * 0.34, 7.0, width * 1.05);
-        look.set(0, 0, 0);
-      }
+      /* No robot to follow: a view down the field from above the blue end. */
+      desired.set(-length * 0.34, 7.0, width * 1.05);
+      look.set(0, 0, 0);
     } else {
       desired.set(
         Math.cos(orbit.yaw) * Math.cos(orbit.pitch) * orbit.dist,
@@ -481,13 +711,19 @@ export function createField(canvas, opts) {
       look.set(0, 0, 0);
     }
     /* Exponential approach: fast enough to keep up with a robot, smooth enough not to be a strobe. */
-    const k = 1 - Math.exp(-dt * (mode === "top" ? 6 : 4));
-    // Swing eases more slowly still — this one is a deliberate move around an obstruction, and it
-    // should read as the camera choosing a better angle rather than as a glitch.
-    chaseSwing += (swingTarget - chaseSwing) * (1 - Math.exp(-dt * 2.2));
+    const k = reduced ? 1 : 1 - Math.exp(-dt * (mode === "top" ? 6 : 4));
     camera.position.lerp(desired, k);
     target.lerp(look, k);
     camera.lookAt(target);
+    return camera.position.distanceTo(desired) > 1e-3 || target.distanceTo(look) > 1e-3;
+  }
+
+  /* The fog starts a little way past what the camera is looking at, so whatever the camera is framed on
+     is never dimmed and everything beyond it falls away. */
+  function placeFog() {
+    const distance = camera.position.distanceTo(target);
+    scene.fog.near = distance + 5;
+    scene.fog.far = distance + 26;
   }
 
   /* Drag to orbit, wheel to zoom — only meaningful in free mode, and harmless elsewhere. */
@@ -504,6 +740,7 @@ export function createField(canvas, opts) {
     orbit.yaw -= (e.clientX - last.x) * 0.006;
     orbit.pitch = Math.max(0.08, Math.min(1.45, orbit.pitch + (e.clientY - last.y) * 0.005));
     last = { x: e.clientX, y: e.clientY };
+    dirty = true;
   });
   canvas.addEventListener("pointerup", (e) => {
     dragging = false;
@@ -513,6 +750,7 @@ export function createField(canvas, opts) {
     if (mode !== "free") return;
     e.preventDefault();
     orbit.dist = Math.max(4, Math.min(48, orbit.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+    dirty = true;
   }, { passive: false });
 
   /* ---- sizing ---- */
@@ -526,6 +764,7 @@ export function createField(canvas, opts) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    dirty = true;
   }
 
   const observer = new ResizeObserver(resize);
@@ -534,8 +773,10 @@ export function createField(canvas, opts) {
   /* ---- loop ---- */
 
   let raf = 0;
-  let lastFrame = performance.now();
+  let lastFrame = -Infinity;
   let disposed = false;
+  let dirty = true;
+  let moving = false;
 
   /* Kick the model load off now. It is deliberately not awaited: the outline is already on screen and
      the field must never be blank while a 6 MB file decodes. */
@@ -551,52 +792,146 @@ export function createField(canvas, opts) {
     return canvas.clientWidth > 0 && canvas.clientHeight > 0;
   }
 
+  function render(now, dt) {
+    resize();
+    updateOcclusion(now);
+    const robotMoving = stepRobot(dt, now);
+    const cameraMoving = placeCamera(dt);
+    const modelMoving = model.step(now);
+    /* The clearing follows the drawn robot and the lens, and fades in and out with the robot. */
+    const clearing = robot.visible && !unplaced ? 1 : 0;
+    const amount = carveUniforms.uCarveAmount;
+    amount.value += (clearing - amount.value) * (reduced ? 1 : 1 - Math.exp(-dt * 5));
+    if (Math.abs(clearing - amount.value) < 1e-3) amount.value = clearing;
+    carveUniforms.uCarveRobot.value.copy(robot.position);
+    carveUniforms.uCarveEye.value.copy(camera.position);
+    const clearingMoving = amount.value !== clearing;
+    if (!environment) {
+      /* The studio reflections the robot's metal needs, rendered once for this renderer. */
+      environment = studioEnvironment(renderer);
+      model.setEnvironment(environment.texture);
+    }
+    placeFog();
+    renderer.render(scene, camera);
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving;
+    dirty = false;
+  }
+
   function tick(now) {
     if (disposed) return;
     raf = requestAnimationFrame(tick);
-    const elapsed = now - lastFrame;
-    if (elapsed < FRAME_MS) return;
-    lastFrame = now;
     if (!visible()) return;
-    resize();
-    updateOcclusion(now);
-    placeCamera(Math.min(0.2, elapsed / 1000));
-    renderer.render(scene, camera);
+    const elapsed = now - lastFrame;
+    /* Two milliseconds of slack, so a 60 Hz display's frames are not dropped for arriving a hair
+       early. */
+    if (elapsed < (moving || dirty ? FRAME_MS : IDLE_REFRESH_MS) - 2) return;
+    lastFrame = now;
+    render(now, Math.min(0.1, elapsed / 1000));
   }
   raf = requestAnimationFrame(tick);
 
   /* ---- public surface ---- */
 
   let lastTrailAt = 0;
-  let lastAlliance = null;
 
   return {
-    /** `state.pose` is `[x, y, theta]` in WPILib field coordinates, or null when unknown. */
+    /**
+     * `state.pose` is `[x, y, theta]` in WPILib field coordinates, or null when unknown. `state.alliance`
+     * colours the bumpers, `state.enabled` chooses between the parked and the driving camera, and
+     * `state.spec` and `state.team` are the robot's spec sheet and number, as Park takes them.
+     */
     update(state) {
       /* Sizing lives here as well as in the loop. `ResizeObserver` only delivers during a rendering
          opportunity, so a tile that was laid out while the window was hidden would otherwise keep a
          stale backing-store size until the next animation frame. */
       resize();
 
-      if (state.alliance !== lastAlliance) {
-        lastAlliance = state.alliance;
-        bumperMat.color.set(state.alliance === "red" ? RED : state.alliance === "blue" ? BLUE : NEUTRAL);
+      if (state.spec !== undefined && model.setSpec(state.spec)) dirty = true;
+      if (state.team !== undefined) model.setTeamNumber(state.team);
+      if (model.setAlliance(state.alliance, !reduced && robot.visible)) dirty = true;
+      if (typeof state.enabled === "boolean" && parked === state.enabled) {
+        parked = !state.enabled;
+        dirty = true;
       }
 
-      if (!state.pose) {
-        robot.visible = false;
+      if (!state.pose && state.placed === false) {
+        /* On the link but not on the field yet: the robot on its own stage, facing the way its gyro
+           says. */
+        const heading = Number.isFinite(state.heading) ? state.heading : 0;
+        setUnplaced(true);
+        if (!robot.visible) {
+          cameraHeading = heading;
+          rel = null;
+        }
+        robot.visible = true;
+        shown.x = 0;
+        shown.z = 0;
+        shown.heading = heading;
+        reported = { x: 0, z: 0, heading, vx: 0, vz: 0, vh: 0, at: performance.now() };
+        robot.position.set(0, 0, 0);
+        robot.rotation.y = heading;
+        pool.position.set(0, 0.001, 0);
+        dirty = true;
         return;
+      }
+      if (!state.pose) {
+        if (robot.visible) dirty = true;
+        robot.visible = false;
+        reported = null;
+        setUnplaced(false);
+        return;
+      }
+      if (unplaced) {
+        /* Just placed: the field comes back, and the robot is put where it is rather than sliding
+           there from the stage. */
+        setUnplaced(false);
+        reported = null;
       }
       const [fx, fy, theta] = state.pose;
       const x = fx - poseLength / 2;
       const z = -(fy - poseWidth / 2);
-      robot.position.set(x, 0, z);
-      robot.rotation.y = -theta;
-      robot.visible = true;
+      /* WPILib's heading turns counter-clockwise seen from above, and field y is three's -z, so the
+         heading is three's rotation about y unchanged. (It used to be negated, which drew every robot
+         mirrored: turning left on the field, it turned right on screen.) */
+      const heading = theta;
+      const now = performance.now();
+
+      if (!reported || !robot.visible || Math.hypot(x - shown.x, z - shown.z) > TELEPORT_M) {
+        /* First sight of the robot, or a pose reset: put it there. */
+        shown.x = x;
+        shown.z = z;
+        shown.heading = heading;
+        reported = { x, z, heading, vx: 0, vz: 0, vh: 0, at: now };
+        if (!robot.visible) {
+          cameraHeading = heading;
+          rel = null;
+        }
+        robot.visible = true;
+        robot.position.set(x, 0, z);
+        robot.rotation.y = heading;
+        dirty = true;
+      } else if (x !== reported.x || z !== reported.z || heading !== reported.heading) {
+        const gap = (now - reported.at) / 1000;
+        const fresh = gap > 0.01 && gap < 0.5;
+        const blend = (old, measured) => (fresh ? old * 0.4 + measured * 0.6 : 0);
+        reported = {
+          x,
+          z,
+          heading,
+          vx: blend(reported.vx, (x - reported.x) / gap),
+          vz: blend(reported.vz, (z - reported.z) / gap),
+          vh: blend(reported.vh, angleTo(reported.heading, heading) / gap),
+          at: now,
+        };
+        dirty = true;
+      } else if (now - reported.at > 150 && (reported.vx || reported.vz || reported.vh)) {
+        /* The same pose twice, a while apart: the robot has stopped, so stop carrying it forward. */
+        reported = { ...reported, vx: 0, vz: 0, vh: 0, at: now };
+        dirty = true;
+      }
 
       /* Sample the trail on distance, not on time: a stationary robot should not stack 200 points on
          top of itself, and a fast one should not leave gaps. */
-      const now = performance.now();
       if (now - lastTrailAt > 40) {
         lastTrailAt = now;
         pushTrail(x, z);
@@ -604,38 +939,96 @@ export function createField(canvas, opts) {
     },
 
     setMode(next) {
-      mode = next;
+      if (mode !== next) {
+        mode = next;
+        rel = null;
+        dirty = true;
+      }
     },
 
-    /** Start the camera high over the robot and let the ordinary easing bring it down to its place -
-     *  the swing Tesla's view makes down behind the car when it shifts out of Park. Called when the
-     *  board comes back from Park, so the field arrives rather than cutting in. */
+    /**
+     * The camera's view of the robot right now, for handing to the Park stage: `{ eye, look, fov }`
+     * with eye and look as [x, y, z] in the robot's own frame (x front, y up, z right, the floor under
+     * its centre at the origin). Null when there is no robot on the field to hand over.
+     */
+    shot() {
+      if (disposed || !robot.visible) return null;
+      robot.updateMatrixWorld();
+      const inverse = robot.matrixWorld.clone().invert();
+      const eye = camera.position.clone().applyMatrix4(inverse);
+      const lookAt = target.clone().applyMatrix4(inverse);
+      return { eye: eye.toArray(), look: lookAt.toArray(), fov: camera.fov };
+    },
+
+    /**
+     * Put the robot on its latest pose and the camera where it is heading, at once, and draw. Used when
+     * the Park stage is about to hand the robot over, so the shot it lands on is the one this view will
+     * be showing.
+     */
+    settle() {
+      if (disposed) return;
+      resize();
+      if (reported) {
+        shown.x = reported.x;
+        shown.z = reported.z;
+        shown.heading = reported.heading;
+        robot.position.set(shown.x, 0, shown.z);
+        robot.rotation.y = shown.heading;
+      }
+      cameraHeading = robot.rotation.y;
+      chaseSwing = swingTarget;
+      if (mode === "chase" && robot.visible) {
+        rel = wantedRel();
+      }
+      model.settle();
+      /* A step long enough for every eased value to land where it is heading. */
+      placeCamera(10);
+      placeFog();
+      renderer.render(scene, camera);
+      dirty = false;
+      moving = false;
+    },
+
+    /** Show or hide the robot model while leaving everything else as it is, for the instant the Park
+     *  stage is drawing the robot in its place. */
+    setRobotShown(show) {
+      if (disposed) return;
+      if (model.root.visible !== Boolean(show)) {
+        model.root.visible = Boolean(show);
+        dirty = true;
+      }
+    },
+
+    /** Swing the camera in from high above the robot, for coming back to the board without the Park
+     *  stage to hand over from. */
     arrive() {
       if (disposed) return;
       const at = robot.visible ? robot.position : new THREE.Vector3(0, 0, 0);
       camera.position.set(at.x - 1.5, 17, at.z + 3);
       target.set(at.x, 0, at.z);
       camera.lookAt(target);
+      rel = null;
+      dirty = true;
     },
 
     /** Draw one frame right now. Used when the dashboard tab comes back, so the field is current the
      *  instant it is on screen rather than one animation frame later. */
     redraw() {
       if (disposed) return;
-      resize();
-      placeCamera(0.25);
-      renderer.render(scene, camera);
+      render(performance.now(), 1 / 60);
     },
 
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       observer.disconnect();
+      model.dispose();
       scene.traverse((obj) => {
         obj.geometry?.dispose?.();
         if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
         else obj.material?.dispose?.();
       });
+      environment?.dispose();
       renderer.dispose();
       /* Release the GL context outright. Browsers cap how many a page may hold, and a driver who
          rearranges their layout a dozen times should not hit that cap. */

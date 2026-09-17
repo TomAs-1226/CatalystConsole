@@ -10,16 +10,20 @@ import {
   RELEASE_WINDOW_MS,
   SPIN_MAX,
   bumperNumber,
+  cubicBezier,
   clampElevation,
   closest,
   coastAngle,
   dampVelocity,
   fitDistance,
+  flightEase,
   idleSpin,
   layoutCallouts,
+  mixShots,
   normalizeRobot,
   releaseVelocity,
   silhouette,
+  turnY,
 } from "./park3d.js";
 
 // What is pinned down here is how the park view feels under a hand, not how it looks. The look is
@@ -469,4 +473,72 @@ test("nothing to lay out lays out nothing", () => {
   assert.deepEqual(layoutCallouts(null, BOX, {}, AREA), {});
   assert.deepEqual(layoutCallouts({}, null, {}, AREA), {});
   assert.deepEqual(layoutCallouts({ a: { x: 1, y: 1, visible: true } }, BOX, { a: SIZE }, { w: 0, h: 0 }), {});
+});
+
+// --- shots and flights ---------------------------------------------------------
+
+test("turnY turns the way three.js turns an object, and back", () => {
+  const turned = turnY([1, 0.5, 0], Math.PI / 2);
+  near(turned[0], 0, 1e-12, "x");
+  near(turned[1], 0.5, 1e-12, "y");
+  near(turned[2], -1, 1e-12, "z: a quarter turn sends the front to -z");
+  const back = turnY(turned, -Math.PI / 2);
+  near(back[0], 1, 1e-12);
+  near(back[2], 0, 1e-12);
+});
+
+test("a cubic Bézier timing function runs from 0 to 1, and the linear one is the identity", () => {
+  const linear = cubicBezier(0, 0, 1, 1);
+  for (const x of [0, 0.1, 0.37, 0.5, 0.9, 1]) near(linear(x), x, 1e-5, `linear at ${x}`);
+  const ease = cubicBezier(0.25, 0.1, 0.25, 1);
+  assert.equal(ease(0), 0);
+  assert.equal(ease(1), 1);
+  assert.equal(ease(-1), 0);
+  assert.equal(ease(2), 1);
+  // CSS's `ease` at 0.5 is about 0.8024.
+  near(ease(0.5), 0.8024, 2e-3, "ease at 0.5");
+});
+
+test("the flight's timing never runs backwards and lands softly", () => {
+  let last = 0;
+  for (let i = 1; i <= 100; i++) {
+    const v = flightEase(i / 100);
+    assert.ok(v >= last - 1e-9, `monotonic at ${i}`);
+    last = v;
+  }
+  assert.ok(flightEase(0.9) > 0.97, "most of the way there with a tenth of the time left");
+  assert.ok(flightEase(0.1) < 0.1, "a gentle start");
+});
+
+const shotA = { eye: [0, 1, 3], look: [0, 0.3, 0], fov: 30, rect: { x: 0, y: 10, w: 1400, h: 800 } };
+const shotB = { eye: [-5, 3.5, 0], look: [2.2, 0, 0], fov: 46, rect: { x: 14, y: 0, w: 460, h: 720 } };
+
+test("a flight starts exactly on its first shot and lands exactly on its last", () => {
+  const start = mixShots(shotA, shotB, 0);
+  const end = mixShots(shotA, shotB, 1);
+  for (let i = 0; i < 3; i++) {
+    near(start.eye[i], shotA.eye[i], 1e-9, `start eye ${i}`);
+    near(start.look[i], shotA.look[i], 1e-9, `start look ${i}`);
+    near(end.eye[i], shotB.eye[i], 1e-9, `end eye ${i}`);
+    near(end.look[i], shotB.look[i], 1e-9, `end look ${i}`);
+  }
+  assert.equal(start.fov, 30);
+  assert.equal(end.fov, 46);
+  assert.deepEqual(end.rect, shotB.rect);
+});
+
+test("the camera swings round what it looks at, the short way, rather than cutting across", () => {
+  // Two shots at bearings of +170 and -170 degrees: the short way round passes through 180.
+  const a = { eye: [Math.sin((170 * Math.PI) / 180) * 4, 0, Math.cos((170 * Math.PI) / 180) * 4], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
+  const b = { eye: [Math.sin((-170 * Math.PI) / 180) * 4, 0, Math.cos((-170 * Math.PI) / 180) * 4], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
+  const mid = mixShots(a, b, 0.5);
+  near(mid.eye[0], 0, 1e-9, "x through the far side");
+  near(mid.eye[2], -4, 1e-9, "z at the far side");
+  near(Math.hypot(...mid.eye), 4, 1e-9, "on the circle, not inside it");
+});
+
+test("halfway, the distance is the geometric mean, so the robot grows evenly on screen", () => {
+  const a = { eye: [0, 0, 1], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
+  const b = { eye: [0, 0, 16], look: [0, 0, 0], fov: 40, rect: { x: 0, y: 0, w: 1, h: 1 } };
+  near(mixShots(a, b, 0.5).eye[2], 4, 1e-9);
 });

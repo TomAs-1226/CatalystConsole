@@ -978,6 +978,13 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   background: var(--cat-warn); color: #000000; font-size: var(--fs-12); font-weight: var(--cat-w-semi);
 }
 .fc.off[hidden] { display: none; }
+/* Where the position is coming from when it is not the estimator's own: a Limelight standing in for
+   it, or nothing yet to place the robot with. Words, not a state colour: neither is a fault. */
+.fc.place { margin-top: 10px; font-size: var(--fs-12); font-weight: var(--cat-w-medium); color: var(--cat-dim); }
+.fc.place[hidden] { display: none; }
+/* The field tile's own words wait while the robot is handed between it and Park, and arrive with it. */
+.car-head, .fieldbtns, .fieldlab { transition: opacity 0.32s var(--cat-ease-smooth); }
+.t[data-handover="true"] :is(.car-head, .fieldbtns, .fieldlab) { opacity: 0; transition-duration: 0.12s; }
 
 .fieldlab {
   position: absolute; left: 24px; bottom: 16px;
@@ -2481,6 +2488,20 @@ kbd {
   position: absolute; right: 32px; bottom: 30px; pointer-events: none;
   font-size: var(--fs-12); color: var(--cat-faint);
 }
+/* A move between Park and Drive (showPark and hidePark in app.js): the stage's own fades are off, and
+   the script drives its clip and its ground frame by frame while the robot flies to or from the field
+   tile. */
+.park[data-state="fly"] { animation: none; }
+/* The stage's words step aside the moment the robot starts to move, and come back as it lands. */
+.park-head, .park-cards, .park-dash, .park-hint, .park-callouts, .park-lines {
+  transition: opacity 0.42s var(--cat-ease-smooth), transform 0.42s var(--cat-ease-smooth);
+}
+.park[data-ui="off"] :is(.park-head, .park-cards, .park-dash, .park-hint, .park-callouts, .park-lines) {
+  opacity: 0; transition-duration: 0.16s;
+}
+.park[data-ui="off"] :is(.park-head, .park-cards) { transform: translateY(8px); }
+.park[data-ui="off"] :is(.park-dash, .pcard) { pointer-events: none; }
+
 /* On a short window the cards give way first, then the callouts' values keep only the value. */
 @media (max-height: 700px) {
   .park-cards { display: none; }
