@@ -293,7 +293,9 @@ async fn run_session(
     }
     dirty.store(true, Ordering::Relaxed);
 
-    let mut topics: HashMap<i64, String> = HashMap::new();
+    // Announced topics by id: the name, and the type the server gave it, which is how a struct's bytes
+    // are told apart from any other binary value.
+    let mut topics: HashMap<i64, Topic> = HashMap::new();
     // Topics we have published on this connection, and the pubuid each was given. Publishing is
     // per-session: a reconnect starts over, which is correct because the server forgot us too.
     let mut published: HashMap<String, i64> = HashMap::new();
@@ -384,9 +386,16 @@ async fn run_session(
     }
 }
 
+/// A topic the server has announced.
+#[derive(Clone, Debug)]
+struct Topic {
+    name: String,
+    type_str: String,
+}
+
 /// JSON control frames. We only care about topic announcements — they are what turn an integer id in
-/// a binary frame into a name the dashboard can bind to.
-fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
+/// a binary frame into a name the dashboard can bind to, and a type it can decode by.
+fn handle_control(text: &str, topics: &mut HashMap<i64, Topic>) {
     let parsed: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => return,
@@ -402,7 +411,12 @@ fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
                     params.and_then(|p| p.get("name")).and_then(|n| n.as_str()),
                     params.and_then(|p| p.get("id")).and_then(|i| i.as_i64()),
                 ) {
-                    topics.insert(id, name.to_string());
+                    let type_str = params
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    topics.insert(id, Topic { name: name.to_string(), type_str });
                 }
             }
             "unannounce" => {
@@ -419,7 +433,7 @@ fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
 /// concatenated. Topic id -1 is the timestamp handshake reply rather than a value.
 fn handle_binary(
     bytes: &[u8],
-    topics: &HashMap<i64, String>,
+    topics: &HashMap<i64, Topic>,
     values: &Arc<Mutex<HashMap<String, NtValue>>>,
     rtt_us: &Arc<AtomicU64>,
     offset_us: &Arc<AtomicI64>,
@@ -456,16 +470,16 @@ fn handle_binary(
             continue;
         }
 
-        let Some(name) = topics.get(&topic_id) else { continue };
-        if let Some(decoded) = decode_value(&frame[3]) {
-            values.lock().unwrap().insert(name.clone(), decoded);
+        let Some(topic) = topics.get(&topic_id) else { continue };
+        if let Some(decoded) = decode_value(&frame[3], &topic.type_str) {
+            values.lock().unwrap().insert(topic.name.clone(), decoded);
             changed = true;
         }
     }
     changed
 }
 
-fn decode_value(v: &rmpv::Value) -> Option<NtValue> {
+fn decode_value(v: &rmpv::Value, type_str: &str) -> Option<NtValue> {
     match v {
         rmpv::Value::Boolean(b) => Some(NtValue::Bool(*b)),
         rmpv::Value::Integer(i) => i
@@ -494,7 +508,107 @@ fn decode_value(v: &rmpv::Value) -> Option<NtValue> {
                 )),
             }
         }
+        rmpv::Value::Binary(bytes) => decode_struct(type_str, bytes),
         _ => None,
+    }
+}
+
+/// The struct topics worth drawing, as plain numbers.
+///
+/// A struct travels as its fields packed little-endian in schema order, and a struct array as the
+/// structs end to end, so these three are doubles in a row. The schemas are the ones WPILib 2027's
+/// wpimath publishes (read from the alpha-6 jar): Pose2d is "Translation2d translation;Rotation2d
+/// rotation", Translation2d "double x;double y" and Rotation2d "double value". So a Pose2d[] such as
+/// PathPlanner's /PathPlanner/activePath arrives as [x, y, radians, x, y, radians, ...], the same
+/// shape as Catalyst's own PoseArray. Anything else binary is left out, as before.
+fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
+    let name = type_str.strip_prefix("struct:")?;
+    let (name, array) = match name.strip_suffix("[]") {
+        Some(inner) => (inner, true),
+        None => (name, false),
+    };
+    let width = match name {
+        "Pose2d" => 24,
+        "Translation2d" => 16,
+        "Rotation2d" => 8,
+        _ => return None,
+    };
+    if bytes.len() % width != 0 || (!array && bytes.len() != width) {
+        return None;
+    }
+    let nums: Vec<f64> = bytes
+        .chunks_exact(8)
+        .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+        .collect();
+    if !array && width == 8 {
+        return nums.first().copied().map(NtValue::Num);
+    }
+    Some(NtValue::Nums(nums))
+}
+
+#[cfg(test)]
+mod struct_tests {
+    use super::*;
+
+    fn packed(values: &[f64]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    fn nums(value: Option<NtValue>) -> Vec<f64> {
+        match value {
+            Some(NtValue::Nums(n)) => n,
+            other => panic!("expected numbers, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pose_array_decodes_to_triples() {
+        let bytes = packed(&[1.0, 2.0, 0.5, 3.5, -4.25, -1.0]);
+        let value = decode_value(&rmpv::Value::Binary(bytes), "struct:Pose2d[]");
+        assert_eq!(nums(value), vec![1.0, 2.0, 0.5, 3.5, -4.25, -1.0]);
+    }
+
+    #[test]
+    fn a_single_pose_decodes_to_one_triple() {
+        let bytes = packed(&[8.2, 4.1, 1.57]);
+        let value = decode_value(&rmpv::Value::Binary(bytes), "struct:Pose2d");
+        assert_eq!(nums(value), vec![8.2, 4.1, 1.57]);
+    }
+
+    #[test]
+    fn an_empty_pose_array_is_an_empty_list() {
+        let value = decode_value(&rmpv::Value::Binary(Vec::new()), "struct:Pose2d[]");
+        assert_eq!(nums(value), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn translations_decode_to_pairs_and_a_rotation_to_a_number() {
+        let pairs = decode_value(&rmpv::Value::Binary(packed(&[1.0, 2.0, 3.0, 4.0])), "struct:Translation2d[]");
+        assert_eq!(nums(pairs), vec![1.0, 2.0, 3.0, 4.0]);
+        match decode_value(&rmpv::Value::Binary(packed(&[0.25])), "struct:Rotation2d") {
+            Some(NtValue::Num(v)) => assert_eq!(v, 0.25),
+            other => panic!("expected a number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_ragged_or_unknown_struct_is_left_out() {
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 23]), "struct:Pose2d[]").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 48]), "struct:Pose2d").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "struct:SwerveModuleState").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "raw").is_none());
+    }
+
+    #[test]
+    fn the_type_comes_from_the_announcement() {
+        let mut topics = HashMap::new();
+        handle_control(
+            r#"[{"method":"announce","params":{"name":"/PathPlanner/activePath","id":7,"type":"struct:Pose2d[]","properties":{}}}]"#,
+            &mut topics,
+        );
+        let topic = topics.get(&7).expect("announced");
+        assert_eq!(topic.name, "/PathPlanner/activePath");
+        assert_eq!(topic.type_str, "struct:Pose2d[]");
     }
 }
 
