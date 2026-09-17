@@ -625,6 +625,19 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 }
 .cap { font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.45; }
 .cap b { color: var(--cat-text); font-weight: var(--cat-w-medium); }
+/* A caption's parts, written by app.js. A group - a word, its figure and its unit - never breaks
+   inside itself, so a narrow tile never ends a line on a number with its unit alone on the next. An
+   optional part is the first thing a narrow tile lets go of. And in the narrowest tiles a caption of
+   two halves (joined by `.capsep`) gives each half a line, rather than leaving the separator hanging
+   at the end of the first. */
+.capgrp { white-space: nowrap; }
+@container tile (max-width: 240px) {
+  .capopt { display: none; }
+}
+@container tile (max-width: 200px) {
+  .capsep { display: none; }
+  .cap:has(> .capsep) > .capgrp { display: block; }
+}
 
 .ok { color: var(--cat-ok); }
 .warn { color: var(--cat-warn); }
@@ -736,10 +749,15 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .tower[data-active="true"] .status::before { background: var(--cat-ok); }
 .tower[data-soon="true"] .status::before { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
 .tower[data-active="false"] .status { color: var(--cat-dim); }
+/* The countdown keeps its unit beside it whatever width the tile is, and with no countdown to show
+   - auto, or no match - it is not drawn at all rather than leaving a dash on a line of its own. */
+.tower .tw-count { white-space: nowrap; }
+.tower .tw-count[hidden] { display: none; }
+/* The bars are the hub itself: white while it scores, including the seconds it has left, and empty
+   while it does not. The amber in those last seconds is the lamp's and the header's to say. */
 .tower .bars { display: flex; gap: 4px; margin-top: 8px; }
 .tower .bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); }
-.tower[data-active="true"] .bars i { background: var(--cat-data); }
-.tower[data-soon="true"] .bars i { background: var(--cat-warn); }
+.tower[data-hub="on"] .bars i { background: var(--cat-data); }
 .tower .who {
   font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
   letter-spacing: 0; text-transform: none; color: var(--cat-dim);
@@ -758,13 +776,21 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .gauge-cap[hidden] { display: none; }
 .gauge { text-align: center; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge svg { display: block; overflow: visible; }
+/* The rings are sized to the tile, not drawn at a fixed size: as wide as their share of the row allows
+   and as tall as the tile leaves under the label, whichever is less, so a large tile is filled by its
+   gauges and a small one keeps them as large as they will go. The figures and the ring are inside the
+   drawing and grow with it. `--n` is how many rings share the row, set by app.js. */
+.gaugewrap .gauge svg {
+  width: min(calc((100cqw - (var(--n, 1) - 1) * 8px) / var(--n, 1) * 0.96), calc((100cqh - 30px) / 0.82), 300px);
+  height: auto; aspect-ratio: 100 / 82;
+}
 .gauge .gv {
   font-family: var(--readout); font-weight: 400;
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
   color: var(--cat-white);
 }
 .gauge .gl {
-  font-family: var(--sans); font-size: var(--fs-12); color: var(--cat-dim);
+  font-family: var(--sans); font-size: clamp(var(--fs-12), 4.6cqh, 14px); color: var(--cat-dim);
   letter-spacing: 0; text-transform: none; font-weight: var(--cat-w-medium); margin-top: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
@@ -826,10 +852,10 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
   /* Hub activation keeps its three facts - which hub, whether it is live, how long it has - but the
      countdown moves up beside the pill instead of taking a row of its own. */
-  .tower .fill { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
-  .tower .fill > div:nth-child(1) { grid-column: 1; grid-row: 1; }
-  .tower .fill > div:nth-child(2) { grid-column: 2; grid-row: 1; align-self: end; }
-  .tower .fill > div:nth-child(3) { grid-column: 1 / -1; grid-row: 3; }
+  .tower .fill { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
+  .tower .tw-state { grid-column: 1; grid-row: 1; min-width: 0; }
+  .tower .tw-count { grid-column: 2; grid-row: 1; align-self: end; }
+  .tower .tw-meter { grid-column: 1 / -1; grid-row: 3; }
   .tower .bars { margin-top: 4px; }
 }
 
@@ -840,6 +866,17 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   .tower .n { font-size: min(var(--fs-24), 26cqh); }
   /* The rule in force, on one line; the whole sentence is in the tooltip-free wide tile. */
   .tower .cap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Short and narrower still, where the pill and a two-digit countdown do not fit side by side: the
+   countdown goes up to the hub's name, and the pill takes the row under both. */
+@container tile (max-height: 120px) and (max-width: 200px) {
+  .tower .fill { grid-template-rows: auto auto 1fr auto; }
+  .tower .tw-state { display: contents; }
+  .tower .who { grid-column: 1; grid-row: 1; align-self: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tower .status { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .tower .tw-count { grid-row: 1; align-self: center; }
+  .tower .tw-meter { grid-row: 4; }
 }
 
 /* The shortest tiles, on a window that has given most of its height to something else. Explanations

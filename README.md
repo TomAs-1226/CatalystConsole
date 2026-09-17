@@ -472,7 +472,8 @@ board somebody arranged.
 
 One tile takes one topic or several comma-separated. With several, labels are derived from the
 shortest path suffix that actually distinguishes them — four keys ending in `/Velocity` come out as
-FrontLeft / FrontRight / BackLeft / BackRight rather than "Velocity" four times.
+Front left / Front right / Back left / Back right rather than "Velocity" four times. A CamelCase
+segment is spaced into words for the label; the key itself is left alone.
 
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM. Set it to 1 for a
 raw value.

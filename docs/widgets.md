@@ -28,8 +28,9 @@ needing the robot to tell it. See [the hub schedule](hub-schedule.md).
 ### The gauge
 
 One tile takes one topic or several comma-separated. With several, labels come from the shortest path
-suffix that actually distinguishes them — four keys ending in `/Velocity` come out as FrontLeft /
-FrontRight / BackLeft / BackRight rather than "Velocity" four times.
+suffix that actually distinguishes them — four keys ending in `/Velocity` come out as Front left /
+Front right / Back left / Back right rather than "Velocity" four times. A CamelCase segment is spaced
+into words for the label; the key itself is left alone, and each gauge carries it in its tooltip.
 
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM.
 

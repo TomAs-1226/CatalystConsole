@@ -520,6 +520,21 @@ function distinctLabels(keys) {
   return keys.map((k) => leaf(k));
 }
 
+/* A path segment as a person would write it on a label, in the sentence case the rest of the board is
+ * set in: FrontLeft and frontLeft read "Front left", CANBus reads "CAN bus". Display only - the key is
+ * never touched, and a gauge carries it in its tooltip. A segment that is not plain letters and digits
+ * (shooter_rpm, LL-3) is left exactly as the robot published it, since there is no telling what its
+ * author meant by the punctuation. */
+function spacedLabel(segment) {
+  const s = String(segment);
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(s)) return s;
+  const words = s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").split(" ");
+  return words
+    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1)
+      : /^[A-Z][a-z0-9]*$/.test(w) ? w.toLowerCase() : w))
+    .join(" ");
+}
+
 /**
  * The path a set of topics share, whole segments only: `/Catalyst/Drive` for the four module
  * velocities. Empty when they share nothing but the root, which the caller words around.
@@ -642,24 +657,40 @@ const PLAN = readTokens({
 const lightAt = (alpha) => `rgb(${PLAN.light} / ${alpha})`;
 const shadeAt = (alpha) => `rgb(${PLAN.shade} / ${alpha})`;
 
-function sparkline(values, w, h, color) {
+/* A rolling trace, drawn the way Tesla draws its energy graph: a thin line, a wash under it that is
+ * gone well before the floor, and a light on the newest sample so the eye lands where the reading is.
+ *
+ * The trace keeps clear of the box's edges - a peak drawn against the top edge had half its stroke cut
+ * off, and a graph filled from edge to edge read as the heaviest thing on the board. The stroke does
+ * not scale with the box, so a trace stretched across a wide panel is as fine as one in a tile.
+ * `dot` is for a box drawn at its own pixel size; stretched, a circle would become an ellipse. */
+function sparkline(values, w, h, color, { dot = false } = {}) {
   if (values.length < 2) return "";
   let lo = Infinity, hi = -Infinity;
   for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
   if (hi - lo < 1e-9) { hi = lo + 1; }
-  const step = w / (values.length - 1);
-  const y = (v) => h - ((v - lo) / (hi - lo)) * h;
+  const top = Math.max(4, h * 0.14);
+  const bottom = Math.max(2, h * 0.06);
+  const right = dot ? 6 : 0;
+  const step = (w - right) / (values.length - 1);
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * Math.max(1, h - top - bottom);
   let d = `M0 ${y(values[0]).toFixed(1)}`;
   for (let i = 1; i < values.length; i++) d += `L${(i * step).toFixed(1)} ${y(values[i]).toFixed(1)}`;
-  const fill = `${d}L${w} ${h}L0 ${h}Z`;
-  // The area fades toward the floor, so the trace is the brightest thing and the fill only says which
-  // side of it is "under". One gradient per colour, named by the colour: every sparkline of the same
-  // colour draws the same one, and a duplicate definition is harmless.
+  const endX = (w - right).toFixed(1);
+  const endY = y(values[values.length - 1]).toFixed(1);
+  const fill = `${d}L${endX} ${h}L0 ${h}Z`;
+  // The wash only says which side of the line is "under". One gradient per colour, named by the
+  // colour: it is in the fill's own box, so every sparkline of that colour can share the definition,
+  // and a duplicate one is harmless.
   const id = `spark-${String(color).replace(/[^a-z0-9]/gi, "")}`;
   return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`
-    + `<stop offset="0" stop-color="${color}" stop-opacity="0.2"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>`
+    + `<stop offset="0" stop-color="${color}" stop-opacity="0.08"/><stop offset="0.75" stop-color="${color}" stop-opacity="0"/>`
     + `</linearGradient></defs>`
-    + `<path d="${fill}" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    + `<path d="${fill}" fill="url(#${id})"/>`
+    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`
+    + (dot
+      ? `<circle cx="${endX}" cy="${endY}" r="5.5" fill="${color}" fill-opacity="0.16"/><circle cx="${endX}" cy="${endY}" r="2.75" fill="${color}"/>`
+      : "");
 }
 
 function arcPath(cx, cy, r, a0, a1) {
@@ -860,15 +891,14 @@ define("tower", {
   render(body) {
     body.innerHTML = `
       <div class="fill">
-        <div>
+        <div class="tw-state">
           <div class="who" data-x="who">Alliance unknown</div>
           <div class="status" data-x="status">No data</div>
         </div>
-        <div>
-          <span class="n" data-x="count">—</span>
-          <span class="u" data-x="unit">s</span>
+        <div class="tw-count" data-x="countRow" hidden>
+          <span class="n" data-x="count"></span><span class="u" data-x="unit">s</span>
         </div>
-        <div>
+        <div class="tw-meter">
           <div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="cap" data-x="src" style="margin-top:6px">waiting for robot</div>
         </div>
@@ -919,11 +949,17 @@ define("tower", {
     const soon = active !== null && left !== null && left <= cfg.warn;
     tile.dataset.active = active === true && !soon ? "true" : "false";
     tile.dataset.soon = soon ? "true" : "false";
+    /* Whether the hub is scoring at all, closing seconds included, which is what the bars draw. */
+    setFlag(tile, "hub", active === true ? "on" : "off");
+
+    /* No countdown - auto, where both hubs score throughout, or no match at all - is not drawn, rather
+     * than drawn as a dash on a line of its own. The pill already says which of those it is. Compared
+     * before it is written, because assigning `hidden` rewrites the attribute ten times a second. */
+    if (x.countRow.hidden !== (left === null)) x.countRow.hidden = left === null;
+    if (left !== null) setText(x.count, left.toFixed(1));
 
     if (active === null) {
       x.status.textContent = segment ? segment.name : "No data";
-      x.count.textContent = left === null ? "—" : left.toFixed(1);
-      x.unit.textContent = left === null ? "" : "s";
       x.src.textContent = source || "no match in progress";
       return;
     }
@@ -933,8 +969,6 @@ define("tower", {
     x.status.textContent = soon
       ? (active ? "Closing" : "Opening")
       : (active ? "Hub active" : "Hub inactive");
-    x.count.textContent = left === null ? "—" : left.toFixed(1);
-    x.unit.textContent = left === null ? "" : "s";
     x.src.textContent = source || "robot";
   },
 });
@@ -973,16 +1007,19 @@ define("gauge", {
 
     if (wrap.childElementCount !== keys.length) {
       wrap.innerHTML = "";
+      /* How many rings share the row, which the stylesheet sizes each one by. */
+      wrap.style.setProperty("--n", String(Math.max(1, keys.length)));
       for (const k of keys) {
         const g = el("div", "gauge");
         g.dataset.key = k;
+        g.title = k;
         wrap.appendChild(g);
       }
     }
 
     const span = Math.max(1e-6, cfg.max - cfg.min);
     const single = keys.length === 1;
-    const labels = single ? [cfg.unit || ""] : distinctLabels(keys);
+    const labels = single ? [cfg.unit || ""] : distinctLabels(keys).map(spacedLabel);
 
     // Rings of dashes say nothing about why. When not one of the topics has a value, the tile says
     // what it is waiting for; as soon as any arrives the caption goes, because a gauge showing three
@@ -1022,8 +1059,12 @@ define("gauge", {
         return;
       }
 
+      /* Drawn in its own units and sized by the stylesheet to the room the tile has (`.gaugewrap
+       * .gauge svg`), so everything in it - the ring, the needle, the figure - grows with the tile
+       * together. The ring is a little finer than it was at a fixed 92 px, since it is drawn larger. */
       const size = single ? 128 : 92;
-      const r = size / 2 - 10;
+      const ring = single ? 8 : 6.5;
+      const r = size / 2 - 8;
       const a0 = 135, sweep = 270;
       const a1 = a0 + sweep * frac;
       const cx = size / 2, cy = size / 2;
@@ -1035,10 +1076,10 @@ define("gauge", {
         : "";
 
       g.innerHTML =
-        `<svg width="${size}" height="${size * 0.82}" viewBox="0 0 ${size} ${size * 0.82}">` +
-        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="8" stroke-linecap="round"/>` +
+        `<svg viewBox="0 0 ${size} ${size * 0.82}">` +
+        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="${ring}" stroke-linecap="round"/>` +
         (frac > 0.002 && cfg.style === "arc"
-          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
+          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="${ring}" stroke-linecap="round"/>`
           : "") +
         needle +
         // Styled by class rather than by attributes: a presentation attribute cannot take var(), so
@@ -1083,13 +1124,17 @@ define("battery", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    const color = v !== null && v < cfg.crit ? TOK.bad : v !== null && v < cfg.low ? TOK.warn : TOK.data;
-    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
+    // A reading is white, as every graph on the board is. A low pack is the figure's and the header's
+    // to say; a trace that turned amber with it was a second, much larger patch of the same colour.
+    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, TOK.data, { dot: true });
 
     if (h.length > 3) {
       const recent = h.slice(-160);
       const lo = Math.min(...recent), hi = Math.max(...recent);
-      x.cap.innerHTML = `sag <b>${(hi - lo).toFixed(2)} V</b> · low <b>${lo.toFixed(2)} V</b>`;
+      // Each figure keeps its unit, and in a narrow tile the two halves take a line each rather than
+      // breaking inside one (see `.capgrp` in styles.css).
+      x.cap.innerHTML = `<span class="capgrp">sag <b>${(hi - lo).toFixed(2)} V</b></span>`
+        + `<span class="capsep"> · </span><span class="capgrp">low <b>${lo.toFixed(2)} V</b></span>`;
     }
   },
 });
@@ -1323,7 +1368,7 @@ define("health", {
     x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--cat-data)";
     x.cap.innerHTML = loop === null
       ? "waiting for the robot to publish loop time"
-      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
+      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
   },
 });
 
@@ -1374,11 +1419,13 @@ define("physics", {
     x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--cat-data)";
     // With nothing at all from Physics Core, "advisory only" under three dashes reads as a tile that
     // is working and quiet. It is waiting, and it says for what.
+    // "Advisory only" is the part a narrow tile lets go of (`.capopt`): it is true of every reading
+    // here and said again in the palette, where the confidence is only said here.
     x.cap.innerHTML = slip === null && tip === null && trac === null && conf === null
-      ? "waiting for Physics Core on the robot · advisory only"
+      ? "waiting for Physics Core on the robot<span class=\"capopt\"> · advisory only</span>"
       : conf === null
         ? "advisory only — never gates control"
-        : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
+        : `<span class="capgrp">estimator confidence <b>${(conf * 100).toFixed(0)}%</b></span><span class="capopt"> · advisory only</span>`;
   },
 });
 
@@ -1701,9 +1748,12 @@ define("graph", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    x.spark.innerHTML = sparkline(h, w, ht, TOK.data);
+    x.spark.innerHTML = sparkline(h, w, ht, TOK.data, { dot: true });
     if (h.length > 2) {
-      x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
+      // The sample count is the first thing a narrow tile lets go of (`.capopt`).
+      x.cap.innerHTML = `<span class="capgrp">min <b>${Math.min(...h).toFixed(2)}</b></span> · `
+        + `<span class="capgrp">max <b>${Math.max(...h).toFixed(2)}</b></span>`
+        + `<span class="capopt"> · ${h.length} samples</span>`;
     } else if (v === null) {
       // An empty plot under a dash is the tile that most looks broken, so it is the one that most
       // needs to say it is only waiting, and for which topic.
