@@ -128,10 +128,11 @@ const CARVE_FRAGMENT = /* glsl */ `
     float onCarpet = 1.0 - smoothstep(0.012, 0.03, vCarveWorld.y);
 
     // Round the robot, for the larger parts the vertex shader leaves alone: anything standing below
-    // 0.8 m dissolves inside 0.8 m of the robot and is whole again by 1.6 m.
+    // 0.8 m is gone inside a metre of the robot. The edge is kept narrow: a dither across a wide band
+    // reads as grain, not as a soft edge.
     float fromRobot = length(vCarveWorld.xz - uCarveRobot.xz);
     float low = 1.0 - smoothstep(0.55, 0.8, vCarveWorld.y);
-    float nearRobot = mix(mix(1.0, smoothstep(0.8, 1.6, fromRobot), low), 1.0, vCarvePiece);
+    float nearRobot = mix(mix(1.0, smoothstep(0.95, 1.2, fromRobot), low), 1.0, vCarvePiece);
 
     // Along the sight line from the lens to the robot: a tube, wider at the lens end, that stops short
     // of the robot so the clearing round it is left to decide what stands right beside it.
@@ -140,7 +141,7 @@ const CARVE_FRAGMENT = /* glsl */ `
     float offLine = length(vCarveWorld - (uCarveEye + sight * along));
     float radius = mix(1.1, 0.55, along);
     float window = smoothstep(0.02, 0.12, along) * (1.0 - smoothstep(0.82, 0.94, along));
-    float onLine = mix(1.0, smoothstep(radius * 0.55, radius, offLine), window);
+    float onLine = mix(1.0, smoothstep(radius * 0.85, radius, offLine), window);
 
     float keep = mix(1.0, min(nearRobot, onLine), uCarveAmount * (1.0 - onCarpet));
     float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
