@@ -2751,3 +2751,43 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .view.sheetwrap[data-entering], .view.board[data-entering] { animation: none; }
 }
+
+/* ---------------------------------------------------------------- drivers
+
+   The profile list beside the figure whose suit takes the profile's colour. The stage is a canvas like
+   Park's, on its own so a settings panel nobody has opened has never made a renderer. */
+.drivers { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 22px; align-items: start; margin: 18px 0 26px; }
+@media (max-width: 900px) { .drivers { grid-template-columns: 1fr; } }
+
+.dstage { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-1); overflow: hidden; min-height: 380px; }
+.dstage canvas { display: block; width: 100%; height: 400px; }
+.dstage-who { position: absolute; left: 16px; bottom: 14px; display: grid; gap: 2px; }
+.dstage-who b { font-size: var(--fs-18); color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.dstage-who span { font-size: var(--fs-12); color: var(--cat-dim); }
+
+.dlist { display: grid; gap: 10px; align-content: start; }
+.dcard { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: var(--cat-r-card); background: var(--cat-surface-1);
+  border: 1px solid transparent; }
+.dcard[data-active="true"] { border-color: var(--cat-line-strong); background: var(--cat-surface-2); }
+.dcard .ddot { width: 12px; height: 12px; border-radius: 50%; background: var(--c, #8e8e93); flex: none; }
+.dcard .dwho { display: grid; gap: 2px; min-width: 0; }
+.dcard .dname { font: inherit; font-size: var(--fs-15); color: var(--cat-white); background: none; border: 0;
+  border-bottom: 1px solid transparent; padding: 1px 0; width: 100%; }
+.dcard .dname:hover { border-bottom-color: var(--cat-line); }
+.dcard .dname:focus { outline: none; border-bottom-color: var(--cat-signal); }
+.dcard .dsub { font-size: var(--fs-12); color: var(--cat-dim); }
+.dcard .dactions { display: flex; align-items: center; gap: 8px; }
+.dcard .duse { font: inherit; font-size: var(--fs-13); color: var(--cat-body); background: none;
+  border: 1px solid var(--cat-line-strong); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.dcard .duse:hover { color: var(--cat-white); }
+.dcard[data-active="true"] .duse { display: none; }
+.dcard .ddrop { font: inherit; font-size: var(--fs-13); color: var(--cat-dim); background: none; border: 0;
+  padding: 5px 6px; cursor: pointer; }
+.dcard .ddrop:hover { color: var(--cat-warn); }
+.dcard .ddrop[hidden] { display: none; }
+
+.dswatches { display: flex; gap: 6px; margin-top: 6px; }
+.dswatches button { width: 16px; height: 16px; border-radius: 50%; border: 1px solid transparent;
+  background: var(--c); cursor: pointer; padding: 0; }
+.dswatches button[aria-pressed="true"] { border-color: var(--cat-white); }

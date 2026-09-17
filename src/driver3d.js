@@ -401,8 +401,10 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(STAGE_FOV, 16 / 9, 0.1, 40);
-  camera.position.set(2.75, 1.38, 1.95);
-  camera.lookAt(0.05, 0.97, 0);
+  /* Far enough back that the whole figure fits the tall, narrow panel it stands in: the vertical field
+     is 26 degrees, so a 1.76 m figure needs about 3.8 m, and 4.0 leaves a little air over its head. */
+  camera.position.set(3.2, 1.45, 2.4);
+  camera.lookAt(0, 0.9, 0);
 
   /* The same studio the robot stands in: a low ambient, a key over the camera's shoulder, a cool rim
      from behind that draws the figure's edge out of a dark panel. */

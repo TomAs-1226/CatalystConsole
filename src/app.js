@@ -28,6 +28,10 @@ import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
+import {
+  addDriver, activeDriver, capture, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
+  makeDriver, readDrivers, removeDriver, switchDriver, updateDriver, writeDrivers,
+} from "./drivers.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -2333,6 +2337,36 @@ function saveLayout() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(layout));
   } catch { /* private mode or quota — the board still works, it just will not persist */ }
+  /* Whoever is driving keeps the board they are driving with. Written here rather than on a save button,
+   * because a board is edited a tile at a time and nobody should have to remember to keep it. */
+  rememberBoard();
+}
+
+/* ---- driver profiles (see drivers.js) ----
+ *
+ * A profile is a name, a colour and a board. It exists because a driver and an operator do not want the
+ * same tiles in front of them, and a team swaps between the two between matches. Everything it holds is
+ * about this screen: nothing here is published, and nothing here reaches the robot.
+ */
+
+const DRIVERS_KEY = "catalyst.console.drivers";
+let drivers = readDrivers(localStorage.getItem(DRIVERS_KEY));
+
+function saveDrivers() {
+  try {
+    localStorage.setItem(DRIVERS_KEY, writeDrivers(drivers));
+  } catch { /* private mode or quota — the profile still applies, it just will not persist */ }
+}
+
+/** The board the profile in use is looking at, written into that profile. */
+function rememberBoard() {
+  const driver = activeDriver(drivers);
+  if (!driver) return;
+  drivers = {
+    active: drivers.active,
+    list: drivers.list.map((d) => (d.id === driver.id ? { ...d, ...capture({ layout }) } : d)),
+  };
+  saveDrivers();
 }
 
 function buildBoard() {
@@ -5297,6 +5331,165 @@ function paintQuick() {
   }
 }
 
+/* ---- the drivers section ---- */
+
+/* The stage is made the first time the section is looked at and not before: a renderer nobody has asked
+ * for is a context, a program and a slice of the graphics chip for a panel that may never open. */
+let driverStage = null;
+let driverStageShown = "";
+
+function paintDrivers() {
+  const list = $("#driverList");
+  if (!list) return;
+  const active = activeDriver(drivers);
+  list.textContent = "";
+  for (const driver of drivers.list) {
+    const card = document.createElement("div");
+    card.className = "dcard";
+    card.dataset.id = driver.id;
+    card.dataset.active = String(driver.id === drivers.active);
+
+    const dot = document.createElement("i");
+    dot.className = "ddot";
+    dot.style.setProperty("--c", driverHex(driver));
+    dot.setAttribute("aria-hidden", "true");
+
+    const who = document.createElement("div");
+    who.className = "dwho";
+    const name = document.createElement("input");
+    name.className = "dname";
+    name.value = driver.name;
+    name.maxLength = 24;
+    name.setAttribute("aria-label", "Driver name");
+    name.onchange = () => {
+      drivers = updateDriver(drivers, driver.id, { name: name.value });
+      saveDrivers();
+      paintDrivers();
+    };
+    const sub = document.createElement("span");
+    sub.className = "dsub";
+    const tiles = driver.layout ? driver.layout.length : layout.length;
+    sub.textContent = driver.id === drivers.active
+      ? `In use · ${tiles} tile${tiles === 1 ? "" : "s"}`
+      : `${tiles} tile${tiles === 1 ? "" : "s"}`;
+    const swatches = document.createElement("div");
+    swatches.className = "dswatches";
+    for (const colour of DRIVER_COLOURS) {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.style.setProperty("--c", colour.hex);
+      swatch.title = colour.label;
+      swatch.setAttribute("aria-label", colour.label);
+      swatch.setAttribute("aria-pressed", String(colour.id === driver.colour));
+      swatch.onclick = () => {
+        drivers = updateDriver(drivers, driver.id, { colour: colour.id });
+        saveDrivers();
+        paintDrivers();
+        if (driver.id === drivers.active) driverStage?.setColour(colour.hex);
+      };
+      swatches.append(swatch);
+    }
+    who.append(name, sub, swatches);
+
+    const actions = document.createElement("div");
+    actions.className = "dactions";
+    const use = document.createElement("button");
+    use.className = "duse";
+    use.type = "button";
+    use.textContent = "Use";
+    use.onclick = () => useDriver(driver.id);
+    const drop = document.createElement("button");
+    drop.className = "ddrop";
+    drop.type = "button";
+    drop.textContent = "Remove";
+    drop.hidden = drivers.list.length <= 1;
+    drop.onclick = () => {
+      const result = removeDriver(drivers, driver.id);
+      if (!result.removed) return;
+      const wasActive = driver.id === drivers.active;
+      drivers = result.store;
+      saveDrivers();
+      if (wasActive) useDriver(drivers.active, { force: true });
+      else paintDrivers();
+    };
+    actions.append(use, drop);
+    card.append(dot, who, actions);
+    list.append(card);
+  }
+
+  const x = settingsRefs;
+  if (x?.driverName) {
+    x.driverName.textContent = active ? active.name : "No driver";
+    x.driverNote.textContent = active ? "in use" : "add one to keep a board";
+  }
+  if (active && driverStageShown !== active.id) {
+    driverStageShown = active.id;
+    driverStage?.setColour(driverHex(active));
+    driverStage?.play();
+  }
+}
+
+/** Switch to a profile: the one being left keeps the board it was left with, and the board of the one
+ *  coming in is laid out again. A profile that has never been used keeps whatever is on screen. */
+function useDriver(id, { force = false } = {}) {
+  if (!force && id === drivers.active) return;
+  const result = switchDriver(drivers, id, { layout });
+  drivers = result.store;
+  saveDrivers();
+  if (result.restore.layout?.length) {
+    layout = result.restore.layout.map((t) => ({ ...t, cfg: { ...(t.cfg || {}) } }));
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(layout));
+    } catch { /* the board still applies */ }
+    buildBoard();
+  }
+  paintDrivers();
+}
+
+function wireDrivers() {
+  /* A console that has never had a profile gets one, holding the board it is already showing. */
+  if (!drivers.list.length) {
+    const first = makeDriver({ name: "Driver", colour: DRIVER_COLOURS[0].id, layout });
+    drivers = addDriver(drivers, first).store;
+    saveDrivers();
+  }
+  const add = $("#driverAdd");
+  add.onclick = () => {
+    if (drivers.list.length >= DRIVERS_MAX) return;
+    const taken = new Set(drivers.list.map((d) => d.name));
+    let name = "Driver";
+    for (let i = 2; taken.has(name); i++) name = `Driver ${i}`;
+    const colour = DRIVER_COLOURS[drivers.list.length % DRIVER_COLOURS.length];
+    const result = addDriver(drivers, makeDriver({ name: cleanName(name), colour: colour.id, layout }), { layout });
+    if (!result.added) return;
+    drivers = result.store;
+    saveDrivers();
+    paintDrivers();
+  };
+  paintDrivers();
+}
+
+/** Make the stage when the section is first looked at, and let it sleep whenever it is not. */
+async function driverSection(on) {
+  if (!on) {
+    driverStage?.setActive(false);
+    return;
+  }
+  if (!driverStage) {
+    const canvas = $("#driverCanvas");
+    if (!canvas) return;
+    const mod = await import("./driver3d.js");
+    if (!driverStage) {
+      driverStage = mod.createDriverStage(canvas, {
+        colour: driverHex(activeDriver(drivers)),
+        reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      });
+    }
+  }
+  driverStage.setActive(true);
+  driverStage.play();
+}
+
 /* Wiring, done once on first open. A settings panel nobody has opened has no business asking the
  * backend anything, and the update check behind it can sit for a while on a field network. */
 function buildSettings() {
@@ -5386,6 +5579,9 @@ function buildSettings() {
     rebuildTilesOfType("field");
     paintSettings();
   };
+
+  /* --- drivers --- */
+  wireDrivers();
 
   /* --- dashboard --- */
   const parkTog = $("#setPark");
@@ -5563,6 +5759,7 @@ function showSection(name) {
     else delete sec.dataset.active;
   }
   $("#spane").scrollTop = 0;
+  driverSection(name === "drivers");
   paintSettings();
 }
 
@@ -6750,6 +6947,7 @@ function paintSettings() {
   const x = settingsRefs;
 
   if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
+  if (currentSection === "drivers") paintDrivers();
   if (currentSection === "core") paintCore();
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
