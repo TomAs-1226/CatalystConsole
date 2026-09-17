@@ -107,6 +107,9 @@ export function limelightFix(read, { length = 16.54, width = 8.07, age = () => I
   return best;
 }
 
+/** The swerve subsystem's pose estimate, a Pose2d struct the NT client decodes to [x, y, theta]. */
+export const SWERVE_POSE_KEY = "/Catalyst/Swerve/Pose";
+
 /**
  * Where the robot is on the field, and what says so.
  *
@@ -120,13 +123,18 @@ export function limelightFix(read, { length = 16.54, width = 8.07, age = () => I
  *   3. otherwise nowhere: `placed` is false, and the view says the robot has not been placed rather
  *      than guessing.
  *
+ * A robot that does not run Physics Core has no PoseArray; its swerve subsystem's own estimate, the
+ * Pose2d on /Catalyst/Swerve/Pose, stands in for it.
+ *
  * `age(key)` is how long ago, in milliseconds, a key's value last changed. Returns
  * { pose: [x, y, theta] | null, source: "estimator" | "vision" | null, camera, tags, placed, heading },
  * where `heading` is the best heading known even when the robot is not placed.
  */
 export function robotPlacement(read, { poseKey = "/Catalyst/Physics/PoseArray", length = 16.54, width = 8.07, age = () => Infinity } = {}) {
-  const fused = read.arr(poseKey);
-  const fusedOk = Array.isArray(fused) && fused.length >= 3 && fused.slice(0, 3).every(Number.isFinite);
+  const usable = (pose) => Array.isArray(pose) && pose.length >= 3 && pose.slice(0, 3).every(Number.isFinite);
+  let fused = read.arr(poseKey);
+  if (!usable(fused) && poseKey !== SWERVE_POSE_KEY) fused = read.arr(SWERVE_POSE_KEY);
+  const fusedOk = usable(fused);
   const heading = fusedOk ? fused[2] : null;
   const atOrigin = fusedOk && Math.abs(fused[0]) < ORIGIN_METERS && Math.abs(fused[1]) < ORIGIN_METERS;
   if (fusedOk && !atOrigin) {

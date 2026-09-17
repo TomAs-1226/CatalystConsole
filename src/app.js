@@ -263,6 +263,43 @@ function demoTick() {
   set("/Catalyst/CAN/Health/canivore/REC", "num", 0);
   set("/Catalyst/CAN/Health/canivore/TEC", "num", 0);
 
+  /* The mechanisms, under the names team 5805's REBUILT robot publishes them (see mechanisms.js), and on
+   * the same lap the robot drives: it intakes along one side of its loop with the intake slid out, stows
+   * and spins up coming round, then shoots across the far side with the hood tracking. Each mechanism
+   * answers its goal the way a real one does, with a lag rather than a jump, so the hood swings and the
+   * flywheel winds up and down on screen as they would on the robot. */
+  {
+    const now = performance.now();
+    const m = demo.mech ?? (demo.mech = { at: now, hood: 13, shooter: 12.5, deploy: 5 });
+    const dt = Math.min(0.25, Math.max(0, (now - m.at) / 1000));
+    m.at = now;
+    const lap = (((tm * 0.42) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const phase = !enabled ? "idle" : lap < 2.2 ? "intake" : lap < 2.9 ? "prepare" : lap < 4.7 ? "score" : "idle";
+    const follow = (value, goal, seconds) => goal + (value - goal) * Math.exp(-dt / seconds);
+    const hoodGoal = phase === "prepare" || phase === "score" ? 27 + 7 * Math.sin(tm * 0.9) : 13;
+    const shooterGoal = phase === "prepare" || phase === "score" ? 1600 / 60 : enabled ? 750 / 60 : 0;
+    const deployGoal = phase === "intake" ? 11.8 : phase === "score" && lap > 3.4 ? 5 : enabled ? 11.8 : 5;
+    m.hood = follow(m.hood, hoodGoal, 0.12);
+    m.shooter = follow(m.shooter, shooterGoal, 0.35);
+    m.deploy = follow(m.deploy, deployGoal, 0.18);
+    set("/Catalyst/Hood/AngleDegrees", "num", m.hood);
+    set("/Catalyst/Hood/GoalAngle", "num", hoodGoal);
+    set("/Catalyst/Deploy/Homed", "bool", true);
+    set("/Catalyst/Deploy/LengthInches", "num", m.deploy);
+    set("/Catalyst/Deploy/GoalInches", "num", deployGoal);
+    set("/Catalyst/Intake/Speed", "num", phase === "intake" ? 1 : phase === "score" ? 5 / 12 : 0);
+    set("/Catalyst/Conveyor/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? 1 / 12 : 0);
+    set("/Catalyst/Feeder/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? -1 / 12 : 0);
+    set("/Catalyst/Shooter/VelocityRPS", "num", m.shooter);
+    set("/Catalyst/Shooter/SetpointRPS", "num", shooterGoal);
+    set("/Catalyst/Shooter/AtSpeed", "bool", Math.abs(m.shooter - shooterGoal) < 1);
+    set("/Catalyst/RobotManager/State", "str",
+      phase === "prepare" ? "PREPARE_SCORE" : phase === "score" ? "SCORE" : "IDLE");
+    set("/Catalyst/HopperManager/State", "str",
+      phase === "intake" ? "INTAKING" : phase === "score" ? "SCORE" : enabled ? "IDLE_DEPLOYED" : "IDLE_STOWED");
+    set("/Catalyst/HopperManager/IsFull", "bool", false);
+  }
+
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
 

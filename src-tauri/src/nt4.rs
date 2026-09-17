@@ -527,10 +527,20 @@ fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
         Some(inner) => (inner, true),
         None => (name, false),
     };
+    /* Every struct here is a run of doubles, so the width in bytes is all that tells them apart. The
+       swerve and chassis ones are listed under both names WPILib has given them (2027 renamed speeds to
+       velocities); Pose3d is a translation and a quaternion (x y z, w x y z). */
     let width = match name {
         "Pose2d" => 24,
         "Translation2d" => 16,
         "Rotation2d" => 8,
+        "Twist2d" => 24,
+        "ChassisSpeeds" | "ChassisVelocities" => 24,
+        "SwerveModuleState" | "SwerveModuleVelocity" => 16,
+        "SwerveModulePosition" => 16,
+        "Translation3d" => 24,
+        "Quaternion" | "Rotation3d" => 32,
+        "Pose3d" => 56,
         _ => return None,
     };
     if bytes.len() % width != 0 || (!array && bytes.len() != width) {
@@ -592,10 +602,27 @@ mod struct_tests {
     }
 
     #[test]
+    fn swerve_module_states_decode_to_speed_and_angle_pairs() {
+        let states = packed(&[1.5, 0.25, 1.4, -0.5, 1.5, 0.25, 1.4, -0.5]);
+        let value = decode_value(&rmpv::Value::Binary(states), "struct:SwerveModuleState[]");
+        assert_eq!(nums(value), vec![1.5, 0.25, 1.4, -0.5, 1.5, 0.25, 1.4, -0.5]);
+        let speeds = decode_value(&rmpv::Value::Binary(packed(&[1.0, -0.5, 0.2])), "struct:ChassisSpeeds");
+        assert_eq!(nums(speeds), vec![1.0, -0.5, 0.2]);
+    }
+
+    #[test]
+    fn game_piece_poses_decode_to_sevens() {
+        let pieces = packed(&[1.0, 2.0, 0.075, 1.0, 0.0, 0.0, 0.0, 3.0, 4.0, 0.075, 1.0, 0.0, 0.0, 0.0]);
+        let value = decode_value(&rmpv::Value::Binary(pieces), "struct:Pose3d[]");
+        assert_eq!(nums(value).len(), 14);
+    }
+
+    #[test]
     fn a_ragged_or_unknown_struct_is_left_out() {
         assert!(decode_value(&rmpv::Value::Binary(vec![0; 23]), "struct:Pose2d[]").is_none());
         assert!(decode_value(&rmpv::Value::Binary(vec![0; 48]), "struct:Pose2d").is_none());
         assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "struct:SwerveModuleState").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "struct:SomethingElse").is_none());
         assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "raw").is_none());
     }
 

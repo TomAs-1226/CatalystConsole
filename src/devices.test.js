@@ -186,6 +186,16 @@ test("an estimator pose that has left the origin is the robot's place", () => {
   assert.equal(place.placed, true);
 });
 
+test("a robot without Physics Core is placed from its swerve subsystem's own pose", () => {
+  const read = view({ "/Catalyst/Swerve/Pose": nums([11.2, 2.4, -1.1]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.deepEqual(place.pose, [11.2, 2.4, -1.1]);
+  assert.equal(place.source, "estimator");
+  // Physics Core's pose, when there is one, still comes first.
+  const both = view({ "/Catalyst/Physics/PoseArray": nums([5.2, 3.1, 0.4]), "/Catalyst/Swerve/Pose": nums([11.2, 2.4, -1.1]) });
+  assert.deepEqual(robotPlacement(both, { age: fresh }).pose, [5.2, 3.1, 0.4]);
+});
+
 test("an estimator still at the boot origin is not a place: the robot is unplaced, not in the corner", () => {
   const read = view({ "/Catalyst/Physics/PoseArray": nums([0, 0, 1.2]) });
   const place = robotPlacement(read, { age: fresh });
