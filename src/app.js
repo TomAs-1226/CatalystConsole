@@ -26,7 +26,7 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
-import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms } from "./mechanisms.js";
+import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
@@ -1035,6 +1035,82 @@ define("tower", {
         else part.style.removeProperty("--done");
       }
     }
+  },
+});
+
+/* --- shooter ----------------------------------------------------------------- */
+
+/* What a driver waits on before shooting, from the robot's own mechanism topics (see mechanisms.js): whether
+ * a shot could go now, the flywheel against its setpoint, the FUEL on board, and the hood. The state is
+ * said the way the hub tile says its state, a lamp and a word as large as the tile allows, and the lamp is
+ * green only while a shot could go this instant. The bars under it are the reasons.
+ *
+ * The FUEL figure is the console's estimate (createHopper): nothing on the robot counts balls, so it is
+ * written with a tilde, and the robot's full sensor is believed over it whenever it reads true. */
+const SHOOTER_WORDS = {
+  shooting: "Shooting", feeding: "Feeding", ready: "Ready", spinning: "Spinning up", warm: "Warm",
+  idle: "Idle", spindown: "Spinning down", stopped: "Stopped",
+};
+
+define("shooter", {
+  name: "Shooter",
+  group: "Match",
+  desc: "Whether a shot could go now, the flywheel against its setpoint, the FUEL on board, and the hood",
+  w: 3, h: 2,
+  tileClass: "shooter",
+  config: [
+    { key: "maxRpm", label: "Flywheel bar top (RPM)", type: "number", def: 4000,
+      hint: "Where the flywheel bar ends. The robot's speeds are read from /Catalyst/Shooter/VelocityRPS and SetpointRPS." },
+  ],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill shoot">
+        <div class="hub-now"><i class="hub-lamp" aria-hidden="true"></i><span class="hub-word" data-x="word">No shooter</span></div>
+        <div class="shoot-rows">
+          <div class="shoot-row">
+            <span class="shoot-lab">Flywheel</span>
+            <span class="shoot-bar" aria-hidden="true"><i data-x="fly"></i><b data-x="goal"></b></span>
+            <span class="shoot-fig" data-x="rpm">—</span>
+          </div>
+          <div class="shoot-row">
+            <span class="shoot-lab">FUEL</span>
+            <span class="shoot-bar" aria-hidden="true"><i data-x="load"></i></span>
+            <span class="shoot-fig" data-x="fuel">—</span>
+          </div>
+        </div>
+        <div class="cap" data-x="cap">waiting for robot</div>
+      </div>`;
+  },
+  update(body, cfg, x, tile) {
+    const linked = nt.status.connected || demo.on;
+    const m = linked ? mechanismState.now : null;
+    const readiness = m ? shooterReadiness(m, { enabled: ds.enabled }) : null;
+    setFlag(tile, "state", readiness?.state ?? "none");
+    setFlag(tile, "ready", Boolean(readiness?.ready));
+    setText(x.word, readiness ? SHOOTER_WORDS[readiness.state] : "No shooter");
+
+    const top = Math.max(1, Number(cfg.maxRpm) || 4000);
+    const share = (rpm) => `${(clamp01(Math.abs(rpm) / top) * 100).toFixed(1)}%`;
+    const rps = readiness ? m.shooterRps : null;
+    const goal = readiness && Number.isFinite(m.shooterGoalRps) && Math.abs(m.shooterGoalRps) > 0.5 ? m.shooterGoalRps : null;
+    x.fly.style.width = rps === null ? "0%" : share(rps * 60);
+    setFlag(x.goal, "on", goal !== null);
+    if (goal !== null) x.goal.style.left = share(goal * 60);
+    setText(x.rpm, rps === null ? "—" : `${compactFigure(Math.abs(rps) * 60)} RPM`);
+
+    const hopper = mechanismState.hopper;
+    const full = m?.hopperFull === true;
+    x.load.style.width = m ? `${(clamp01(full ? 1 : hopper.fill / hopper.capacity) * 100).toFixed(1)}%` : "0%";
+    setText(x.fuel, !m ? "—" : full ? "Full" : `~${Math.round(hopper.fill)}`);
+
+    const parts = [];
+    if (m && Number.isFinite(m.hoodDeg)) parts.push(`<span class="capgrp">Hood <b>${m.hoodDeg.toFixed(0)}°</b></span>`);
+    if (m && mechanismState.matchFired > 0) parts.push(`<span class="capgrp"><b>~${Math.round(mechanismState.matchFired)}</b> shot this match</span>`);
+    const cap = !linked ? "waiting for robot"
+      : !m ? "No mechanism topics from the robot"
+      : !readiness ? "No flywheel speed from the robot"
+      : parts.join('<span class="capsep"> · </span>');
+    if (x.cap.innerHTML !== cap) x.cap.innerHTML = cap;
   },
 });
 
@@ -2124,8 +2200,7 @@ const DEFAULT_LAYOUT = [
            title: "Drive", style: "arc", unit: "RPM", scale: 60, min: 0, max: 6000, redline: 5800, decimals: 0 } },
   { type: "physics", x: 9, y: 2, w: 3, h: 3 },
   { type: "alerts", x: 4, y: 5, w: 3, h: 3 },
-  { type: "graph", x: 7, y: 5, w: 3, h: 2,
-    cfg: { topic: "/Catalyst/Loop/Robot/AverageMs", title: "Loop time", decimals: 1 } },
+  { type: "shooter", x: 7, y: 5, w: 3, h: 2 },
   { type: "auto", x: 7, y: 7, w: 3, h: 1 },
   { type: "battery", x: 10, y: 5, w: 2, h: 3 },
 ];
@@ -2445,6 +2520,7 @@ $("#cfgClose").onclick = () => {
 const PICK_ICONS = {
   match: `<path d="M5.5 21V4M5.5 4h11l-2.2 4 2.2 4h-11"/>`,
   tower: `<path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><circle cx="12" cy="12" r="2.6"/>`,
+  shooter: `<circle cx="8" cy="15.5" r="4.8"/><circle cx="8" cy="15.5" r="1.3" fill="currentColor"/><path d="M11.8 12.2c2.4-4 5.2-6 8.2-6.6"/><circle cx="19.6" cy="5.4" r="1.5"/>`,
   gauge: `<path d="M4.6 16.5a8 8 0 1 1 14.8 0"/><path d="m12 13 3.6-4"/><circle cx="12" cy="13.5" r="1.3" fill="currentColor"/>`,
   battery: `<rect x="3" y="7" width="16" height="10" rx="2.2"/><path d="M21.2 10.5v3M6.5 10v4M9.8 10v4"/>`,
   systemcore: `<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/>`,
@@ -4567,18 +4643,28 @@ const driveLog = { current: null, last: null };
  * in either view, so the field view's volley and the balls in the hopper agree, and it starts each match
  * from the preload the moment autonomous begins. `fired` only ever counts up; the field view launches a
  * ball for each one it has not seen. */
-const mechanismState = { now: null, at: null, fired: 0, wasEnabled: false, hopper: createHopper({ feedRate: FEED_RATE }) };
+const mechanismState = {
+  now: null, at: null, fired: 0, matchFired: 0, wasEnabled: false, hopper: createHopper({ feedRate: FEED_RATE }),
+};
 
 function trackMechanisms(now) {
   const linked = nt.status.connected || demo.on;
   const m = linked ? readMechanisms(ntView) : null;
   mechanismState.now = m && hasMechanisms(m) ? m : null;
   const enabled = linked && ds.enabled;
-  if (enabled && !mechanismState.wasEnabled && ds.auto) mechanismState.hopper.reset();
+  if (enabled && !mechanismState.wasEnabled && ds.auto) {
+    /* A match starts: the preload is back in the hopper and nothing has been shot yet. */
+    mechanismState.hopper.reset();
+    mechanismState.matchFired = 0;
+  }
   mechanismState.wasEnabled = enabled;
   const dt = mechanismState.at === null ? 0 : (now - mechanismState.at) / 1000;
   mechanismState.at = now;
-  if (mechanismState.now && enabled) mechanismState.fired += mechanismState.hopper.step(dt, mechanismState.now);
+  if (mechanismState.now && enabled) {
+    const out = mechanismState.hopper.step(dt, mechanismState.now);
+    mechanismState.fired += out;
+    mechanismState.matchFired += out;
+  }
 }
 
 function trackDrive(now) {

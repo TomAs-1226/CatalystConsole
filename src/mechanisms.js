@@ -53,6 +53,7 @@ export function readMechanisms(read) {
     feeder: roller("Feeder"),
     shooterRps: num("/Catalyst/Shooter/VelocityRPS"),
     shooterGoalRps: num("/Catalyst/Shooter/SetpointRPS"),
+    shooterAtSpeed: read.bool("/Catalyst/Shooter/AtSpeed", null),
     robotState: read.str("/Catalyst/RobotManager/State", null),
     hopperState: read.str("/Catalyst/HopperManager/State", null),
     hopperFull: read.bool("/Catalyst/HopperManager/IsFull", null),
@@ -131,6 +132,39 @@ export function isFeeding(m, minShooterRps = 8) {
   const s = state(m.hopperState);
   const asked = s ? s.includes("SCORE") || s.includes("FEED") : (m.feeder?.speed ?? 0) > 0.5;
   return asked && (m.feeder?.speed ?? 1) > 0.3 && Math.abs(m.shooterRps ?? 0) >= minShooterRps;
+}
+
+/**
+ * What the shooter is doing, the way a driver asks it: `{ state, ready }`, or null with no flywheel speed
+ * to go on.
+ *
+ * `state` is "shooting" or "feeding" while FUEL is going through a spinning shooter - feeding is lobbing
+ * it into the alliance zone rather than at the HUB - "ready" with a setpoint and the flywheel at it,
+ * "spinning" on the way there, "warm" at an idle speed with nothing asked of it, "idle", "spindown" while
+ * a flywheel with nothing asked of it slows, and "stopped" while the robot is disabled and the flywheel
+ * has stopped. `ready` is true only while a shot could go this instant.
+ *
+ * At speed is the robot's own flag when it publishes one, and otherwise within 3 percent of the setpoint
+ * (a revolution a second at least). What counts as asked for is the robot manager's state when there is
+ * one - 5805 idles its flywheel warm, so a setpoint alone does not mean a shot is coming.
+ */
+export function shooterReadiness(m, { enabled = true } = {}) {
+  const rps = m?.shooterRps;
+  if (typeof rps !== "number" || !Number.isFinite(rps)) return null;
+  const spinning = Math.abs(rps) >= 2;
+  if (!enabled) return { state: spinning ? "spindown" : "stopped", ready: false };
+  if (isFeeding(m)) {
+    const asked = state(m.robotState) || state(m.hopperState);
+    return { state: asked.includes("FEED") ? "feeding" : "shooting", ready: true };
+  }
+  const goal = typeof m.shooterGoalRps === "number" && Number.isFinite(m.shooterGoalRps) ? m.shooterGoalRps : null;
+  if (goal === null || Math.abs(goal) <= 0.5) return { state: spinning ? "spindown" : "idle", ready: false };
+  const robot = state(m.robotState);
+  if (robot && !/WARMUP|PREPARE|SCORE|FEED/.test(robot)) return { state: "warm", ready: false };
+  const atSpeed = typeof m.shooterAtSpeed === "boolean"
+    ? m.shooterAtSpeed
+    : Math.abs(rps - goal) <= Math.max(1, Math.abs(goal) * 0.03);
+  return { state: atSpeed ? "ready" : "spinning", ready: atSpeed };
 }
 
 /**

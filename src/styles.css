@@ -792,6 +792,44 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 @keyframes hubSoon { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .tower[data-soon="true"] .hub-lamp { animation: hubSoon 1s ease-in-out infinite; }
 
+/* ---- shooter ----
+   Said the way the hub tile says its state: the lamp and the word, green only while a shot could go this
+   instant, white while the shooter is doing anything else, grey with no shooter at all. Under them the
+   flywheel against its setpoint - a tick on the bar - and the FUEL on board, as thin bars with their
+   figures, then the hood and the shots this match. */
+.t .fill.shoot { justify-content: space-between; gap: clamp(2px, 2.5cqh, 8px); }
+.shoot .hub-now { font-size: clamp(18px, min(22cqh, 15cqw), 40px); }
+.shooter[data-ready="true"] .hub-lamp {
+  background: var(--cat-ok);
+  box-shadow: 0 0 0 0.12em color-mix(in srgb, var(--cat-ok) 28%, transparent);
+}
+.shooter[data-ready="true"] .hub-word { color: var(--cat-ok); }
+.shooter:not([data-state="none"]):not([data-ready="true"]) .hub-word { color: var(--cat-white); }
+.shooter:not([data-state="none"]):not([data-ready="true"]) .hub-lamp { box-shadow: inset 0 0 0 2px var(--cat-body); }
+.shoot-rows { display: flex; flex-direction: column; gap: clamp(3px, 3cqh, 8px); min-width: 0; }
+.shoot-row { display: grid; grid-template-columns: 4.6em minmax(0, 1fr) 5em; align-items: center; gap: 10px; min-width: 0; }
+.shoot-lab { font-size: var(--fs-12); font-weight: var(--cat-w-medium); color: var(--cat-dim); white-space: nowrap; }
+.shoot-bar { position: relative; height: 5px; border-radius: 999px; background: var(--cat-track); }
+.shoot-bar i {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: inherit; background: var(--cat-data);
+  transition: width 120ms linear;
+}
+.shoot-bar b {
+  display: none; position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--cat-white); transition: left 120ms linear;
+}
+.shoot-bar b[data-on="true"] { display: block; }
+.shoot-fig {
+  font-family: var(--readout); font-variant-numeric: tabular-nums; font-size: var(--fs-13);
+  color: var(--cat-white); text-align: right; white-space: nowrap;
+}
+@container tile (max-height: 110px) {
+  .shoot .cap { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shoot-bar i, .shoot-bar b { transition: none; }
+}
+
 /* The rest of the match for this alliance: auto, then the six teleop segments, each as long as it runs.
    Green where the hub scores, the track where it does not, fainter still where FMS has not said yet.
    What has run is dimmed, and the part the match is in is taller, darkened up to where the match is. */

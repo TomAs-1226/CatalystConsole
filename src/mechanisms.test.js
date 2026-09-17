@@ -13,6 +13,7 @@ import {
   PRELOAD_FUEL,
   readAim,
   readMechanisms,
+  shooterReadiness,
   speedToReach,
 } from "./mechanisms.js";
 
@@ -89,6 +90,24 @@ test("an intake running on open carpet takes nothing in; a loaded one does", () 
   assert.equal(hopper.fill, 0, "rollers spinning free");
   run(hopper, { ...intaking, intake: { speed: 1, currentAmps: 30 } }, 2, 60);
   near(hopper.fill, 10, 1e-6, "rollers eating FUEL");
+});
+
+test("the shooter is ready only at speed with a shot asked for, and says so while it shoots", () => {
+  const at = (fields, options) => shooterReadiness({ shooterRps: 0, shooterGoalRps: 0, ...fields }, options);
+  assert.equal(at({ shooterRps: null }), null, "no flywheel speed");
+  assert.equal(at({}).state, "idle");
+  assert.equal(at({ shooterRps: 12.4, shooterGoalRps: 12.5, robotState: "IDLE" }).state, "warm", "5805's warm idle");
+  const spinning = at({ shooterRps: 30, shooterGoalRps: 41, robotState: "PREPARE_SCORE" });
+  assert.deepEqual(spinning, { state: "spinning", ready: false });
+  assert.deepEqual(at({ shooterRps: 40.4, shooterGoalRps: 41, robotState: "PREPARE_SCORE" }), { state: "ready", ready: true });
+  assert.equal(at({ shooterRps: 30, shooterGoalRps: 41, shooterAtSpeed: true, robotState: "PREPARE_SCORE" }).state, "ready",
+    "the robot's own at-speed flag wins");
+  const shooting = { shooterRps: 41, shooterGoalRps: 41, feeder: { speed: 0.83 } };
+  assert.deepEqual(at({ ...shooting, robotState: "SCORE", hopperState: "SCORE" }), { state: "shooting", ready: true });
+  assert.equal(at({ ...shooting, robotState: "FEED", hopperState: "FEED" }).state, "feeding");
+  assert.equal(at({ shooterRps: 20, shooterGoalRps: 0 }).state, "spindown");
+  assert.deepEqual(at({ ...shooting, robotState: "SCORE" }, { enabled: false }), { state: "spindown", ready: false }, "disabled");
+  assert.equal(at({}, { enabled: false }).state, "stopped");
 });
 
 test("the full sensor pins the estimate, and ejecting empties it", () => {
