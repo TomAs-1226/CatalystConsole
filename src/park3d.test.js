@@ -1,0 +1,357 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  ELEVATION_DEFAULT,
+  ELEVATION_MAX,
+  ELEVATION_MIN,
+  IDLE_AFTER_MS,
+  IDLE_RATE,
+  RELEASE_WINDOW_MS,
+  SPIN_MAX,
+  clampElevation,
+  closest,
+  coastAngle,
+  dampVelocity,
+  fitDistance,
+  idleSpin,
+  normalizeRobot,
+  releaseVelocity,
+  silhouette,
+} from "./park3d.js";
+
+// What is pinned down here is how the park view feels under a hand, not how it looks. The look is
+// judged by eye; the feel is arithmetic, and arithmetic that drifts shows up as a stage that coasts
+// further on a slow laptop, lurches when the idle turn starts, or flicks off on a finger that had
+// already stopped. None of it needs a GPU, so none of it is tested through one.
+
+const near = (actual, expected, tolerance, what = "") =>
+  assert.ok(Math.abs(actual - expected) <= tolerance, `${what} expected ${expected} ± ${tolerance}, got ${actual}`);
+
+/** A drag at a constant `pxPerSecond`, sampled every `every` ms for `ms`, starting at t = 0, x = 0. */
+const steady = (pxPerSecond, ms, every = 16) => {
+  const samples = [];
+  for (let t = 0; t <= ms; t += every) samples.push({ t, x: (pxPerSecond * t) / 1000 });
+  return samples;
+};
+
+// --- the coast ---------------------------------------------------------------
+
+test("one 60 Hz frame of coasting keeps 92 percent of the speed", () => {
+  near(dampVelocity(10, 1 / 60), 9.2, 1e-9);
+});
+
+test("a coast decays the same however the time is sliced", () => {
+  // The view draws at 30 fps and the laptop is also running the Driver Station, so frames arrive
+  // unevenly. Thirty small steps and one large one have to land on the same speed.
+  let sliced = 5;
+  for (let i = 0; i < 30; i++) sliced = dampVelocity(sliced, 0.5 / 30);
+  near(sliced, dampVelocity(5, 0.5), 1e-9);
+  near(dampVelocity(1, 1 / 30), 0.92 * 0.92, 1e-12);
+});
+
+test("decay slows a spin without ever reversing or growing it", () => {
+  for (const v of [-6, -0.5, 0.5, 6]) {
+    const next = dampVelocity(v, 0.2);
+    assert.equal(Math.sign(next), Math.sign(v));
+    assert.ok(Math.abs(next) < Math.abs(v));
+  }
+});
+
+test("no time passing changes nothing, and a broken velocity stops the stage", () => {
+  assert.equal(dampVelocity(3, 0), 3);
+  assert.equal(dampVelocity(3, -1), 3);
+  // A NaN spin would put NaN into the stage's rotation, and a NaN matrix draws nothing at all.
+  assert.equal(dampVelocity(NaN, 0.1), 0);
+  assert.equal(dampVelocity(Infinity, 0.1), 0);
+});
+
+test("a caller's own decay rate is honoured", () => {
+  near(dampVelocity(1, 1 / 60, 0.5), 0.5, 1e-12);
+});
+
+test("the distance a flick coasts does not depend on the frame rate", () => {
+  // The half dampVelocity alone does not give. Stepping the angle by v * dt overshoots by an amount
+  // that grows with the frame length, so the same flick would turn the robot further at 30 fps.
+  const coast = (fps) => {
+    let v = 4;
+    let angle = 0;
+    for (let i = 0; i < fps * 3; i++) {
+      angle += coastAngle(v, 1 / fps);
+      v = dampVelocity(v, 1 / fps);
+    }
+    return angle;
+  };
+  near(coast(30), coast(144), 1e-9);
+  near(coast(30), 4 / (-60 * Math.log(0.92)), 1e-3, "the whole coast, integrated");
+});
+
+test("coasting with no damping is plain constant speed, and nonsense goes nowhere", () => {
+  near(coastAngle(2, 0.5, 1), 1, 1e-12);
+  assert.equal(coastAngle(2, 0), 0);
+  assert.equal(coastAngle(NaN, 0.1), 0);
+});
+
+// --- elevation ---------------------------------------------------------------
+
+test("the camera is held above the floor and well short of overhead", () => {
+  assert.ok(ELEVATION_MIN > 0, "at or below zero the lens is level with the floor or under it");
+  assert.ok(ELEVATION_MAX < Math.PI / 2 - 0.2, "straight down, a sideways drag spins the picture in place");
+  assert.ok(ELEVATION_DEFAULT > ELEVATION_MIN && ELEVATION_DEFAULT < ELEVATION_MAX);
+});
+
+test("an elevation inside the range passes through untouched", () => {
+  assert.equal(clampElevation(0.5), 0.5);
+  assert.equal(clampElevation(ELEVATION_MIN), ELEVATION_MIN);
+  assert.equal(clampElevation(ELEVATION_MAX), ELEVATION_MAX);
+});
+
+test("dragging past either end holds at that end", () => {
+  assert.equal(clampElevation(-1), ELEVATION_MIN);
+  assert.equal(clampElevation(Math.PI / 2), ELEVATION_MAX);
+  assert.equal(clampElevation(-Infinity), ELEVATION_MIN);
+  assert.equal(clampElevation(Infinity), ELEVATION_MAX);
+});
+
+test("garbage puts the camera back at the default angle rather than breaking the view", () => {
+  assert.equal(clampElevation(NaN), ELEVATION_DEFAULT);
+  assert.equal(clampElevation(undefined), ELEVATION_DEFAULT);
+});
+
+// --- release velocity --------------------------------------------------------
+
+test("no drag, or a tap, has no speed", () => {
+  assert.equal(releaseVelocity([]), 0);
+  assert.equal(releaseVelocity(undefined), 0);
+  assert.equal(releaseVelocity([{ t: 0, x: 100 }]), 0);
+  assert.equal(releaseVelocity([{ t: 0, x: 100 }, { t: 90, x: 100 }]), 0);
+});
+
+/* A milliradian per pixel keeps every speed below in the tests well under SPIN_MAX, so a reading in
+   rad/s is the pointer's px/s divided by a thousand. */
+const MRAD = 0.001;
+
+test("a steady drag is measured at its own speed, in the units asked for", () => {
+  const samples = steady(600, 200);
+  near(releaseVelocity(samples, MRAD), 0.6, 1e-9);
+  near(releaseVelocity(samples, 0.005), 3, 1e-9);
+});
+
+test("the speed is signed the way the pointer moved", () => {
+  assert.ok(releaseVelocity(steady(400, 200), 1) > 0);
+  assert.ok(releaseVelocity(steady(-400, 200), 1) < 0);
+});
+
+test("a swipe that stopped and was held before letting go does not coast", () => {
+  const samples = steady(3000, 300);
+  const end = samples.at(-1);
+  for (let t = end.t + 16; t <= end.t + 160; t += 16) samples.push({ t, x: end.x });
+  assert.equal(releaseVelocity(samples, 1), 0);
+});
+
+test("a finger that rested without moving events, then lifted, measures zero", () => {
+  // A resting finger sends no pointermove at all. The pause is visible only in the time of the
+  // release sample, which sits exactly where the last move left the pointer.
+  const samples = steady(2000, 150);
+  const end = samples.at(-1);
+  samples.push({ t: end.t + 400, x: end.x });
+  assert.equal(releaseVelocity(samples, 1), 0);
+});
+
+test("a flick that sped up at the end is read at its end speed, not its average", () => {
+  const samples = [];
+  for (let t = 0; t <= 300; t += 10) samples.push({ t, x: t < 200 ? 0.1 * t : 20 + (t - 200) });
+  near(releaseVelocity(samples, MRAD), 1, 1e-9, "1000 px/s at the end, 100 px/s before it");
+});
+
+test("sparse events on a slow machine still carry a flick", () => {
+  // Two events 120 ms apart: the window holds only the last one, and the sample before it is what
+  // lets the measurement span the window at all.
+  near(releaseVelocity([{ t: 0, x: 0 }, { t: 120, x: 60 }], MRAD), 0.5, 1e-9);
+});
+
+test("samples sharing one timestamp do not divide by zero", () => {
+  assert.equal(releaseVelocity([{ t: 5, x: 0 }, { t: 5, x: 40 }], 1), 0);
+});
+
+test("a wild flick is capped in both directions", () => {
+  assert.equal(releaseVelocity(steady(1e6, 100), 1), SPIN_MAX);
+  assert.equal(releaseVelocity(steady(-1e6, 100), 1), -SPIN_MAX);
+});
+
+test("the window is about the last eighty milliseconds", () => {
+  assert.ok(RELEASE_WINDOW_MS >= 60 && RELEASE_WINDOW_MS <= 100);
+});
+
+// --- the idle turn -----------------------------------------------------------
+
+test("the stage stays still until the idle delay has passed", () => {
+  assert.equal(idleSpin(0), 0);
+  assert.equal(idleSpin(IDLE_AFTER_MS - 1), 0);
+  // At the threshold itself the turn starts from rest. Starting at cruising speed is the jolt this
+  // exists to avoid.
+  assert.equal(idleSpin(IDLE_AFTER_MS), 0);
+});
+
+test("the delay is about six seconds and the turn six to eight degrees a second", () => {
+  assert.ok(IDLE_AFTER_MS >= 5000 && IDLE_AFTER_MS <= 7000);
+  const degrees = (IDLE_RATE * 180) / Math.PI;
+  assert.ok(degrees >= 6 && degrees <= 8, `${degrees} deg/s`);
+});
+
+test("the turn eases in from rest and settles at its cruising speed", () => {
+  let previous = 0;
+  for (let ms = IDLE_AFTER_MS; ms <= IDLE_AFTER_MS + 5000; ms += 50) {
+    const speed = idleSpin(ms);
+    assert.ok(speed >= previous, `the turn slowed down at ${ms} ms`);
+    assert.ok(speed <= IDLE_RATE + 1e-12, `the turn overshot at ${ms} ms`);
+    previous = speed;
+  }
+  assert.ok(idleSpin(IDLE_AFTER_MS + 100) < IDLE_RATE * 0.05, "a tenth of a second in it is barely moving");
+  assert.equal(idleSpin(IDLE_AFTER_MS + 4000), IDLE_RATE);
+  assert.equal(idleSpin(IDLE_AFTER_MS + 3_600_000), IDLE_RATE);
+});
+
+test("reduced motion never turns the stage", () => {
+  for (const ms of [0, IDLE_AFTER_MS, IDLE_AFTER_MS + 1000, 1e9]) assert.equal(idleSpin(ms, true), 0);
+});
+
+test("a nonsense idle time does not turn the stage", () => {
+  assert.equal(idleSpin(NaN), 0);
+  assert.equal(idleSpin(-5), 0);
+  assert.equal(idleSpin(undefined), 0);
+});
+
+// --- framing -----------------------------------------------------------------
+
+const FOV = (30 * Math.PI) / 180;
+/** The default robot's framing parts, near enough: a wide low base and a narrow tall superstructure. */
+const ROBOT = [
+  { radius: 0.6, bottom: 0, top: 0.21 },
+  { radius: 0.25, bottom: 0, top: 0.52 },
+];
+const LOOK = 0.26;
+
+test("on a wide canvas the robot fills the asked share of the height", () => {
+  const d = fitDistance(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9, 0.6, 0.8);
+  const seen = silhouette(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9, d);
+  near(seen.vertical, 0.6, 1e-6);
+  assert.ok(seen.side < 0.8);
+});
+
+test("on a narrow canvas the width decides, so the bumpers are never cropped", () => {
+  const d = fitDistance(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 0.5, 0.6, 0.8);
+  const seen = silhouette(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 0.5, d);
+  near(seen.side, 0.8, 1e-6);
+  assert.ok(seen.vertical < 0.6);
+  assert.ok(d > fitDistance(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9, 0.6, 0.8));
+});
+
+test("a canvas wider than the robot needs changes nothing", () => {
+  near(fitDistance(ROBOT, LOOK, 0.3, FOV, 2), fitDistance(ROBOT, LOOK, 0.3, FOV, 4), 1e-9);
+});
+
+test("every elevation in range is framed to the same height", () => {
+  // The camera refits as it tilts, so looking down on the robot does not zoom it out of the frame.
+  for (const elevation of [ELEVATION_MIN, ELEVATION_DEFAULT, 0.8, ELEVATION_MAX]) {
+    const d = fitDistance(ROBOT, LOOK, elevation, FOV, 16 / 9, 0.6, 0.8);
+    near(silhouette(ROBOT, LOOK, elevation, FOV, 16 / 9, d).vertical, 0.6, 1e-6, `at ${elevation} rad`);
+  }
+});
+
+test("a bigger robot stands the camera further off", () => {
+  const bigger = ROBOT.map((part) => ({ ...part, radius: part.radius * 1.5, top: part.top * 1.5 }));
+  assert.ok(fitDistance(bigger, LOOK * 1.5, 0.3, FOV, 16 / 9) > fitDistance(ROBOT, LOOK, 0.3, FOV, 16 / 9));
+});
+
+test("describing the superstructure on its own frames the robot tighter than one cylinder", () => {
+  // One cylinder round the whole robot puts the top of a central tower out at the bumpers' far edge,
+  // and the robot comes out smaller than asked. This is the reason framing takes parts at all.
+  const oneCylinder = [{ radius: 0.6, bottom: 0, top: 0.52 }];
+  assert.ok(fitDistance(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9) < fitDistance(oneCylinder, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9));
+});
+
+test("however much fill is asked for, the camera never goes inside the robot", () => {
+  const d = fitDistance(ROBOT, LOOK, 0.3, FOV, 16 / 9, 3, 3);
+  assert.ok(d >= closest(ROBOT, LOOK));
+  assert.ok(closest(ROBOT, LOOK) > Math.hypot(0.6, 0.26));
+});
+
+test("a robot looked at from above sits low on the canvas until the lens is shifted", () => {
+  // The near bumper is drawn larger than the far one, and the bulk of a robot is low. Both put the
+  // middle of the silhouette below the middle of the canvas, which is what placeCamera's lens shift
+  // takes back out.
+  const d = fitDistance(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9);
+  assert.ok(silhouette(ROBOT, LOOK, ELEVATION_DEFAULT, FOV, 16 / 9, d).centre < -0.05);
+});
+
+test("a cylinder seen dead level from its own middle is centred exactly", () => {
+  const drum = [{ radius: 0.5, bottom: 0, top: 0.6 }];
+  near(silhouette(drum, 0.3, 0, FOV, 1, 3).centre, 0, 1e-12);
+});
+
+// --- the robot description ---------------------------------------------------
+
+test("an empty description is the default robot", () => {
+  for (const spec of [{}, undefined, null, "robot"]) {
+    const robot = normalizeRobot(spec);
+    assert.equal(robot.frameLength, 0.74);
+    assert.equal(robot.frameWidth, 0.74);
+    assert.equal(robot.bumperThickness, 0.0762);
+    near(robot.bumperLength, 0.74 + 2 * 0.0762, 1e-12);
+    near(robot.bumperWidth, 0.74 + 2 * 0.0762, 1e-12);
+    assert.equal(robot.height, 0.52);
+    assert.equal(robot.modules.length, 4);
+  }
+});
+
+test("the default modules sit at the frame's corners, inset a tenth of a metre, front-left first", () => {
+  const [fl, fr, bl, br] = normalizeRobot({}).modules;
+  near(fl[0], 0.27, 1e-12); near(fl[1], 0.27, 1e-12);
+  near(fr[0], 0.27, 1e-12); near(fr[1], -0.27, 1e-12);
+  near(bl[0], -0.27, 1e-12); near(bl[1], 0.27, 1e-12);
+  near(br[0], -0.27, 1e-12); near(br[1], -0.27, 1e-12);
+});
+
+test("a small frame pulls the default modules in so opposite corners cannot cross", () => {
+  const [[x, y]] = normalizeRobot({ frameLength: 0.3, frameWidth: 0.3 }).modules;
+  assert.ok(x > 0 && y > 0);
+  near(x, 0.075, 1e-12);
+});
+
+test("a bumper size on its own implies the frame inside it", () => {
+  const robot = normalizeRobot({ bumperLength: 1.0, bumperWidth: 0.9 });
+  near(robot.frameLength, 1.0 - 2 * 0.0762, 1e-12);
+  near(robot.frameWidth, 0.9 - 2 * 0.0762, 1e-12);
+  assert.equal(robot.bumperLength, 1.0);
+});
+
+test("a frame size on its own implies the bumpers around it", () => {
+  const robot = normalizeRobot({ frameLength: 0.8, frameWidth: 0.6, bumperThickness: 0.08 });
+  near(robot.bumperLength, 0.96, 1e-12);
+  near(robot.bumperWidth, 0.76, 1e-12);
+});
+
+test("bumpers smaller than their frame are not believed", () => {
+  near(normalizeRobot({ frameLength: 0.8, bumperLength: 0.7 }).bumperLength, 0.8 + 2 * 0.0762, 1e-12);
+});
+
+test("values that are not plausible numbers count as missing", () => {
+  const robot = normalizeRobot({ frameLength: "0.8", frameWidth: -1, height: NaN, bumperThickness: Infinity });
+  assert.equal(robot.frameLength, 0.74);
+  assert.equal(robot.frameWidth, 0.74);
+  assert.equal(robot.height, 0.52);
+  assert.equal(robot.bumperThickness, 0.0762);
+});
+
+test("broken module entries are dropped and the rest kept", () => {
+  const robot = normalizeRobot({ modules: [[0.3, 0.3], [0.3], ["0.3", 0.1], null, [NaN, 0], [0.3, -0.3]] });
+  assert.deepEqual(robot.modules, [[0.3, 0.3], [0.3, -0.3]]);
+});
+
+test("no usable modules means the default four, and more than eight are cut to eight", () => {
+  assert.equal(normalizeRobot({ modules: [] }).modules.length, 4);
+  assert.equal(normalizeRobot({ modules: [[NaN, NaN]] }).modules.length, 4);
+  const many = Array.from({ length: 12 }, (_, i) => [i * 0.05, 0.2]);
+  assert.equal(normalizeRobot({ modules: many }).modules.length, 8);
+});
