@@ -21,7 +21,7 @@ export const GRAVITY = 9.81;
 export const LAUNCH_KEEP = 0.81;
 /* How many FUEL the shooter takes abreast, and how many it gets through a second while it feeds. */
 export const SHOOTER_LANES = 4;
-export const FEED_RATE = 12;
+export const FEED_RATE = 16;
 
 const INCH = 0.0254;
 
@@ -97,7 +97,7 @@ export function isFeeding(m, minShooterRps = 8) {
  * step() returns how many balls left through the shooter in that step, so the views launch one ball each;
  * the fraction left over carries to the next step, so the cadence holds at any frame rate.
  */
-export function createHopper({ capacity = 40, intakeRate = 6, feedRate = 8, ejectRate = 6, preload = PRELOAD_FUEL } = {}) {
+export function createHopper({ capacity = 50, intakeRate = 8, feedRate = 8, ejectRate = 6, preload = PRELOAD_FUEL } = {}) {
   const cap = Math.max(1, capacity);
   let fill = Math.min(cap, Math.max(0, preload));
   let owed = 0;

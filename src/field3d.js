@@ -56,6 +56,7 @@ const SKY = T("--draw-sky");
 const BOUNCE = T("--draw-bounce");
 const FILL_LIGHT = T("--draw-fill");
 const UNKNOWN = T("--draw-unknown");
+const FUEL = T("--draw-fuel") || "#a8913e";
 
 /* Frames while something moves, and the refresh while nothing does. */
 const FRAME_MS = 1000 / 60;
@@ -598,9 +599,11 @@ export function createField(canvas, opts) {
         return flatMat;
       });
       obj.material = Array.isArray(obj.material) ? next : next[0];
-      /* The field's FUEL - several hundred instances of one ball - lends its colour to the balls the robot
-         shoots, so they read as the same thing. */
-      if (obj.isInstancedMesh && obj.count >= 400 && !Array.isArray(obj.material)) shots.setColour(obj.material.color);
+      /* The field's FUEL - several hundred instances of one ball - keeps its colour where everything else
+         goes grey: muted yellow, the same as the balls the robot shoots. */
+      if (obj.isInstancedMesh && obj.count >= 400 && !Array.isArray(obj.material)) {
+        obj.material = carve(new THREE.MeshLambertMaterial({ color: FUEL, toneMapped: false }), carveUniforms);
+      }
     });
 
     cad.add(model);
@@ -635,7 +638,7 @@ export function createField(canvas, opts) {
      counts the balls that leave the hopper (see mechanisms.js createHopper) and they go out here in
      volleys, up to four abreast across the shooter, each ball a little early or late and a little off
      the others in speed and angle, the way a real shooter's stream looks. */
-  const shots = createShots();
+  const shots = createShots({ colour: FUEL });
   scene.add(shots.root);
   let mechanisms = null;
   let firedSeen = null;

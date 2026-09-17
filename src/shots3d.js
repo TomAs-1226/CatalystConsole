@@ -7,31 +7,32 @@
  * pointing at the speed the flywheel gives it, and fades out while it is still climbing away. It never
  * lands and never reaches a HUB.
  *
- * The balls look like the field's own FUEL - the same flat material under the field's lights - so the
- * robot is visibly shooting the same thing that lies on the carpet.
+ * The balls look like the field's own FUEL - muted yellow, the same flat material under the field's
+ * lights - so the robot is visibly shooting the same thing that lies on the carpet, and in the volume a
+ * REBUILT shooter moves it.
  */
 
 import * as THREE from "./vendor/three.module.min.js";
 import { FUEL_DIAMETER_M, GRAVITY } from "./mechanisms.js";
 
 const RADIUS = FUEL_DIAMETER_M / 2;
-/* More than four lanes of several volleys, so a stream never runs out of balls to draw. */
-const MAX_BALLS = 64;
+/* A shooter four wide at sixteen balls a second keeps twenty-odd in the air: room for more than that. */
+const MAX_BALLS = 160;
 /* How long a ball is shown: grown out of the shooter over the first few centimetres, carried along its
    arc, and faded out well before it could come down. */
 const EMERGE_S = 0.05;
-const SHOWN_S = 0.55;
-const FADE_S = 0.25;
+const SHOWN_S = 0.8;
+const FADE_S = 0.3;
 
 const smooth = (u) => {
   const x = Math.min(1, Math.max(0, u));
   return x * x * (3 - 2 * x);
 };
 
-/** Returns { root, launch, step, setColour, clear, count, dispose }. */
-export function createShots() {
+/** Returns { root, launch, step, setColour, clear, count, dispose }. `colour` is FUEL's. */
+export function createShots({ colour = "#a8913e" } = {}) {
   const geometry = new THREE.IcosahedronGeometry(RADIUS, 2);
-  const material = new THREE.MeshLambertMaterial({ color: 0x5e5d56, toneMapped: false });
+  const material = new THREE.MeshLambertMaterial({ color: colour, toneMapped: false });
   const mesh = new THREE.InstancedMesh(geometry, material, MAX_BALLS);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0;
@@ -90,9 +91,9 @@ export function createShots() {
     get count() {
       return balls.length;
     },
-    /** The field's own FUEL colour, once the field model has said what it is. */
-    setColour(colour) {
-      if (colour) material.color.copy(colour);
+    /** FUEL's colour, as a THREE.Color or any CSS colour string. */
+    setColour(next) {
+      if (next) material.color.set(next);
     },
     clear() {
       balls.length = 0;

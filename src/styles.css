@@ -257,6 +257,9 @@
   --draw-bounce: #1c1c1e;                   /* hemisphere light, from below */
   --draw-fill: #d1d1d6;                     /* the second directional light, so the far half is not a silhouette */
   --draw-unknown: #888888;                  /* a CAD material that arrived with no colour of its own */
+  /* FUEL, the one thing on the field that keeps its colour: a muted yellow, as the foam balls are, dimmed
+     to sit in the charcoal world instead of glowing in it. */
+  --draw-fuel: #a8913e;
   /* Light and shade in a drawing, as channels rather than a colour, so a ramp can set its own alpha
      without a second token per stop. `rgb(var(--draw-light) / 0.3)`. */
   --draw-light: 255 255 255;
