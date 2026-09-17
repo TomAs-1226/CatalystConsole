@@ -2710,6 +2710,7 @@ function paintTune() {
         tog.setAttribute("role", "switch");
         tog.setAttribute("aria-checked", String(bool(t.key)));
         tog.setAttribute("aria-label", t.name || leaf(t.key));
+        tog.dataset.key = t.key;
         tog.appendChild(el("i"));
         tog.onclick = () => ntSet(t.key, !bool(t.key));
         const control = el("div", "tswitch");
@@ -2745,6 +2746,25 @@ function paintTune() {
         "Persist anything you like on the robot — the console does not, and a reboot returns to code defaults.",
     })
   );
+}
+
+/* A switch on the Tune sheet shows what the robot holds, not what was pressed.
+ *
+ * `paintTune` builds the sheet once, when it is opened, and a switch's `aria-checked` was only ever
+ * written there - so a pressed switch did not move until the sheet was opened again, even though the
+ * value had been written. It follows the store now, on every paint while the sheet is up, which also
+ * means a write the robot refuses leaves the switch where the robot says it is rather than where the
+ * press put it. Written only when it changed. */
+function syncTune() {
+  for (const tog of $("#tuneSheet").querySelectorAll(".tog[data-key]")) {
+    const on = bool(tog.dataset.key, null);
+    if (on === null) continue;
+    const v = String(on);
+    if (tog.getAttribute("aria-checked") === v) continue;
+    tog.setAttribute("aria-checked", v);
+    const word = tog.parentElement.querySelector(".v");
+    if (word) word.textContent = on ? "On" : "Off";
+  }
 }
 
 /* ------------------------------------------------------------------- logs sheet */
@@ -5318,6 +5338,7 @@ function paint() {
   }
 
   const active = activeView();
+  if (active === "tune") syncTune();
   if (active === "topics") paintTopics();
   if (active === "logs") tickLinkHistory();
   if (active === "can") paintCan();
