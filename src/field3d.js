@@ -1712,6 +1712,7 @@ export function createField(canvas, opts) {
   /* ---- public surface ---- */
 
   let lastTrailAt = 0;
+  let planSig = "";
   let lastTrailX = Infinity;
   let lastTrailZ = Infinity;
 
@@ -1738,8 +1739,17 @@ export function createField(canvas, opts) {
         dirty = true;
       }
       if (state.path !== undefined) {
-        /* The plan in field metres, into the scene's frame once here rather than every frame. */
+        /* The plan in field metres, into the scene's frame once here rather than every frame - and only when
+           it is a different plan, so a robot standing still with no plan does not keep the view drawing. */
         const points = state.path && Array.isArray(state.path.points) ? state.path.points : null;
+        const last = points && points.length ? points[points.length - 1] : null;
+        const sig = points && points.length >= 2
+          ? `${points.length}|${points[0]}|${last}|${state.path.end}|${state.path.style}`
+          : "";
+        if (sig !== planSig) {
+          planSig = sig;
+          dirty = true;
+        }
         plan = points && points.length >= 2
           ? {
               points: points.map(([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)]),
@@ -1749,7 +1759,6 @@ export function createField(canvas, opts) {
               improvised: state.path.style === "improvised",
             }
           : null;
-        dirty = true;
       }
 
       if (state.mechanisms !== undefined) mechanisms = state.mechanisms;

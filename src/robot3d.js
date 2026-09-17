@@ -122,6 +122,20 @@ const PART = {
 /* ---- geometry helpers ---- */
 
 /** A rounded rectangle centred on (cx, cy). */
+/* What about a robot's mechanism readings changes its drawing, to the precision a drawing can show: a robot
+   publishing the same numbers again has nothing new to draw, and saying it had kept every view awake. */
+function mechanismSignature(m, hopper) {
+  const r = (v, k) => (Number.isFinite(v) ? Math.round(v * k) : "-");
+  const roller = (x) => (x ? `${r(x.speed, 100)},${r(x.motorRps, 10)},${r(x.currentAmps, 1)}` : "-");
+  const fill = hopper === null ? "-" : r(hopper, 100);
+  if (!m) return `none|${fill}`;
+  const modules = Array.isArray(m.modules) ? m.modules.map((q) => `${r(q.speed, 100)}:${r(q.angle, 100)}`).join(";") : "-";
+  return [
+    r(m.hoodDeg, 10), r(m.deployM, 1000), roller(m.intake), roller(m.conveyor), roller(m.feeder),
+    r(m.shooterRps, 10), m.robotState ?? "", m.hopperState ?? "", modules, fill,
+  ].join("|");
+}
+
 function roundedRect(w, h, r, cx = 0, cy = 0) {
   const x = cx - w / 2;
   const y = cy - h / 2;
@@ -1075,6 +1089,7 @@ export function createRobotModel(opts = {}) {
   let fade = null;
   let mechanisms = null;
   let hopper = null;
+  let mechanismSig = "";
 
   /* Build the robot for `next`, or for the CAD once it has loaded, whose size wins over the spec sheet's.
      Returns true when the model was rebuilt: callers pass the config over on every telemetry tick, and
@@ -1188,13 +1203,17 @@ export function createRobotModel(opts = {}) {
     /**
      * The robot's mechanisms as mechanisms.js reads them, and how full the hopper estimate is, 0 to 1.
      * A model with moving parts poses them from these on its next step; the generic model has none and
-     * ignores them. Returns true when something will move.
+     * ignores them. Returns true when the readings change what is drawn.
      */
     setMechanisms(readings, hopperFill = null) {
       if (disposed) return false;
       mechanisms = readings ?? null;
       hopper = Number.isFinite(hopperFill) ? hopperFill : null;
-      return Boolean(built?.animate) && (mechanisms !== null || hopper !== null);
+      if (!built?.animate) return false;
+      const sig = mechanismSignature(mechanisms, hopper);
+      if (sig === mechanismSig) return false;
+      mechanismSig = sig;
+      return true;
     },
 
     /** The team number on the bumpers. Anything bumperNumber() refuses prints none. */
