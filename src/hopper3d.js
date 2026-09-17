@@ -97,7 +97,26 @@ export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a891
   const order = fillOrder(slots, feeder);
   let entry = [mouth[0], mouth[1], mouth[2]];
   let offset = null;
+  /* An icosphere's triangles are all the same size, which a lat-long sphere's are not, so it reads evenly
+     from every side for fewer of them. three.js builds it unindexed, though, and unindexed geometry gets
+     one normal per face: the balls came out as visibly faceted lumps. A sphere about the origin has an
+     exact normal at every point - the direction of the point itself - so they are written rather than
+     computed, and 320 triangles then shade like a smooth ball. */
   const geometry = new THREE.IcosahedronGeometry(RADIUS, 2);
+  {
+    const position = geometry.getAttribute("position");
+    const normal = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const z = position.getZ(i);
+      const length = Math.hypot(x, y, z) || 1;
+      normal[i * 3] = x / length;
+      normal[i * 3 + 1] = y / length;
+      normal[i * 3 + 2] = z / length;
+    }
+    geometry.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+  }
   const material = givenMaterial ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, slots.length + 8));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

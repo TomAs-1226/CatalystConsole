@@ -563,6 +563,10 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
   cad.traverse((obj) => {
     if (!obj.isMesh) return;
     obj.material = Array.isArray(obj.material) ? obj.material.map(restyle) : restyle(obj.material);
+    /* Glass after everything else it might be in front of, including the bumper numbers, because a
+       panel's blend has to land on a finished picture to read as glass rather than as a grey film. */
+    const glass = [obj.material].flat().some((material) => material?.userData?.glass);
+    if (glass) obj.renderOrder = 3;
   });
   group.add(cad);
   const put = (geometry, material, x, y, z) => {
@@ -937,7 +941,11 @@ export function createRobotModel(opts = {}) {
       transparent: true,
       opacity: 0.62,
       envMapIntensity: 1.3,
+      /* An open shell, so both sides are drawn - but it must not write depth: a transparent surface
+         that does clips whatever draws after it, and what draws after it here is the flywheels the
+         tint exists to show. */
       side: THREE.DoubleSide,
+      depthWrite: false,
       dithering: true,
     })),
     flywheel: standard(PART.flywheel, 0, 0.7, 0.5),
@@ -992,11 +1000,22 @@ export function createRobotModel(opts = {}) {
     if (envTexture) material.envMap = envTexture;
     return material;
   };
+  /* No part of the robot reflects more of the softbox than this, whatever the CAD says. A CAD author
+     picks a colour to tell parts apart on their screen, not to stand under a studio light: the white
+     electronics plate on the floor is #e5e5e5, which is a brighter surface than paper, and it came out
+     as the brightest thing in the picture - a flat blown-out rectangle that read as a hole in the
+     robot. Scaling the whole colour keeps it white and keeps every part's relation to every other. */
+  const CAD_ALBEDO_CEILING = 0.62;
+  const graded = (colour) => {
+    const lum = 0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b;
+    if (lum > CAD_ALBEDO_CEILING) colour.multiplyScalar(CAD_ALBEDO_CEILING / lum);
+    return colour;
+  };
   const restyle = (source) => {
     if (!source) return source;
     let made = cadMaterials.get(source);
     if (made) return made;
-    const colour = source.color ? source.color.clone() : new THREE.Color(0.5, 0.5, 0.5);
+    const colour = graded(source.color ? source.color.clone() : new THREE.Color(0.5, 0.5, 0.5));
     switch (source.name) {
       case "aluminium": made = standard(colour, 0.85, 0.36, 1); break;
       case "steel": made = standard(colour, 1, 0.3, 1); break;
@@ -1006,18 +1025,27 @@ export function createRobotModel(opts = {}) {
       case "belt": made = standard(colour, 0, 0.8, 0.3); break;
       case "print": made = standard(colour, 0, 0.72, 0.4); break;
       case "electronics": made = standard(colour, 0.1, 0.6, 0.5); break;
+      /* Polycarbonate, and the one material whose drawing had to be reasoned about rather than chosen.
+         A slab of it is a closed solid, so `FrontSide` draws each panel once instead of twice - and a
+         look into the hopper crosses four of them. At DoubleSide and 0.15 each, eight blended layers
+         washed out about seven tenths of what was behind them, which read as parts being cut away
+         rather than as glass, and cost eight full physical-shader passes over most of the robot. One
+         layer per panel at 0.12 leaves the rollers and the FUEL legible, and the streak of softbox
+         along each sheet is what says there is a sheet there at all. `depthWrite` stays off so glass
+         never clips what is behind it. */
       case "poly":
         made = own(new THREE.MeshPhysicalMaterial({
           color: new THREE.Color(0.9, 0.92, 0.95),
           metalness: 0,
-          roughness: 0.06,
+          roughness: 0.05,
           transparent: true,
-          opacity: 0.15,
-          envMapIntensity: 1.1,
-          side: THREE.DoubleSide,
+          opacity: 0.12,
+          envMapIntensity: 1.8,
+          side: THREE.FrontSide,
           depthWrite: false,
           dithering: true,
         }));
+        made.userData.glass = true;
         break;
       default: made = standard(colour, 0.1, 0.65, 0.5);
     }

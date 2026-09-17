@@ -888,11 +888,15 @@ export function createPark(canvas, opts) {
   function tick(now) {
     raf = 0;
     if (!active || disposed) return;
-    /* 30 fps on the stage, like the field, with two milliseconds of slack: at 60 Hz the second frame
-       lands a hair under 33.3 ms often enough that a strict test drops to 20 fps. A flight draws every
-       frame the display offers, whatever its rate: a camera move judders exactly where the eye is
-       following it, and capping it at 60 left a 144 Hz display drawing it at an uneven 48. */
-    if (!flight && now - lastFrame < FRAME_MS - 2) {
+    /* 30 fps for the turntable, with two milliseconds of slack: at 60 Hz the second frame lands a hair
+       under 33.3 ms often enough that a strict test drops to 20 fps. Seven degrees a second does not
+       need more, and this view is on screen whenever the robot is not driving, so half the frames is
+       half the graphics chip's share of the battery for the whole time a team sits in the pit.
+       A hand on the stage is the exception, along with a flight and a flick still coasting: a drag
+       drawn at 30 renders under the finger it is meant to follow. Those draw every frame the display
+       offers, whatever its rate - capping them at 60 left a 144 Hz display drawing at an uneven 48. */
+    const followingHand = pointers.size > 0 || inertia !== 0 || zoom !== zoomTarget || resetAnim;
+    if (!flight && !followingHand && now - lastFrame < FRAME_MS - 2) {
       raf = requestAnimationFrame(tick);
       return;
     }
