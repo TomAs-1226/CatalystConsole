@@ -3684,6 +3684,68 @@ function applyUpdateInfo(info) {
   setUpdateNote("No newer release. This is the current build.");
 }
 
+/* The quick controls at the top of the Robot section, after the row of big square buttons at the top
+ * of Tesla's Controls screen.
+ *
+ * None of them is a setting of its own. Each presses a control that already exists, through the same
+ * function that control calls - `setDemo`, the team field, `setCamera`, the field model switch, the
+ * units choice - and `paintQuick` reads every state back from where that control reads it. So a tile
+ * and its control cannot disagree, and a tile cannot do anything its control would not. The reset is
+ * wired in `buildSettings`, beside the button whose two presses it shares. */
+const CAMERA_WORDS = { chase: "Chase", top: "Overhead", free: "Free" };
+/* The field tile's own drawing for each camera, so the tile shows the camera in use the way the round
+ * buttons on the field do. */
+const CAMERA_GLYPHS = {
+  chase: `<rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/>`,
+  top: `<rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9.5" y="9" width="5" height="6" rx="1"/>`,
+  free: `<ellipse cx="12" cy="12" rx="9" ry="3.6"/><path d="M18 7.5l2.2 1.3-1 2.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>`,
+};
+
+function wireQuick() {
+  $("#qDemo").onclick = () => setDemo(!demo.on);
+  /* Where the link chip in the status bar goes too. The team number decides which addresses the
+   * console tries, so finding a different robot is changing that field. */
+  $("#qTeam").onclick = () => {
+    const input = $("#setTeam");
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    input.closest(".srow").scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    if (!input.disabled) input.focus({ preventScroll: true });
+  };
+  $("#qCamera").onclick = () => {
+    setCamera(CAMERAS[(CAMERAS.indexOf(settings.fieldCamera) + 1) % CAMERAS.length]);
+    paintQuick();
+  };
+  $("#qModel").onclick = () => $("#setModel").click();
+  $("#qUnits").onclick = () => {
+    const next = UNITS[(UNITS.indexOf(settings.units) + 1) % UNITS.length];
+    $("#setUnits").querySelector(`button[data-v="${next}"]`)?.click();
+    paintQuick();
+  };
+}
+
+/* Runs inside the 10 Hz paint while the Robot section is open, so nothing is written that has not
+ * changed. */
+function paintQuick() {
+  const state = (id) => $(id).querySelector("small");
+  const press = (id, on) => {
+    const v = String(on);
+    if ($(id).getAttribute("aria-pressed") !== v) $(id).setAttribute("aria-pressed", v);
+    setText(state(id), on ? "On" : "Off");
+  };
+
+  press("#qDemo", demo.on);
+  press("#qModel", settings.fieldModel);
+  setText(state("#qTeam"), teamNumber ? String(teamNumber) : "—");
+  setText(state("#qUnits"), settings.units === "imperial" ? "Imperial" : "Metric");
+
+  const camera = $("#qCamera");
+  if (camera.dataset.mode !== settings.fieldCamera) {
+    camera.dataset.mode = settings.fieldCamera;
+    camera.querySelector("svg").innerHTML = CAMERA_GLYPHS[settings.fieldCamera];
+    setText(state("#qCamera"), CAMERA_WORDS[settings.fieldCamera]);
+  }
+}
+
 /* Wiring, done once on first open. A settings panel nobody has opened has no business asking the
  * backend anything, and the update check behind it can sit for a while on a field network. */
 function buildSettings() {
@@ -3698,6 +3760,7 @@ function buildSettings() {
 
   /* --- robot --- */
   $("#setSearch").oninput = (e) => applySearch(e.target.value);
+  wireQuick();
 
   $("#gCopy").onclick = async () => {
     const text = sheetAsText();
@@ -3788,26 +3851,42 @@ function buildSettings() {
   hold.onchange = saveSettings;
 
   /* Two presses rather than a confirmation dialog. Rule two says nothing blocks the board, and a
-   * button that arms itself asks the question without putting anything in front of anything. */
+   * button that arms itself asks the question without putting anything in front of anything.
+   *
+   * The quick control at the top of the Robot section is this button in a second place, so it arms and
+   * fires through the same two presses and each shows the other armed. Its page cannot see the board
+   * or the status line under the Dashboard rows, so the tile says itself that the press took. */
   const reset = $("#resetBoard");
+  const quickReset = $("#qReset");
+  const quickResetState = quickReset.querySelector("small");
   let armed = 0;
+  let settled = 0;
+  const showArmed = (on) => {
+    reset.classList.toggle("armed", on);
+    quickReset.classList.toggle("armed", on);
+    reset.textContent = on ? "Press again" : "Reset";
+    quickResetState.textContent = on ? "Press again" : "Press twice";
+  };
   const disarm = () => {
     clearTimeout(armed);
     armed = 0;
-    reset.classList.remove("armed");
-    reset.textContent = "Reset";
+    showArmed(false);
   };
-  reset.onclick = () => {
+  const pressReset = () => {
+    clearTimeout(settled);
     if (!armed) {
-      reset.classList.add("armed");
-      reset.textContent = "Press again";
+      showArmed(true);
       armed = setTimeout(disarm, 4000);
       return;
     }
     disarm();
     resetBoard();
     setLayoutStatus("The board is back to the layout the console ships with.", "ok");
+    quickResetState.textContent = "Done";
+    settled = setTimeout(() => { quickResetState.textContent = "Press twice"; }, 2500);
   };
+  reset.onclick = pressReset;
+  quickReset.onclick = pressReset;
 
   /* --- data --- */
   $("#setDemoTog").onclick = () => setDemo(!demo.on);
@@ -4276,7 +4355,7 @@ function paintGarage() {
 
   $("#gSpecs").innerHTML = groups.map(([title, rows]) =>
     `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${rows.map(([label, v]) =>
-      `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
+      `<div class="gspec"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
     ).join("")}</div>`).join("");
 
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
@@ -5091,7 +5170,7 @@ function paintSettings() {
   if (!settingsRefs || $("#settings").dataset.open !== "true") return;
   const x = settingsRefs;
 
-  if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
   if (currentSection === "core") paintCore();
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
@@ -5384,12 +5463,12 @@ const KEYS = Object.assign(Object.create(null), {
  * rebuilt and the update chip arrives six seconds after launch — a wiring pass would miss it. It is
  * `pointerdown`, not `click`, because the whole point is to answer at the moment of the press.
  *
- * Only controls that are pressed: the views, the dock, the settings rail and its buttons. Not the
- * tiles, which are surfaces repainting at 10 Hz, and not the chips, which are readouts that happen to
- * be clickable. `stateLayer` declines to run at all under `prefers-reduced-motion` and removes its own
- * element, so nothing here has to be undone. */
+ * Only controls that are pressed: the views, the dock, the settings rail, its buttons and its quick
+ * controls. Not the tiles, which are surfaces repainting at 10 Hz, and not the chips, which are
+ * readouts that happen to be clickable. `stateLayer` declines to run at all under
+ * `prefers-reduced-motion` and removes its own element, so nothing here has to be undone. */
 window.addEventListener("pointerdown", (e) => {
-  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose") : null;
+  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose, .qtile") : null;
   if (hit && !hit.disabled) stateLayer(hit, e);
 }, { passive: true });
 
