@@ -1712,6 +1712,8 @@ export function createField(canvas, opts) {
   /* ---- public surface ---- */
 
   let lastTrailAt = 0;
+  let lastTrailX = Infinity;
+  let lastTrailZ = Infinity;
 
   return {
     /**
@@ -1873,10 +1875,13 @@ export function createField(canvas, opts) {
         dirty = true;
       }
 
-      /* Sample the trail on distance, not on time: a stationary robot should not stack 200 points on
-         top of itself, and a fast one should not leave gaps. */
-      if (now - lastTrailAt > 40) {
+      /* Sample the trail on distance as well as time: a stationary robot should not stack points on top
+         of itself - a wake topped up where the robot stands would never finish fading, and the view would
+         never rest - and a fast one should not leave gaps. */
+      if (now - lastTrailAt > 40 && Math.hypot(x - lastTrailX, z - lastTrailZ) > 0.02) {
         lastTrailAt = now;
+        lastTrailX = x;
+        lastTrailZ = z;
         pushTrail(x, z, now);
       }
     },
