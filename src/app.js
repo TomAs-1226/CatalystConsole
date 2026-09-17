@@ -688,6 +688,8 @@ const SETTINGS_DEFAULTS = {
    * their frame in inches can say so. */
   units: "metric",
   startView: "board",
+  /* Park is on unless someone turns it off: it is what the screen looks like while nothing is moving. */
+  parkView: true,
 };
 
 /* Read one key at a time and check every one. Storage can hold anything — an older build wrote it,
@@ -705,6 +707,7 @@ function loadSettings() {
     if (Number.isFinite(saved.alertHoldMs)) s.alertHoldMs = Math.round(clamp(saved.alertHoldMs, 0, ALERT_HOLD_MAX));
     if (UNITS.includes(saved.units)) s.units = saved.units;
     if (VIEWS.includes(saved.startView)) s.startView = saved.startView;
+    if (typeof saved.parkView === "boolean") s.parkView = saved.parkView;
   } catch { /* corrupt storage is not worth a dialog; the defaults are a working console */ }
   return s;
 }
@@ -1752,7 +1755,7 @@ define("note", {
   desc: "Free text that stays with the layout — setup reminders, a checklist",
   w: 3, h: 2,
   config: [
-    { key: "text", label: "Text", type: "text", def: "Check bumper numbers\nRadio power\nBattery > 12.4 V" },
+    { key: "text", label: "Text", type: "lines", def: "Check bumper numbers\nRadio power\nBattery > 12.4 V" },
   ],
   render(body) {
     body.innerHTML = `<div class="fill" style="justify-content:flex-start"><div class="cap" data-x="t" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></div></div>`;
@@ -2177,6 +2180,11 @@ function openConfig(item) {
       control.type = "number";
       control.step = "any";
       control.value = item.cfg[field.key];
+    } else if (field.type === "lines") {
+      // A note is written in lines, and a one-line field silently drops every break it is given.
+      control = el("textarea");
+      control.rows = 4;
+      control.value = item.cfg[field.key] ?? "";
     } else {
       control = el("input");
       control.type = "text";
@@ -2193,7 +2201,7 @@ function openConfig(item) {
       item.cfg[field.key] = field.type === "number" ? Number(control.value) : control.value;
     };
     add(field.label, control, field.hint,
-      field.type === "topic" || (field.type === "text" && !SHORT_TEXT.includes(field.key)));
+      field.type === "topic" || field.type === "lines" || (field.type === "text" && !SHORT_TEXT.includes(field.key)));
   }
 
   const size = el("div", "cfgsize");
@@ -4302,6 +4310,15 @@ function buildSettings() {
   };
 
   /* --- dashboard --- */
+  const parkTog = $("#setPark");
+  parkTog.setAttribute("aria-checked", String(settings.parkView));
+  parkTog.onclick = () => {
+    settings.parkView = !settings.parkView;
+    saveSettings();
+    parkTog.setAttribute("aria-checked", String(settings.parkView));
+    paintPark();
+  };
+
   const hold = $("#setAlertHold");
   hold.value = String(settings.alertHoldMs);
   paintRange(hold);

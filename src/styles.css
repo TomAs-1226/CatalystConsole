@@ -500,7 +500,11 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .t[data-h="1"] > .h { align-self: center; flex: none; max-width: 45%; min-height: 0; margin-bottom: 0; }
 .t[data-h="1"] > .fillhost { min-width: 0; }
 .t[data-h="1"] .fill { align-items: stretch; }
-.t[data-h="1"] select { padding-top: 4px; padding-bottom: 4px; }
+.t[data-h="1"] select { padding-top: 4px; padding-bottom: 4px; min-width: 0; }
+/* Anything that does scroll inside a tile scrolls on a hairline thumb, never the platform's bar. */
+.t ::-webkit-scrollbar { width: 6px; height: 6px; }
+.t ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 999px; }
+.t ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---- the severity channel -------------------------------------------------
    This is the whole point of the redesign. app.js marks a bad value by putting `crit` or `warn` on
@@ -1487,6 +1491,13 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .cfgrow.wide { grid-template-columns: minmax(0, 1fr); }
 .cfglab label { display: block; font-size: 16px; font-weight: var(--cat-w-medium); line-height: 1.35; color: var(--cat-white); }
 .cfgrow select, .cfgrow input { width: 100%; }
+/* A note's lines: the same field as the one-line ones, taller, and resizable only downward. */
+.cfgrow textarea {
+  width: 100%; min-height: 104px; resize: vertical;
+  background-color: var(--cat-ink-700); border: 1px solid var(--cat-hair-str); color: var(--cat-white);
+  border-radius: var(--r-sm); padding: 10px 12px;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); line-height: 1.5;
+}
 .cfgsize { display: flex; gap: 8px; min-width: 0; }
 .cfgsize select { flex: 1 1 0; }
 .hint { font-size: var(--fs-13); color: var(--cat-dim); margin-top: 3px; line-height: 1.5; }
