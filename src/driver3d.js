@@ -92,23 +92,39 @@ export function driverPose(t, { crossed = null } = {}) {
   /* Folded: the upper arms come in against the ribs, the elbows close, and the forearms turn across the
      chest - the right forearm on the outside, the left hand tucked under it, which is how people
      actually do it and what keeps the two arms from occupying the same space. */
+  /* The numbers are worked, not eyed. The chest is 170 mm across at the shoulder, so a forearm that
+     crosses the midline has to be at least that far in front of the shoulder joint or it is inside the
+     ribs. A forearm is horizontal when the shoulder swing and the elbow flex add to a right angle, and
+     turning the arm about the shoulder is what carries that horizontal forearm across the body rather
+     than straight out in front. Working it through: the elbow lands 92 mm ahead of the shoulder and the
+     hand 214 mm, which clears the chest, and the upper arm is only lightly drawn in - 0.26 rad of it put
+     the elbow inside the waist. Both arms turn through the same angle, so the forearms finish parallel,
+     one lying on the other: an X across the chest is a schoolteacher, not a driver on the grid. */
   const FOLD = {
-    shoulderSwing: 0.28,
-    adduct: 0.3,
-    across: [1.16, 0.98],
-    elbow: 1.95,
+    shoulderSwing: 0.3,
+    adduct: 0.12,
+    /* The same angle both sides, so the two forearms end up parallel rather than crossing in an X. */
+    across: [1.05, 1.05],
+    elbow: 1.9,
   };
 
+  /* The elbows close before the arms come across, because that is the order a person does it in and
+     because the other order takes the hands through each other at the front on the way. */
   const k = folding;
-  const shoulder = [mix(walkShoulder[0], FOLD.shoulderSwing, k), mix(walkShoulder[1], FOLD.shoulderSwing, k)];
-  const elbow = [mix(walkElbow[0], FOLD.elbow, k), mix(walkElbow[1], FOLD.elbow, k)];
+  const kBend = smooth(clamp01(k * 1.6));
+  const kAcross = smooth(clamp01((k - 0.35) / 0.65));
+  const shoulder = [mix(walkShoulder[0], FOLD.shoulderSwing, kBend), mix(walkShoulder[1], FOLD.shoulderSwing, kBend)];
+  const elbow = [mix(walkElbow[0], FOLD.elbow, kBend), mix(walkElbow[1], FOLD.elbow, kBend)];
   /* Left arm in toward +z, right arm in toward -z. */
-  const adduct = [-FOLD.adduct * k, FOLD.adduct * k];
-  const across = [-FOLD.across[0] * k, FOLD.across[1] * k];
+  const adduct = [-FOLD.adduct * kAcross, FOLD.adduct * kAcross];
+  const across = [-FOLD.across[0] * kAcross, FOLD.across[1] * kAcross];
   /* The outside arm rides a little higher and further forward, so the forearms stack instead of meeting
      edge to edge. */
-  const forward = [0.035 * k, -0.02 * k];
-  const lift = [0.012 * k, -0.012 * k];
+  /* What keeps the two forearms out of each other: the left rides 35 mm higher and 55 mm further
+     forward, so it lies on the right one the way a folded pair does, and the right hand tucks away
+     underneath it. */
+  const forward = [0.055 * k, -0.03 * k];
+  const lift = [0.035 * k, -0.035 * k];
 
   /* ---- the rest of the body ---- */
   /* Arriving, the chest comes up and the chin with it, and the shoulders drop as the arms settle. */
@@ -153,12 +169,33 @@ export function driverPose(t, { crossed = null } = {}) {
  * modelled upside down: a limb that hangs from a joint is placed at -length.
  */
 export function segmentGeometry(length, a, b, segments = 18, steps = 8) {
+  return profileGeometry(length, [[0, a], [1, b]], segments, steps);
+}
+
+/**
+ * The same, from a list of [u, radius] stops up the length, which is how a torso gets a waist: hips
+ * wide, waist drawn in, chest wide again. Radius is interpolated smoothly between the stops.
+ */
+export function profileGeometry(length, stops, segments = 18, steps = 12) {
+  const radiusAt = (u) => {
+    let lo = stops[0];
+    let hi = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (u >= stops[i][0] && u <= stops[i + 1][0]) {
+        lo = stops[i];
+        hi = stops[i + 1];
+        break;
+      }
+    }
+    const span = hi[0] - lo[0];
+    return span > 0 ? mix(lo[1], hi[1], smooth((u - lo[0]) / span)) : lo[1];
+  };
   const profile = [new THREE.Vector2(0.0005, 0)];
   for (let i = 0; i <= steps; i++) {
     const u = i / steps;
     /* Domed: the radius is drawn in over the first and last eighth of the length. */
     const cap = Math.min(1, Math.min(u, 1 - u) / 0.125);
-    profile.push(new THREE.Vector2(Math.max(0.0005, mix(a, b, u) * (0.4 + 0.6 * Math.sqrt(cap))), u * length));
+    profile.push(new THREE.Vector2(Math.max(0.0005, radiusAt(u) * (0.4 + 0.6 * Math.sqrt(cap))), u * length));
   }
   profile.push(new THREE.Vector2(0.0005, length));
   return new THREE.LatheGeometry(profile, segments);
@@ -168,7 +205,7 @@ export function segmentGeometry(length, a, b, segments = 18, steps = 8) {
  * The figure, as a rig: `{ root, joints, materials, geometries, setColour, dispose }`. `root` stands at
  * the origin with the figure's feet on y = 0.
  */
-export function createDriver({ colour = "#8e8e93", grey = "#6b6b70", dark = "#2c2c2e" } = {}) {
+export function createDriver({ colour = "#8e8e93", grey = "#76767c", dark = "#3f3f44" } = {}) {
   const geometries = [];
   const keep = (g) => {
     geometries.push(g);
@@ -177,7 +214,12 @@ export function createDriver({ colour = "#8e8e93", grey = "#6b6b70", dark = "#2c
   const suit = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour), roughness: 0.62, metalness: 0.05, dithering: true });
   const skin = new THREE.MeshStandardMaterial({ color: new THREE.Color(grey), roughness: 0.75, metalness: 0, dithering: true });
   const trim = new THREE.MeshStandardMaterial({ color: new THREE.Color(dark), roughness: 0.5, metalness: 0.1, dithering: true });
-  const materials = [suit, skin, trim];
+  /* The visor: near black and polished, so it catches the softbox and reads as glass. */
+  const glass = new THREE.MeshPhysicalMaterial({ color: new THREE.Color("#141417"), roughness: 0.08, metalness: 0.2, dithering: true });
+  /* The livery stripe, a shade brighter than the suit so it separates from it. */
+  const accent = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour), roughness: 0.4, metalness: 0.1, dithering: true });
+  accent.color.multiplyScalar(1.35);
+  const materials = [suit, skin, trim, glass, accent];
 
   const root = new THREE.Group();
   root.name = "driver";
@@ -211,46 +253,79 @@ export function createDriver({ colour = "#8e8e93", grey = "#6b6b70", dark = "#2c
 
   const body = joint(root, 0, 0, 0);
   const hips = joint(body, 0, HIP_Y, 0);
-  part(hips, keep(segmentGeometry(PELVIS, 0.14, 0.125, 20, 5)), suit, { y: -0.05 });
+  const chest = joint(hips, 0, PELVIS - 0.06, 0);
+  /* One torso from the hips to the shoulders, with a waist in it. Two cylinders and a belt read as a
+     robot; a person is wide at the hips, drawn in at the waist and wide again across the chest. */
+  const torso = part(chest, keep(profileGeometry(PELVIS + SPINE, [
+    [0, 0.145], [0.26, 0.118], [0.42, 0.125], [0.72, 0.168], [0.92, 0.172], [1, 0.15],
+  ], 26, 18)), suit, { hang: PELVIS - 0.06 });
+  torso.scale.z = 1.12;   // a person is wider across than front to back
 
-  const chest = joint(hips, 0, PELVIS - 0.05, 0);
-  part(chest, keep(segmentGeometry(SPINE, 0.13, 0.17, 20, 8)), suit);
-  /* The shoulders, as one piece across the top of the chest. */
-  const shoulderBar = part(chest, keep(new THREE.CapsuleGeometry(0.072, 0.23, 6, 18)), suit, { y: SPINE - 0.025 });
-  shoulderBar.rotation.x = Math.PI / 2;
+  const neck = joint(chest, 0, SPINE - 0.015, 0);
+  part(neck, keep(segmentGeometry(NECK + 0.04, 0.056, 0.06, 14, 5)), skin, { y: -0.02 });
+  /* The collar of the suit, over the shoulders: a driver wears a head restraint, and it is what stops
+     the neck reading as a stick between a body and a ball. */
+  const collar = part(chest, keep(new THREE.TorusGeometry(0.098, 0.028, 8, 26)), trim, { y: SPINE - 0.01 });
+  collar.rotation.x = Math.PI / 2;
+  collar.scale.set(1, 1.25, 1);
 
-  const neck = joint(chest, 0, SPINE - 0.01, 0);
-  part(neck, keep(segmentGeometry(NECK + 0.03, 0.052, 0.056, 14, 4)), skin);
   const head = joint(neck, 0, NECK, 0);
-  const skull = part(head, keep(new THREE.SphereGeometry(0.108, 24, 18)), skin, { y: 0.1 });
-  skull.scale.set(0.92, 1.1, 1);
-  /* A band round the head at the brow, in the suit's colour: at the size this is drawn it is the piece
-     of the profile's colour that reads from the front. */
-  const band = part(head, keep(new THREE.TorusGeometry(0.101, 0.015, 8, 28)), suit, { y: 0.115 });
-  band.rotation.x = Math.PI / 2;
-  band.scale.set(1, 1.05, 1);
+  /* A helmet, not a face. A driver wears one, so it is what this figure should be wearing - and it is
+     the honest way to draw a person at this size: a modelled face at 200 pixels is a smear, while a
+     helmet is a shape that is meant to be smooth. The profile's colour goes over the crown, where it
+     reads from every angle. */
+  const SHELL = 0.134;
+  const shell = part(head, keep(new THREE.SphereGeometry(SHELL, 28, 22)), suit, { y: 0.108 });
+  shell.scale.set(0.97, 1.02, 0.95);
+
+  /* The visor: a patch cut out of the same sphere, a hair proud of it, dark and polished. three.js
+     measures a sphere's phi from -x, so a patch centred on the figure's face - which looks along +x -
+     starts at pi less half its width. A wide, shallow letterbox, the shape a helmet's opening is. */
+  const VISOR_ARC = 1.9;
+  const visor = part(head, keep(new THREE.SphereGeometry(SHELL + 0.002, 30, 16, Math.PI - VISOR_ARC / 2, VISOR_ARC, 1.0, 0.44)), glass, { y: 0.108 });
+  visor.scale.copy(shell.scale);
+
+  /* The chin bar under it. A torus arc starts at +x and sweeps toward +z once it is laid flat, so it is
+     turned back by half its own arc to sit centred on the face. */
+  const CHIN_ARC = 1.75;
+  const chin = part(head, keep(new THREE.TorusGeometry(0.113, 0.021, 8, 26, CHIN_ARC)), suit, { y: 0.056 });
+  chin.rotation.set(Math.PI / 2, CHIN_ARC / 2, 0);
+  chin.scale.set(1, 1, 1.04);
+
+  /* The livery: one stripe over the crown from the brow to the back of the neck, in the profile's
+     colour. A torus arc of half a turn already lies in the plane this wants, so it is not turned at all. */
+  const STRIPE_FROM = 0.8;
+  const stripe = part(head, keep(new THREE.TorusGeometry(SHELL - 0.004, 0.011, 8, 26, Math.PI - STRIPE_FROM)), accent, { y: 0.108 });
+  stripe.rotation.z = STRIPE_FROM;
+  stripe.scale.set(0.99, 1.04, 0.97);
 
   const arms = [];
   const legs = [];
   for (const side of [0, 1]) {
     const sign = side === 0 ? -1 : 1;   // 0 is the figure's left, at -z
-    const shoulder = joint(chest, 0, SPINE - 0.03, sign * 0.19);
-    part(shoulder, keep(segmentGeometry(UPPER, 0.058, 0.048, 16, 6)), suit, { hang: UPPER });
+    const shoulder = joint(chest, 0, SPINE - 0.035, sign * 0.185);
+    /* A ball at each joint, so a limb that bends has a shoulder and an elbow rather than a hinge. */
+    part(shoulder, keep(new THREE.SphereGeometry(0.068, 16, 12)), suit);
+    part(shoulder, keep(profileGeometry(UPPER, [[0, 0.062], [0.3, 0.055], [1, 0.046]], 16, 8)), suit, { hang: UPPER });
     const elbow = joint(shoulder, 0, -UPPER, 0);
-    part(elbow, keep(segmentGeometry(FORE, 0.05, 0.042, 16, 6)), suit, { hang: FORE });
+    part(elbow, keep(new THREE.SphereGeometry(0.048, 14, 10)), suit);
+    part(elbow, keep(profileGeometry(FORE, [[0, 0.05], [0.35, 0.045], [1, 0.036]], 16, 8)), suit, { hang: FORE });
     const wrist = joint(elbow, 0, -FORE, 0);
-    const hand = part(wrist, keep(new THREE.SphereGeometry(0.05, 14, 10)), trim, { y: -0.045 });
-    hand.scale.set(0.8, 1.3, 0.55);
+    /* A glove, in the suit: a dark blob on the end of each arm read as a mitten. */
+    const hand = part(wrist, keep(new THREE.SphereGeometry(0.036, 14, 10)), suit, { y: -0.032 });
+    hand.scale.set(0.85, 1.25, 0.62);
     arms.push({ shoulder, elbow, wrist });
 
     const hip = joint(hips, 0, -0.03, sign * 0.098);
-    part(hip, keep(segmentGeometry(THIGH, 0.088, 0.066, 18, 6)), suit, { hang: THIGH });
+    part(hip, keep(new THREE.SphereGeometry(0.085, 16, 12)), suit);
+    part(hip, keep(profileGeometry(THIGH, [[0, 0.085], [0.25, 0.079], [1, 0.058]], 18, 9)), suit, { hang: THIGH });
     const knee = joint(hip, 0, -THIGH, 0);
-    part(knee, keep(segmentGeometry(SHIN, 0.064, 0.044, 16, 6)), suit, { hang: SHIN });
+    part(knee, keep(new THREE.SphereGeometry(0.058, 14, 10)), suit);
+    part(knee, keep(profileGeometry(SHIN, [[0, 0.06], [0.35, 0.056], [1, 0.038]], 16, 9)), suit, { hang: SHIN });
     const ankle = joint(knee, 0, -SHIN, 0);
-    const foot = part(ankle, keep(new THREE.CapsuleGeometry(0.043, 0.14, 5, 12)), trim, { y: -0.045 });
+    const foot = part(ankle, keep(new THREE.CapsuleGeometry(0.036, 0.15, 5, 12)), trim, { y: -0.048 });
     foot.rotation.z = Math.PI / 2;
-    foot.position.x = 0.04;
+    foot.position.x = 0.042;
     legs.push({ hip, knee, ankle });
   }
 
@@ -266,7 +341,9 @@ export function createDriver({ colour = "#8e8e93", grey = "#6b6b70", dark = "#2c
     materials,
     height: HIP_Y + PELVIS + SPINE + NECK + 0.22,
     setColour(next) {
-      if (next) suit.color.set(next);
+      if (!next) return;
+      suit.color.set(next);
+      accent.color.set(next).multiplyScalar(1.35);
     },
     dispose() {
       for (const g of geometries) g.dispose();
@@ -288,10 +365,175 @@ export function applyPose(rig, pose) {
     const arm = rig.arms[side];
     arm.shoulder.rotation.set(pose.adduct[side], pose.across[side], pose.shoulder[side] + pose.forward[side]);
     arm.elbow.rotation.z = pose.elbow[side];
-    arm.elbow.position.y = -0.3 + pose.lift[side];
+    arm.elbow.position.y = arm.elbow.userData.rest[1] + pose.lift[side];
     const leg = rig.legs[side];
     leg.hip.rotation.z = pose.hip[side];
     leg.knee.rotation.z = pose.knee[side];
     leg.ankle.rotation.z = pose.ankle[side];
   }
+}
+
+/* ---- the stage ---- */
+
+/* The figure is drawn nearly life size in a panel a few hundred pixels tall, so a long lens and a low
+   camera - the same lens the Park stage photographs the robot with. */
+const STAGE_FOV = 26;
+const FRAME_MS = 1000 / 60;
+
+/**
+ * A driver on a small stage of their own, in `canvas`. Draws on demand: a frame is asked for while the
+ * walk-on is playing or a colour is settling, and the loop stops when the figure is standing still.
+ *
+ * Returns `{ play, setColour, setActive, resize, dispose }`. `play(from)` starts the walk-on again;
+ * `setActive(false)` is what a panel that has scrolled out of sight calls, and nothing is drawn until
+ * it comes back.
+ */
+export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false } = {}) {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: true,
+    powerPreference: "low-power",
+  });
+  renderer.setClearAlpha(0);
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(STAGE_FOV, 16 / 9, 0.1, 40);
+  camera.position.set(3.6, 1.35, 2.6);
+  camera.lookAt(0.1, 0.98, 0);
+
+  /* The same studio the robot stands in: a low ambient, a key over the camera's shoulder, a cool rim
+     from behind that draws the figure's edge out of a dark panel. */
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.35));
+  const key = new THREE.DirectionalLight(0xffffff, 2.1);
+  key.position.set(3, 4.4, 2.6);
+  const rim = new THREE.DirectionalLight(0xdae3f4, 2.4);
+  rim.position.set(-2.4, 2.2, -3.2);
+  scene.add(key, rim);
+
+  /* The floor: a disc that fades to nothing before its edge, so the figure stands on something without
+     the panel having a horizon in it. */
+  const floorGeometry = new THREE.CircleGeometry(3.2, 48);
+  const floorMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: { uOpacity: { value: 0.5 } },
+    vertexShader: `
+      varying vec2 vXy;
+      void main() {
+        vXy = position.xy;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 vXy;
+      uniform float uOpacity;
+      void main() {
+        float r = length(vXy) / 3.2;
+        float fade = smoothstep(1.0, 0.25, r);
+        gl_FragColor = vec4(vec3(0.07, 0.07, 0.075), fade * uOpacity);
+      }`,
+  });
+  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  const rig = createDriver({ colour });
+  scene.add(rig.root);
+
+  let sized = { w: 0, h: 0, dpr: 0 };
+  function resize() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (!w || !h || (w === sized.w && h === sized.h && dpr === sized.dpr)) return false;
+    sized = { w, h, dpr };
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    return true;
+  }
+
+  let raf = 0;
+  let active = false;
+  let disposed = false;
+  let started = -Infinity;
+  let standing = true;   // nothing to play: hold the posed figure
+  let lastFrame = -Infinity;
+
+  /* The walk-on is drawn at whatever the display offers, because it is a movement the eye follows. The
+     breath that is left over afterwards is a slow sine on a figure that is otherwise still, so it is
+     drawn at a quarter of that - enough to be smooth, little enough that a settings panel left open
+     does not keep the graphics chip awake for nothing. */
+  const BREATH_MS = 1000 / 15;
+
+  function tick(now) {
+    raf = 0;
+    if (!active || disposed) return;
+    const t = standing ? POSED_S + 4 : (now - started) / 1000;
+    const playing = t < POSED_S;
+    if (now - lastFrame < (playing ? FRAME_MS : BREATH_MS) - 2) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    lastFrame = now;
+    resize();
+    if (!sized.w || !sized.h) return;
+    applyPose(rig, driverPose(t, standing ? { crossed: true } : {}));
+    renderer.render(scene, camera);
+    /* Reduced motion gets the standing figure and nothing else moving. */
+    if (playing || !reduced) raf = requestAnimationFrame(tick);
+  }
+
+  function wake() {
+    if (!active || disposed || raf) return;
+    raf = requestAnimationFrame(tick);
+  }
+
+  const observer = new ResizeObserver(() => {
+    if (resize()) wake();
+  });
+  observer.observe(canvas);
+
+  return {
+    /** Start the walk-on. */
+    play() {
+      if (disposed) return;
+      started = performance.now();
+      standing = Boolean(reduced);
+      wake();
+    },
+    /** Hold the figure where the walk-on leaves it, without playing. */
+    stand() {
+      standing = true;
+      wake();
+    },
+    setColour(next) {
+      rig.setColour(next);
+      wake();
+    },
+    setActive(next) {
+      active = Boolean(next);
+      if (active) wake();
+      else if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+    },
+    resize() {
+      if (resize()) wake();
+    },
+    dispose() {
+      disposed = true;
+      active = false;
+      if (raf) cancelAnimationFrame(raf);
+      observer.disconnect();
+      rig.dispose();
+      floorGeometry.dispose();
+      floorMaterial.dispose();
+      renderer.dispose();
+    },
+  };
 }
