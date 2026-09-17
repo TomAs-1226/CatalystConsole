@@ -1978,14 +1978,23 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
   margin-top: 28px; border-radius: 18px; padding: 8px 32px 28px;
   display: grid; justify-items: center;
   border: 0;
-  /* Lit from above rather than a flat card, so the robot reads as sitting on a surface. The stop at
-     58% is where the plan ends and the sheet begins. */
-  background:
-    radial-gradient(120% 62% at 50% 0%, rgb(var(--draw-light) / 0.05), rgb(var(--draw-light) / 0) 58%),
-    var(--cat-surface-1);
+  /* A flat card, as every card is. It used to be lit from above to seat a white robot on it; the robot
+     is drawn dark now, found by the light along its own edge, and a pool of light behind it only
+     greyed the ground it is read against. */
+  background: var(--cat-surface-1);
 }
-/* No drawing, so no stage light and no hero spacing — it becomes an ordinary card of facts. */
-.garage[data-plan="false"] { padding-top: 28px; background: var(--cat-surface-1); }
+/* The plan's materials: the machine Park draws, seen from above - a dark shell with light along its
+   edge, a brushed grey deck inside it. Aliases of colours the sheet already holds, read once by
+   app.js (PLAN), and named here rather than in the drawn marks, which the 3-D scenes light their own
+   robots with. The tyres are the drawn marks' own. */
+:root {
+  --plan-shell: var(--cat-surface-2);
+  --plan-shell-lit: var(--cat-surface-3);
+  --plan-deck: var(--draw-line);
+  --plan-deck-dark: var(--draw-tower);
+}
+/* No drawing, so no hero spacing — it becomes an ordinary card of facts. */
+.garage[data-plan="false"] { padding-top: 28px; }
 .garage[data-plan="false"] .ghead { margin-top: 0; }
 .garage[data-known="false"] .gplan,
 .garage[data-known="false"] .ghead,

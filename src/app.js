@@ -641,14 +641,15 @@ const TOK = readTokens({
   data: "--cat-data",
 });
 
-/* The robot plan's materials. A drawing, not interface: see the `drawn marks` block in styles.css
-   for why these are their own group rather than the surface scale. `light` and `shade` arrive as
-   bare channels so a ramp can set its own alpha without a token per stop. */
+/* The robot plan's materials: the machine Park draws, seen from above, so its shell, deck and tyres
+   are named under the garage in styles.css (`--plan-*`) rather than taken from the drawn marks the
+   field scene lights its own robot with. `light` and `shade` arrive as bare channels so a ramp can set
+   its own alpha without a token per stop. */
 const PLAN = readTokens({
-  shell: "--draw-shell",
-  shellLit: "--draw-shell-lit",
-  deck: "--draw-body",
-  deckDark: "--draw-body-dark",
+  shell: "--plan-shell",
+  shellLit: "--plan-shell-lit",
+  deck: "--plan-deck",
+  deckDark: "--plan-deck-dark",
   tyre: "--draw-tyre",
   tyreLit: "--draw-tyre-lit",
   light: "--draw-light",
@@ -5040,23 +5041,16 @@ function drawPlan(canvas) {
   /* Deliberately not the alliance colour. Alliance is match state — it flips between matches and a
    * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
    * colour depending on when you happened to open it. This card describes the machine, and the
-   * machine is the same robot on either side. */
+   * machine is the same robot on either side: the dark shell Park draws it in before it knows. */
   const bumper = PLAN.shell;
   const bumperLit = PLAN.shellLit;
-
-  /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
-  const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
-  pool.addColorStop(0, lightAt(0.055));
-  pool.addColorStop(1, lightAt(0));
-  g.fillStyle = pool;
-  g.fillRect(0, 0, cw, ch);
 
   const outer = box(outerL, outerW);
   const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
 
   g.save();
-  g.shadowColor = shadeAt(0.55);
-  g.shadowBlur = 26;
+  g.shadowColor = shadeAt(0.6);
+  g.shadowBlur = 24;
   g.shadowOffsetY = 10;
 
   if (bumpL && bumpW) {
@@ -5075,16 +5069,42 @@ function drawPlan(canvas) {
   }
   g.restore();
 
+  if (bumpL && bumpW) {
+    /* A dark shell on a dark card is found by its edge, the way Park's is: a hairline of light round
+     * the rim, brightest along the top where the light lands and all but gone at the bottom. */
+    const rim = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
+    rim.addColorStop(0, lightAt(0.26));
+    rim.addColorStop(0.5, lightAt(0.08));
+    rim.addColorStop(1, lightAt(0.04));
+    g.strokeStyle = rim; g.lineWidth = 1;
+    g.beginPath(); g.roundRect(outer[0] + 0.5, outer[1] + 0.5, outer[2] - 1, outer[3] - 1, radius); g.stroke();
+  }
+
   if (frameL && frameW) {
     const inner = box(frameL, frameW);
     const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
-    const deck = g.createLinearGradient(0, inner[1], 0, inner[1] + inner[3]);
+    /* The frame deck, as brushed plate: lit from the top left and falling to a darker grey, sitting a
+     * little into the shell rather than on top of it. */
+    g.save();
+    g.shadowColor = shadeAt(0.55); g.shadowBlur = 8;
+    const deck = g.createLinearGradient(inner[0], inner[1], inner[0] + inner[2], inner[1] + inner[3]);
     deck.addColorStop(0, PLAN.deck);
     deck.addColorStop(1, PLAN.deckDark);
     g.fillStyle = deck;
     g.beginPath(); g.roundRect(...inner, ir); g.fill();
-    g.strokeStyle = lightAt(0.1); g.lineWidth = 1;
-    g.beginPath(); g.roundRect(...inner, ir); g.stroke();
+    g.restore();
+    /* The grain runs along the robot's length. Fixed, not random: this repaints ten times a second
+     * while the page is open, and a random grain would crawl. */
+    g.save();
+    g.beginPath(); g.roundRect(...inner, ir); g.clip();
+    for (let i = 0, x = inner[0]; x < inner[0] + inner[2]; i++, x += 1.5) {
+      const n = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
+      g.fillStyle = n > 0.5 ? lightAt(0.035 * (n - 0.5)) : shadeAt(0.07 * (0.5 - n));
+      g.fillRect(x, inner[1], 1, inner[3]);
+    }
+    g.restore();
+    g.strokeStyle = lightAt(0.14); g.lineWidth = 1;
+    g.beginPath(); g.roundRect(inner[0] + 0.5, inner[1] + 0.5, inner[2] - 1, inner[3] - 1, ir); g.stroke();
   }
 
   if (mods && mods.length >= 2) {
@@ -5106,11 +5126,11 @@ function drawPlan(canvas) {
   }
 
   /* Which way is forward. A brighter band across the front bumper rather than a floating arrow —
-   * it reads at a glance and it is where a team paints their number. */
+   * it reads at a glance and it is where a team paints their number. Soft, on a dark shell. */
   g.save();
   g.beginPath(); g.roundRect(...outer, radius); g.clip();
   const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
-  nose.addColorStop(0, lightAt(0.3));
+  nose.addColorStop(0, lightAt(0.16));
   nose.addColorStop(1, lightAt(0));
   g.fillStyle = nose;
   g.fillRect(outer[0], outer[1], outer[2], 16);
