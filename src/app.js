@@ -1807,6 +1807,12 @@ define("field", {
         <div class="car-speed-row">
           <div class="car-power" title="Speed against the drivetrain's top speed"><i data-x="power"></i></div>
           <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
+          <div class="car-signs">
+            <div class="car-limit" data-x="limit" hidden title="The drivetrain's top speed"><small>Top</small><b data-x="limitN">—</b></div>
+            <div class="car-ap" data-x="ap" data-on="false" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2.2"/><path d="M3.6 10.6c2.6-.9 5.4-1.2 8.4-1.2s5.8.3 8.4 1.2M10.2 13.8 7 19.6M13.8 13.8 17 19.6"/></svg>
+            </div>
+          </div>
         </div>
         <div class="car-stats">
           <span>x <b data-x="fx">—</b> m</span>
@@ -1897,8 +1903,24 @@ define("field", {
     x.speed.textContent = state.speed == null ? "—" : state.speed < 0.05 ? "0.0" : state.speed.toFixed(1);
     x.speed.dataset.empty = String(state.speed == null);
     // Tesla's power meter, the line beside the speed: how much of the drivetrain's top speed is in use.
-    const top = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null) || 4.5;
+    const topSpeed = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null);
+    const top = topSpeed || 4.5;
     x.power.style.height = `${(clamp01((state.speed ?? 0) / top) * 100).toFixed(1)}%`;
+
+    /* Beside the speed, the two signs Tesla keeps there. The speed-limit sign is the drivetrain's own top
+     * speed, shown only when the robot publishes one. The wheel is Autopilot's: grey while a routine is
+     * chosen and waiting, blue while autonomous is actually driving. */
+    const limitText = topSpeed ? topSpeed.toFixed(1) : "";
+    if (x.limit.hidden !== !topSpeed) x.limit.hidden = !topSpeed;
+    if (x.limitN.textContent !== limitText) x.limitN.textContent = limitText;
+    const linked = nt.status.connected || demo.on;
+    const routines = linked ? (arr("/Auto Selector/options") || []) : [];
+    const driving = linked && ds.enabled && ds.auto && !ds.estop;
+    const routine = str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", null);
+    if (x.ap.hidden !== !(driving || routines.length)) x.ap.hidden = !(driving || routines.length);
+    if (x.ap.dataset.on !== String(driving)) x.ap.dataset.on = String(driving);
+    const apTitle = `Autonomous ${driving ? "driving" : "ready"}${routine ? `: ${routine}` : ""}`;
+    if (x.ap.title !== apTitle) x.ap.title = apTitle;
     /* The readouts are the estimator's numbers wherever they are. The drawing is held inside the
        walls: a robot rendered through a wall, or off the slab entirely, tells the driver nothing
        that the chip does not say better. */

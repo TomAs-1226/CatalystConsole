@@ -951,6 +951,21 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   margin-top: 4px; font-size: var(--fs-12); font-weight: var(--cat-w-semi); letter-spacing: 0.02em;
   text-transform: uppercase; color: var(--cat-dim);
 }
+/* The signs to the right of the speed. The limit is a small white sign with black figures, the one
+   white-ground thing in the panel, because that is what a road sign is; the wheel is grey until
+   autonomous is driving and then Tesla's blue, the only blue in the panel. */
+.car-signs { display: flex; align-items: center; gap: 10px; align-self: flex-start; margin: 6px 0 0 6px; }
+.car-limit {
+  display: flex; flex-direction: column; align-items: center; min-width: 34px; padding: 4px 6px 5px;
+  border-radius: 6px; background: #ffffff; color: #000000; line-height: 1;
+}
+.car-limit[hidden] { display: none; }
+.car-limit small { font-size: 8px; font-weight: var(--cat-w-semi); letter-spacing: 0.08em; text-transform: uppercase; }
+.car-limit b { margin-top: 2px; font-size: 16px; font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; }
+.car-ap { display: grid; place-items: center; width: 30px; height: 30px; color: var(--cat-faint); transition: color var(--cat-dur-effect) var(--cat-ease-effect); }
+.car-ap[hidden] { display: none; }
+.car-ap svg { width: 26px; height: 26px; }
+.car-ap[data-on="true"] { color: var(--cat-signal); }
 .car-stats {
   display: flex; gap: 14px; margin-top: 12px;
   font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim);
