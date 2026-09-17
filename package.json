@@ -10,6 +10,8 @@
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",
+    "robot-cad": "node scripts/robot-cad.mjs",
+    "robot-cad-preview": "node scripts/robot-cad-preview.mjs",
     "serve": "node scripts/serve.mjs",
     "dev": "node scripts/vendor.mjs && tauri dev",
     "build": "node scripts/check-identity.mjs --write && node scripts/vendor.mjs && tauri build",
@@ -18,7 +20,10 @@
   },
   "devDependencies": {
     "@fontsource-variable/figtree": "^5.3.0",
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
     "@tauri-apps/cli": "^2",
+    "meshoptimizer": "^1.2.0",
     "three": "^0.170.0"
   }
 }
