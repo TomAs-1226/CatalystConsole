@@ -89,11 +89,15 @@ const EXTRAPOLATE_S = 0.12;
 const FOLLOW_S = 0.06;
 const TELEPORT_M = 1.5;
 /* The camera turns with the robot, but slowly: a swerve robot can spin on the spot, and a camera that
-   whipped round with it would make a driver sick. */
-const CAMERA_TURN_S = 0.45;
+   whipped round with it would make a driver sick. Rates are a spring's natural frequency, in radians a
+   second (see spring): 4.4 trails a steady turn by the same 0.45 s the camera always has. */
+const CAMERA_TURN_RATE = 4.4;
 /* The slower swing round to look over the robot at what it aims at (see placeCamera). */
-const AIM_TURN_S = 0.3;
-const CAMERA_SWING_RATE = 2.6;
+const AIM_TURN_RATE = 3.2;
+const CAMERA_SWING_RATE = 5;
+/* How long the camera keeps the aiming shot once the robot stops aiming, so a robot that aims, shoots,
+   and aims again a moment later does not swing the camera away and back between the two. */
+const AIM_HOLD_S = 1.6;
 
 /* ---- the clearing ----
  *
@@ -120,7 +124,12 @@ const CARVE_VERTEX = /* glsl */ `
     float carveSize = length((carvePlace * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
     vCarvePiece = (1.0 - step(0.3, carveSize)) * (1.0 - smoothstep(0.55, 0.8, carveCentre.y));
     float carveNear = 1.0 - smoothstep(0.85, 1.7, length(carveCentre.xz - uCarveRobot.xz));
-    transformed *= 1.0 - vCarvePiece * carveNear * uCarveAmount;
+    /* And along the band to what the robot is aiming at (see aiming in the scene), so the band lies on
+       clear carpet rather than being broken up by the FUEL it crosses. */
+    vec2 aimRun = uAimTo - uAimFrom;
+    float aimAlong = clamp(dot(carveCentre.xz - uAimFrom, aimRun) / max(dot(aimRun, aimRun), 1e-4), 0.0, 1.0);
+    float aimNear = 1.0 - smoothstep(0.2, 0.34, length(carveCentre.xz - (uAimFrom + aimRun * aimAlong)));
+    transformed *= 1.0 - vCarvePiece * max(carveNear * uCarveAmount, aimNear * uAimAmount);
     vCarveWorld = (carvePlace * vec4(transformed, 1.0)).xyz;
   }
   #include <project_vertex>
@@ -151,6 +160,12 @@ const CARVE_FRAGMENT = /* glsl */ `
     float keep = mix(1.0, min(nearRobot, onLine), uCarveAmount * (1.0 - onCarpet));
     float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     if (keep < 0.999 && keep <= grain) discard;
+
+    // The target the robot is aiming at, lit (see aiming in the scene): whatever stands inside its
+    // footprint, off the carpet and no higher than a HUB, drawn in its own colour times the tint.
+    vec3 litOffset = abs(vCarveWorld - uLitCentre);
+    float lit = step(litOffset.x, uLitHalf) * step(litOffset.z, uLitHalf) * step(0.03, vCarveWorld.y) * step(vCarveWorld.y, 2.0);
+    diffuseColor.rgb *= mix(vec3(1.0), uLitTint, lit);
   }
 `;
 
@@ -188,6 +203,8 @@ const PATH_FRAGMENT = /* glsl */ `
   uniform float uEmerge;
   uniform float uChevrons;
   uniform float uTime;
+  uniform float uReach;
+  uniform float uPulse;
   varying float vAlong;
   varying float vAcross;
   void main() {
@@ -195,7 +212,8 @@ const PATH_FRAGMENT = /* glsl */ `
     float body = 1.0 - smoothstep(0.55, 1.0, side);
     float core = 1.0 - smoothstep(0.0, 0.35, side);
     float emerge = smoothstep(uEmerge * 0.4, uEmerge, vAlong);
-    float reach = 1.0 - smoothstep(uLength * 0.55, uLength, vAlong);
+    // Fades out from uReach of the way along: a plan ahead trails off, a band to a target arrives at it.
+    float reach = 1.0 - smoothstep(uLength * uReach, uLength, vAlong);
     float alpha = (body * 0.62 + core * 0.38) * emerge * reach;
     if (uChevrons > 0.5) {
       // Chevrons 0.18 m long every 0.42 m, bent back at the edges so they point the way the robot is
@@ -203,7 +221,9 @@ const PATH_FRAGMENT = /* glsl */ `
       float phase = fract((vAlong + side * 0.1 - uTime * 0.4) / 0.42);
       alpha *= smoothstep(0.0, 0.06, phase) * (1.0 - smoothstep(0.38, 0.46, phase)) * 1.3;
     }
-    gl_FragColor = vec4(uColor, alpha * uOpacity);
+    // A soft bead of light running along the band, for the moment something engages. Off below zero.
+    float glow = uPulse < 0.0 ? 0.0 : exp(-pow((vAlong - uPulse * uLength) / 0.35, 2.0)) * core * emerge;
+    gl_FragColor = vec4(mix(uColor, vec3(1.0), glow * 0.35), min(1.0, alpha * uOpacity + glow * 0.25 * uOpacity));
     #include <colorspace_fragment>
   }
 `;
@@ -271,6 +291,8 @@ function makeRibbon(colour, opacity, emerge) {
       uEmerge: { value: emerge },
       uChevrons: { value: 0 },
       uTime: { value: 0 },
+      uReach: { value: 0.55 },
+      uPulse: { value: -1 },
     },
     vertexShader: PATH_VERTEX,
     fragmentShader: PATH_FRAGMENT,
@@ -292,15 +314,34 @@ function carve(material, uniforms) {
     shader.uniforms.uCarveRobot = uniforms.uCarveRobot;
     shader.uniforms.uCarveEye = uniforms.uCarveEye;
     shader.uniforms.uCarveAmount = uniforms.uCarveAmount;
+    shader.uniforms.uAimFrom = uniforms.uAimFrom;
+    shader.uniforms.uAimTo = uniforms.uAimTo;
+    shader.uniforms.uAimAmount = uniforms.uAimAmount;
+    shader.uniforms.uLitCentre = uniforms.uLitCentre;
+    shader.uniforms.uLitHalf = uniforms.uLitHalf;
+    shader.uniforms.uLitTint = uniforms.uLitTint;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform float uCarveAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform float uCarveAmount;\nuniform vec2 uAimFrom;\nuniform vec2 uAimTo;\nuniform float uAimAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
       .replace("#include <project_vertex>", CARVE_VERTEX);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform vec3 uCarveEye;\nuniform float uCarveAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform vec3 uCarveEye;\nuniform float uCarveAmount;\nuniform vec3 uLitCentre;\nuniform float uLitHalf;\nuniform vec3 uLitTint;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
       .replace("#include <clipping_planes_fragment>", CARVE_FRAGMENT);
   };
   material.customProgramCacheKey = () => "field-carve";
   return material;
+}
+
+/**
+ * One step of a critically damped spring: `offset` from its goal and `velocity`, `dt` seconds on, at
+ * natural frequency `rate`. Returns [offset, velocity]. The camera eases on these rather than on
+ * exponentials: an exponential sets off at its fastest, so the moment what the camera wanted changed -
+ * the robot starting to aim, the robot being enabled - it lurched into motion within a frame. A spring
+ * gathers speed, then settles without overshooting, the way a camera operator pans.
+ */
+function spring(offset, velocity, rate, dt) {
+  const push = (velocity + rate * offset) * dt;
+  const decay = Math.exp(-rate * dt);
+  return [(offset + push) * decay, (velocity - rate * push) * decay];
 }
 
 /** The shortest signed turn from angle `from` to angle `to`, in radians. */
@@ -402,6 +443,12 @@ export function createField(canvas, opts) {
     uCarveRobot: { value: new THREE.Vector3(0, -100, 0) },
     uCarveEye: { value: new THREE.Vector3() },
     uCarveAmount: { value: 0 },
+    uAimFrom: { value: new THREE.Vector2() },
+    uAimTo: { value: new THREE.Vector2() },
+    uAimAmount: { value: 0 },
+    uLitCentre: { value: new THREE.Vector3(0, -100, 0) },
+    uLitHalf: { value: 0 },
+    uLitTint: { value: new THREE.Color(1, 1, 1) },
   };
 
   const field = new THREE.Group();
@@ -515,6 +562,10 @@ export function createField(canvas, opts) {
 
     const meta = await metaPromise;
     const transform = meta?.modelToField;
+    if (meta && Array.isArray(meta.heightsMillimetres) && meta.cols > 0 && meta.rows > 0 && meta.cellMeters > 0 &&
+        meta.heightsMillimetres.length === meta.cols * meta.rows) {
+      heights = { cols: meta.cols, rows: meta.rows, cell: meta.cellMeters, mm: meta.heightsMillimetres };
+    }
     /* Every field the branch below reads has to be present and sane, not just the two that were
        obvious. The guard checked the axis order and the length but the body then destructured
        originMeters and used widthMeters, so a map written by an older version of the extractor — or a
@@ -848,74 +899,125 @@ export function createField(canvas, opts) {
   }
 
   /* ---- aiming (see mechanisms.js readAim) ----
-     While the robot aims, the field says at what, in the path's blue - it is the robot's automation
-     speaking. A reticle stands on the HUB's opening, facing the lens and drawn over whatever is in front
-     of it: wide and breathing while the shooter swings onto the target, closing in as the error falls,
-     and on the moment it locks it gains a centre and one ring ripples out from it. A guide runs along the
-     carpet from the robot to where it is aiming. Shooting on the move, a second, small reticle marks the
-     point the robot actually leads - the virtual goal its velocity makes it aim at - joined to the HUB's
-     by a hairline, so the lead itself is on screen. Nothing here predicts where a ball goes: every mark
-     is a number the robot published. The camera, meanwhile, swings round to look over the robot at the
-     target (see placeCamera). */
+     Drawn the way Tesla draws what Autopilot is doing: in the scene, grey while it is getting ready and
+     blue once it has engaged, and nothing that blinks.
+
+     What the robot aims at is picked out as Tesla picks out the car it is following: the HUB itself is
+     lit - everything standing in its footprint, in the field's own shader (see the clearing) - a lighter
+     grey than the field round it while the shooter swings onto it, and blue from the moment the robot
+     locks on. A band lies on the carpet from the robot to it, like the path ahead of the car:
+     grey, reaching further toward the HUB as the heading error closes, then blue, with a bead of light
+     running down it into the HUB, which brightens once as the bead arrives.
+
+     Shooting on the move, the band is broken into chevrons drifting toward the target, and it runs to the
+     point the robot actually aims at - where its motion carries the ball to the HUB from - so the lead is
+     the angle between the band and the HUB. FUEL lobbed to a place on the carpet, while the HUB is off,
+     is aimed at the same way, with the place ringed on the carpet instead of anything lit.
+
+     Every mark is a number the robot published; nothing predicts where a ball goes. The camera, meanwhile,
+     pulls up and swings round to look over the robot at the target (see placeCamera). */
   const OPENING_HEIGHT = 1.83;
-  const LOCKED_RADIUS = 0.34;
-  const RIPPLE_S = 0.65;
-  /* Never drawn smaller than this share of its distance from the lens, so a far HUB's reticle still reads. */
-  const MIN_SCREEN = 0.028;
-  const aimMaterial = () => new THREE.MeshBasicMaterial({
-    color: SIGNAL, transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false,
+  const OPENING_RADIUS = 0.56;
+  /* Where the band stops short of the target's centre: just off the face of a HUB, which is 0.6 m out. */
+  const TARGET_FACE = 0.72;
+  /* Half the width of what is lit round the target's centre: a HUB is 1.19 m square. */
+  const TARGET_HALF = 0.605;
+  const AIM_PULSE_S = 0.7;
+  const AIM_GREY = new THREE.Color(T("--cat-body"));
+  const AIM_BLUE = new THREE.Color(SIGNAL);
+  /* The target is drawn in its own grey times these, in the working (linear) space: lifted while aligning,
+     and a quiet steel blue once locked - its grey, about a third of the way to white, comes out near
+     #425276, picked out rather than painted. */
+  const LIT_ALIGNING = new THREE.Color(1.5, 1.5, 1.55);
+  const LIT_LOCKED = new THREE.Color(0.78, 1.18, 2.5);
+  const WHITE = new THREE.Color(1, 1, 1);
+
+  const aimBand = makeRibbon(TRIM, 0, 0.55);
+  aimBand.material.uniforms.uReach.value = 0.84;
+  aimBand.renderOrder = 3;
+  scene.add(aimBand);
+
+  /* What stands at a target, from the field's collision map: a HUB is a structure, lit where it stands;
+     anything else - FUEL lobbed to a point in the alliance zone, while the HUB is off - is a place on the
+     carpet, marked there the way Autopark marks the space it is going to. Without the map every target is
+     taken for a structure. */
+  let heights = null;
+  const standing = new Map();
+  function standsAt(tx, tz) {
+    if (!heights) return true;
+    const key = `${tx.toFixed(2)} ${tz.toFixed(2)}`;
+    if (standing.has(key)) return standing.get(key);
+    const fx = tx + poseLength / 2;
+    const fy = -tz + poseWidth / 2;
+    let top = 0;
+    for (let x = fx - 0.65; x <= fx + 0.65 + 1e-9; x += heights.cell) {
+      for (let y = fy - 0.65; y <= fy + 0.65 + 1e-9; y += heights.cell) {
+        const c = Math.floor(x / heights.cell);
+        const r = Math.floor(y / heights.cell);
+        if (c < 0 || r < 0 || c >= heights.cols || r >= heights.rows) continue;
+        top = Math.max(top, heights.mm[r * heights.cols + c]);
+      }
+    }
+    if (standing.size > 64) standing.clear();
+    standing.set(key, top > 900);
+    return top > 900;
+  }
+
+  /* Without the field model there is no HUB to light, and its opening is outlined instead. */
+  const overlay = () => new THREE.MeshBasicMaterial({
+    color: TRIM, transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false,
     side: THREE.DoubleSide, fog: false,
   });
-  const aimGroup = new THREE.Group();
-  aimGroup.visible = false;
-  scene.add(aimGroup);
-  const ringGeometry = new THREE.RingGeometry(0.84, 1, 96);
-  const facingMesh = (geometry) => {
-    const mesh = new THREE.Mesh(geometry, aimMaterial());
-    mesh.renderOrder = 10;
-    aimGroup.add(mesh);
+  const lying = (geometry) => {
+    const mesh = new THREE.Mesh(geometry, overlay());
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.renderOrder = 5;
+    mesh.visible = false;
+    scene.add(mesh);
     return mesh;
   };
-  const halo = facingMesh(ringGeometry);
-  const haloCentre = facingMesh(new THREE.CircleGeometry(0.16, 32));
-  const ripple = facingMesh(ringGeometry);
-  const leadRing = facingMesh(ringGeometry);
-  const leadCentre = facingMesh(new THREE.CircleGeometry(0.2, 24));
-  const leadLine = new THREE.Line(
-    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)),
-    new THREE.LineBasicMaterial({ color: SIGNAL, transparent: true, opacity: 0, depthTest: false, toneMapped: false, fog: false })
-  );
-  leadLine.renderOrder = 10;
-  leadLine.frustumCulled = false;
-  aimGroup.add(leadLine);
-  /* Place a camera-facing mark at `at`, `radius` metres across but never smaller on screen than MIN_SCREEN. */
-  const face = (mesh, at, radius) => {
-    mesh.position.copy(at);
-    mesh.quaternion.copy(camera.quaternion);
-    mesh.scale.setScalar(Math.max(radius, camera.position.distanceTo(at) * MIN_SCREEN * (radius / LOCKED_RADIUS)));
-  };
-  const aimAt = new THREE.Vector3();
-  const leadAt = new THREE.Vector3();
-  const guide = makeRibbon(SIGNAL, 0, 0.35);
-  scene.add(guide);
+  const openingFill = lying(new THREE.CircleGeometry(OPENING_RADIUS, 64));
+  const openingRim = lying(new THREE.RingGeometry(OPENING_RADIUS - 0.09, OPENING_RADIUS, 64));
+  /* A place on the carpet: a ring lying on it, hidden by whatever stands in front of it as the carpet is. */
+  const SPOT_RADIUS = 0.42;
+  const spotFill = lying(new THREE.CircleGeometry(SPOT_RADIUS - 0.07, 64));
+  const spotRim = lying(new THREE.RingGeometry(SPOT_RADIUS - 0.07, SPOT_RADIUS, 64));
+  for (const mesh of [spotFill, spotRim]) {
+    mesh.material.depthTest = true;
+    mesh.renderOrder = 3;
+  }
+
   let aimInfo = null;       // { state, target: [x, z], aimPoint: [x, z], headingErrorDeg } in the scene
   let aimShown = null;      // the last aim drawn, kept while it fades out
   let aimFade = 0;
-  let haloRadius = LOCKED_RADIUS + 0.9;
+  let aimLock = 0;          // grey 0 to blue 1
+  let aimReach = 0;         // how much of the way to its end the band reaches, 0 to 1
   let lockedAt = -Infinity;
   let lastAimState = "IDLE";
+  const aimColour = new THREE.Color();
 
   function placeAim(dt, now) {
     const want = aimInfo && robot.visible && !unplaced && model.root.visible ? 1 : 0;
-    aimFade = reduced ? want : want + (aimFade - want) * Math.exp(-dt / 0.14);
-    if (Math.abs(aimFade - want) < 0.004) aimFade = want;
+    const ease = (value, goal, seconds) => {
+      const next = reduced ? goal : goal + (value - goal) * Math.exp(-dt / seconds);
+      return Math.abs(next - goal) < 0.002 ? goal : next;
+    };
+    aimFade = ease(aimFade, want, 0.14);
     if (aimInfo) aimShown = aimInfo;
     const info = aimShown;
-    const visible = aimFade > 0 && info;
-    aimGroup.visible = Boolean(visible);
-    guide.visible = Boolean(visible);
+    const visible = Boolean(aimFade > 0 && info);
+    aimBand.visible = visible;
     if (!visible) {
+      openingFill.visible = false;
+      openingRim.visible = false;
+      spotFill.visible = false;
+      spotRim.visible = false;
+      carveUniforms.uLitTint.value.copy(WHITE);
+      carveUniforms.uLitHalf.value = 0;
+      carveUniforms.uAimAmount.value = 0;
       lastAimState = "IDLE";
+      aimReach = 0;
+      aimLock = 0;
       return false;
     }
     const [tx, tz] = info.target;
@@ -924,53 +1026,68 @@ export function createField(canvas, opts) {
     if (locked && lastAimState !== "ALIGNED" && lastAimState !== "SOTF") lockedAt = now;
     lastAimState = info.state;
 
-    /* The reticle: wide with the heading error while aligning, closed and centred once locked. */
-    const error = Math.abs(Number.isFinite(info.headingErrorDeg) ? info.headingErrorDeg : 10);
-    const goal = locked ? LOCKED_RADIUS : LOCKED_RADIUS + Math.min(0.75, error / 25);
-    haloRadius = reduced ? goal : goal + (haloRadius - goal) * Math.exp(-dt / 0.12);
-    const breathe = locked || reduced ? 1 : 0.72 + 0.28 * Math.sin((now / 1000) * Math.PI * 2 * 1.1);
-    aimAt.set(tx, OPENING_HEIGHT, tz);
-    face(halo, aimAt, haloRadius);
-    halo.material.opacity = aimFade * (locked ? 1 : 0.7) * breathe;
-    haloCentre.visible = locked;
-    if (locked) {
-      face(haloCentre, aimAt, LOCKED_RADIUS);
-      haloCentre.material.opacity = aimFade * 0.9;
-    }
-
-    /* The lock: one ring out from the reticle, fading as it goes. */
+    /* Grey to blue, and how far the band reaches: most of the way once the heading error is small, all of
+       it once locked. Without an error to go on it simply reaches. */
+    aimLock = ease(aimLock, locked ? 1 : 0, 0.1);
+    const error = Number.isFinite(info.headingErrorDeg) ? Math.abs(info.headingErrorDeg) : null;
+    const reachGoal = locked || error === null ? 1 : 0.45 + 0.5 * (1 - Math.min(1, error / 45));
+    aimReach = ease(aimReach, reachGoal, 0.16);
+    aimColour.copy(AIM_GREY).lerp(AIM_BLUE, aimLock);
     const since = (now - lockedAt) / 1000;
-    const rippling = !reduced && since >= 0 && since < RIPPLE_S;
-    ripple.visible = rippling;
-    if (rippling) {
-      const u = since / RIPPLE_S;
-      face(ripple, aimAt, LOCKED_RADIUS * (1 + 1.6 * (1 - (1 - u) * (1 - u))));
-      ripple.material.opacity = aimFade * 0.8 * (1 - u);
+    const pulsing = !reduced && locked && since >= 0 && since < AIM_PULSE_S;
+    const late = since / AIM_PULSE_S - 0.85;
+    const arrival = pulsing ? Math.exp(-(late * late) / 0.015) : 0;
+
+    /* The target: a structure lit where it stands - or with no field model to light, its opening outlined -
+       or a place on the carpet ringed. */
+    const structure = standsAt(tx, tz);
+    const modelled = cad.children.length > 0;
+    carveUniforms.uLitCentre.value.set(tx, 0, tz);
+    carveUniforms.uLitHalf.value = structure && modelled ? TARGET_HALF : 0;
+    carveUniforms.uLitTint.value.copy(LIT_ALIGNING).lerp(LIT_LOCKED, aimLock).multiplyScalar(1 + 0.3 * arrival).lerp(WHITE, 1 - aimFade);
+    spotRim.visible = !structure;
+    spotFill.visible = !structure;
+    if (!structure) {
+      spotRim.position.set(tx, 0.016, tz);
+      spotRim.material.color.copy(aimColour);
+      spotRim.material.opacity = aimFade * (0.45 + 0.5 * aimLock);
+      spotFill.position.set(tx, 0.015, tz);
+      spotFill.material.color.copy(aimColour);
+      spotFill.material.opacity = aimFade * aimLock * (0.16 + 0.22 * arrival);
+    }
+    openingRim.visible = structure && !modelled;
+    openingFill.visible = structure && !modelled;
+    if (structure && !modelled) {
+      openingRim.position.set(tx, OPENING_HEIGHT + 0.02, tz);
+      openingRim.material.color.copy(aimColour);
+      openingRim.material.opacity = aimFade * (0.5 + 0.45 * aimLock);
+      openingFill.position.set(tx, OPENING_HEIGHT + 0.019, tz);
+      openingFill.material.color.copy(aimColour);
+      openingFill.material.opacity = aimFade * aimLock * (0.2 + 0.25 * arrival);
     }
 
-    /* The lead, while shooting on the move. */
-    const offset = Math.hypot(ax - tx, az - tz);
-    const leading = info.state === "SOTF" && offset > 0.04;
-    leadRing.visible = leading;
-    leadCentre.visible = leading;
-    leadLine.visible = leading;
-    if (leading) {
-      leadAt.set(ax, OPENING_HEIGHT, az);
-      face(leadRing, leadAt, LOCKED_RADIUS * 0.55);
-      leadRing.material.opacity = aimFade * 0.95;
-      face(leadCentre, leadAt, LOCKED_RADIUS * 0.55);
-      leadCentre.material.opacity = aimFade * 0.95;
-      const line = leadLine.geometry.getAttribute("position");
-      line.setXYZ(0, tx, OPENING_HEIGHT, tz);
-      line.setXYZ(1, ax, OPENING_HEIGHT, az);
-      line.needsUpdate = true;
-      leadLine.material.opacity = aimFade * 0.7;
-    }
+    /* The band, to just off the target's face - or toward the point the robot leads, while it does. */
+    const leading = info.state === "SOTF" && Math.hypot(ax - tx, az - tz) > 0.08;
+    const ex = leading ? ax : tx;
+    const ez = leading ? az : tz;
+    const dx = ex - robot.position.x;
+    const dz = ez - robot.position.z;
+    const span = Math.hypot(dx, dz) || 1;
+    const length = Math.max(0.3, span - (structure ? TARGET_FACE : SPOT_RADIUS + 0.06)) * aimReach;
+    const endX = robot.position.x + (dx / span) * length;
+    const endZ = robot.position.z + (dz / span) * length;
+    layRibbon(aimBand, [[robot.position.x, robot.position.z], [endX, endZ]], 0.24, 0.018);
+    carveUniforms.uAimFrom.value.set(robot.position.x, robot.position.z);
+    carveUniforms.uAimTo.value.set(endX, endZ);
+    carveUniforms.uAimAmount.value = aimFade;
+    const uniforms = aimBand.material.uniforms;
+    uniforms.uColor.value.copy(aimColour);
+    uniforms.uOpacity.value = aimFade * (0.32 + 0.58 * aimLock);
+    uniforms.uChevrons.value = info.state === "SOTF" ? 1 : 0;
+    if (info.state === "SOTF" && !reduced) uniforms.uTime.value = (uniforms.uTime.value + dt) % 1200;
+    uniforms.uPulse.value = pulsing ? Math.min(1, since / (AIM_PULSE_S * 0.85)) : -1;
 
-    /* The guide on the carpet, to the point being aimed at. */
-    layRibbon(guide, [[robot.position.x, robot.position.z], leading ? [ax, az] : [tx, tz]], 0.045, 0.02);
-    guide.material.uniforms.uOpacity.value = aimFade * (locked ? 0.55 : 0.32);
-    return aimFade !== want || rippling || Math.abs(haloRadius - goal) > 1e-3 || (!locked && !reduced);
+    return aimFade !== want || pulsing || aimLock !== (locked ? 1 : 0) || aimReach !== reachGoal || info.state === "SOTF";
   }
 
   const PLANNED_OPACITY = 0.9;
@@ -1088,7 +1205,11 @@ export function createField(canvas, opts) {
      rather than a position is what makes the camera swing round the robot when it goes from parked to
      driving, instead of cutting straight across the carpet. */
   let rel = null;
+  let relSpeed = null;
   let cameraHeading = 0;
+  let headingSpeed = 0;
+  let aimHeld = 0;
+  const stillRel = () => ({ bearing: 0, elevation: 0, r: 0, look: [0, 0, 0] });
 
   /* How far the chase camera has swung away from directly behind the robot to see past something.
      Eased, never snapped: a camera that jumps the instant a truss clips the sight line is more
@@ -1135,14 +1256,19 @@ export function createField(canvas, opts) {
   }
 
   /** The shot the following camera wants, as polar coordinates in the robot's frame. */
-  function wantedRel() {
+  function wantedRel(aimed) {
     if (parked) return polar(PARKED_EYE, PARKED_LOOK);
-    if (aimInfo) {
-      /* Aiming: a little higher and further back, looking partway to the target and up toward its opening,
-         so the robot sits in the lower half of the picture and what it aims at in the upper half, clear of
-         the figures over the top of the panel. */
-      const range = Math.hypot(aimInfo.target[0] - robot.position.x, aimInfo.target[1] - robot.position.z);
-      return polar([-4.8, 3.4, 0], [Math.min(range * 0.6, 4), 0.9, 0]);
+    if (aimed) {
+      /* Aiming: pulled up and back until the robot and what it aims at are both in the picture, the robot in
+         the lower half and the target in the upper half, clear of the figures over the top of the panel -
+         further back the further away the target is. High, because behind a robot that is shooting there is
+         often something tall, its own alliance's wall or the other HUB, that a lower camera would be looking
+         through. */
+      const range = Math.hypot(aimed.target[0] - robot.position.x, aimed.target[1] - robot.position.z);
+      const look = [Math.min(range * 0.5, 4), 0.45, 0];
+      const distance = Math.max(6.5, Math.min(12, 5.5 + range * 0.95));
+      const elevation = 0.6;
+      return polar([look[0] - Math.cos(elevation) * distance, look[1] + Math.sin(elevation) * distance, 0], look);
     }
     const eye = turnY(CHASE_EYE, chaseSwing);
     const lookAt = turnY(CHASE_LOOK, chaseSwing);
@@ -1171,28 +1297,45 @@ export function createField(canvas, opts) {
          A robot that shoots out of its back faces away from its target, and a camera following its
          heading would watch the balls fly at the lens with the target behind it. The swing round is
          slower than a turn, so it reads as the camera choosing the shot. */
-      const aiming = aimInfo && !parked;
+      aimHeld = aimInfo && !parked ? AIM_HOLD_S : parked ? 0 : Math.max(0, aimHeld - dt);
+      const aimed = aimHeld > 0 ? aimInfo ?? aimShown : null;
+      if (aimed && aimHeld < AIM_HOLD_S) moving = true;
       /* Toward the middle of the HUB and the point the robot leads, so both of their marks are in frame. */
-      const aimX = aiming ? (aimInfo.target[0] + aimInfo.aimPoint[0]) / 2 : 0;
-      const aimZ = aiming ? (aimInfo.target[1] + aimInfo.aimPoint[1]) / 2 : 0;
-      const reference = aiming ? Math.atan2(-(aimZ - robot.position.z), aimX - robot.position.x) : robot.rotation.y;
-      const headingStep = angleTo(cameraHeading, reference);
-      cameraHeading += reduced ? headingStep : headingStep * (1 - Math.exp(-dt / (aiming ? AIM_TURN_S : CAMERA_TURN_S)));
-      if (Math.abs(angleTo(cameraHeading, reference)) > 1e-3) moving = true;
+      const aimX = aimed ? (aimed.target[0] + aimed.aimPoint[0]) / 2 : 0;
+      const aimZ = aimed ? (aimed.target[1] + aimed.aimPoint[1]) / 2 : 0;
+      const reference = aimed ? Math.atan2(-(aimZ - robot.position.z), aimX - robot.position.x) : robot.rotation.y;
+      /* A spring on the heading, its offset measured the short way round. */
+      const turn = -angleTo(cameraHeading, reference);
+      if (reduced) {
+        cameraHeading -= turn;
+        headingSpeed = 0;
+      } else {
+        const [next, speed] = spring(turn, headingSpeed, aimed ? AIM_TURN_RATE : CAMERA_TURN_RATE, dt);
+        cameraHeading += next - turn;
+        headingSpeed = speed;
+      }
+      if (Math.abs(angleTo(cameraHeading, reference)) > 1e-3 || Math.abs(headingSpeed) > 1e-3) moving = true;
 
-      const want = wantedRel();
-      if (!rel) rel = relFromCamera();
-      const k = reduced ? 1 : 1 - Math.exp(-dt * CAMERA_SWING_RATE);
-      for (let i = 0; i < 3; i++) rel.look[i] += (want.look[i] - rel.look[i]) * k;
-      rel.bearing += angleTo(rel.bearing, want.bearing) * k;
-      rel.elevation += (want.elevation - rel.elevation) * k;
-      rel.r = Math.exp(Math.log(rel.r) + (Math.log(want.r) - Math.log(rel.r)) * k);
-      const settled =
-        Math.abs(angleTo(rel.bearing, want.bearing)) < 1e-3 &&
-        Math.abs(want.elevation - rel.elevation) < 1e-3 &&
-        Math.abs(want.r - rel.r) < 1e-3 &&
-        want.look.every((v, i) => Math.abs(v - rel.look[i]) < 1e-3);
-      if (!settled) moving = true;
+      const want = wantedRel(aimed);
+      if (!rel) {
+        rel = relFromCamera();
+        relSpeed = stillRel();
+      }
+      /* The same spring on each part of the shot: its bearing, its elevation, its distance - in proportion,
+         so a close shot and a far one close at the same pace - and the point it looks at. */
+      const ease = (offset, key, index) => {
+        if (reduced) return 0;
+        const velocity = index === undefined ? relSpeed[key] : relSpeed[key][index];
+        const [next, speed] = spring(offset, velocity, CAMERA_SWING_RATE, dt);
+        if (index === undefined) relSpeed[key] = speed;
+        else relSpeed[key][index] = speed;
+        if (Math.abs(next) > 1e-3 || Math.abs(speed) > 1e-3) moving = true;
+        return next;
+      };
+      for (let i = 0; i < 3; i++) rel.look[i] = want.look[i] + ease(rel.look[i] - want.look[i], "look", i);
+      rel.bearing = want.bearing + ease(-angleTo(rel.bearing, want.bearing), "bearing");
+      rel.elevation = want.elevation + ease(rel.elevation - want.elevation, "elevation");
+      rel.r = want.r * Math.exp(ease(Math.log(rel.r / want.r), "r"));
 
       const flat = Math.cos(rel.elevation) * rel.r;
       const eye = turnY([rel.look[0] + Math.sin(rel.bearing) * flat, rel.look[1] + Math.sin(rel.elevation) * rel.r, rel.look[2] + Math.cos(rel.bearing) * flat], cameraHeading);
@@ -1440,6 +1583,7 @@ export function createField(canvas, opts) {
         setUnplaced(true);
         if (!robot.visible) {
           cameraHeading = heading;
+          headingSpeed = 0;
           rel = null;
         }
         robot.visible = true;
@@ -1483,6 +1627,7 @@ export function createField(canvas, opts) {
         reported = { x, z, heading, vx: 0, vz: 0, vh: 0, at: now };
         if (!robot.visible) {
           cameraHeading = heading;
+          headingSpeed = 0;
           rel = null;
         }
         robot.visible = true;
@@ -1564,10 +1709,16 @@ export function createField(canvas, opts) {
         robot.position.set(shown.x, 0, shown.z);
         robot.rotation.y = shown.heading;
       }
-      cameraHeading = robot.rotation.y;
+      aimHeld = aimInfo && !parked ? AIM_HOLD_S : 0;
+      const aimed = aimHeld > 0 ? aimInfo : null;
+      cameraHeading = aimed
+        ? Math.atan2(-((aimed.target[1] + aimed.aimPoint[1]) / 2 - robot.position.z), (aimed.target[0] + aimed.aimPoint[0]) / 2 - robot.position.x)
+        : robot.rotation.y;
+      headingSpeed = 0;
       chaseSwing = swingTarget;
       if (mode === "chase" && robot.visible) {
-        rel = wantedRel();
+        rel = wantedRel(aimed);
+        relSpeed = stillRel();
       }
       model.settle();
       /* A step long enough for every eased value to land where it is heading. */

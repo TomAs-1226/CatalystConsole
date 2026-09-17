@@ -1038,20 +1038,33 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
   font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-dim);
 }
 .car-stats b { color: var(--cat-white); font-weight: var(--cat-w-medium); font-variant-numeric: tabular-nums; }
-/* What the robot's aiming is doing, in the automation's blue: a small pill under the figures with a light
-   that breathes while the shooter swings onto the target, holds steady once locked, and runs as a short
-   streak while the robot shoots on the move. */
+/* What the robot's aiming is doing, said the way Tesla says what Autopilot is doing: a few quiet words
+   after a small mark, grey while the shooter swings onto the target and blue once it holds it - the
+   same grey and blue as its marks on the field. Nothing pulses; the change of colour is the news. */
 .car-aim {
-  display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 11px 4px 9px;
-  border-radius: 999px; background: color-mix(in srgb, var(--cat-signal) 22%, rgba(0, 0, 0, 0.55));
-  font-size: var(--fs-13); font-weight: var(--cat-w-semi); color: #dbe4ff; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 4px 11px 4px 8px;
+  border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+  font-size: var(--fs-13); font-weight: var(--cat-w-semi); color: var(--cat-body); white-space: nowrap;
+  transition: background-color 220ms ease, color 220ms ease;
 }
 .car-aim[hidden] { display: none; }
-.car-aim i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--cat-signal); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-signal) 30%, transparent); }
-.car-aim[data-state="ALIGNING"] i { animation: aimBreathe 0.9s ease-in-out infinite; }
-.car-aim[data-state="SOTF"] i { width: 14px; border-radius: 4px; animation: aimStreak 0.5s linear infinite; background: linear-gradient(90deg, transparent, var(--cat-signal) 45%, #dbe4ff); background-size: 200% 100%; }
-@keyframes aimBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-@keyframes aimStreak { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.car-aim i {
+  flex: none; box-sizing: border-box; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--cat-dim); display: grid; place-items: center;
+  transition: border-color 220ms ease;
+}
+.car-aim i::after {
+  content: ""; width: 3px; height: 3px; border-radius: 50%; background: var(--cat-dim);
+  transition: background-color 220ms ease;
+}
+.car-aim:is([data-state="ALIGNED"], [data-state="SOTF"]) {
+  background: color-mix(in srgb, var(--cat-signal) 26%, rgba(0, 0, 0, 0.6)); color: #ffffff;
+}
+.car-aim:is([data-state="ALIGNED"], [data-state="SOTF"]) i { border-color: var(--cat-signal-lt); }
+.car-aim:is([data-state="ALIGNED"], [data-state="SOTF"]) i::after { background: var(--cat-signal-lt); }
+@media (prefers-reduced-motion: reduce) {
+  .car-aim, .car-aim i, .car-aim i::after { transition: none; }
+}
 /* The estimator put the robot through a wall and the drawing is holding it inside one. A state, so
    it is allowed amber, as a filled pill so it is seen over a lit scene. */
 .fc.off {
@@ -2604,8 +2617,7 @@ kbd {
   font-size: var(--fs-12); color: var(--cat-faint);
 }
 /* A move between Park and Drive (showPark and hidePark in app.js): the stage's own fades are off, and
-   the script drives its clip and its ground frame by frame while the robot flies to or from the field
-   tile. */
+   the script drives its ground frame by frame while the robot flies to or from the field tile. */
 .park[data-state="fly"] { animation: none; }
 /* The stage's words step aside the moment the robot starts to move, and come back as it lands. */
 .park-head, .park-cards, .park-dash, .park-hint, .park-callouts, .park-lines {

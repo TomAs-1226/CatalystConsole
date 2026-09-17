@@ -27,6 +27,7 @@ import { stateLayer } from "./motion.js";
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms } from "./mechanisms.js";
+import { demoMatch, START_POSE } from "./demo-match.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -146,30 +147,52 @@ function matchTime() {
 /* A synthetic robot, for looking at the dashboard without one. It is off by default and the dock
  * button stays lit while it runs, because a dashboard that quietly makes up telemetry is a hazard. */
 const demo = { on: false, t0: performance.now(), timer: null };
-/* The demo match and the whole cycle it repeats on, in seconds. */
+/* The demo match and the whole cycle it repeats on, in seconds: the robot waiting on the field, disabled,
+   long enough for the board to step aside for Park and be looked at; the match; and the robot disabled
+   again after it, with the Field Management System still attached. */
+const DEMO_PREMATCH_S = 15;
 const DEMO_MATCH_S = 160;
-const DEMO_CYCLE_S = 200;
+const DEMO_CYCLE_S = 190;
 
 function demoTick() {
   const t = (performance.now() - demo.t0) / 1000;
-  /* A REBUILT match on repeat: 20 s auto, then teleop counting 140 down to 0, then forty seconds
-   * disabled on the field before the next one, which is long enough to watch the board park and the
-   * drive be written up. */
-  const cycle = t % DEMO_CYCLE_S;
-  const auto = cycle < 20;
-  const enabled = cycle < DEMO_MATCH_S;
-  const matchT = auto ? 20 - cycle : Math.max(0, DEMO_MATCH_S - cycle);
-  /* The clock anything that moves runs on. It stops where the match left the robot. */
-  const tm = enabled ? t : t - (cycle - DEMO_MATCH_S);
-  const moving = enabled ? 1 : 0;
-  /* The battery sags under load and drains through the match, recovers a little once the robot is
-   * disabled, and is swapped for a charged one before the next match. */
-  const volts = enabled
-    ? 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - cycle * 0.002
-    : 12.64 - DEMO_MATCH_S * 0.002 + 0.1 * (1 - Math.exp(-(cycle - DEMO_MATCH_S) / 10));
+  /* A REBUILT match on repeat. The robot waits on the field first, disabled, so the demo opens on Park and
+   * then shifts into Drive as the match starts; then 20 s auto and teleop counting 140 down to 0; then
+   * disabled again until the next one, long enough to watch the board park and the drive be written up.
+   * `cycle` is the time from the start of the match, negative while the robot waits for it. */
+  const cycle = (t % DEMO_CYCLE_S) - DEMO_PREMATCH_S;
+  const waiting = cycle < 0;
+  const auto = cycle >= 0 && cycle < 20;
+  const enabled = cycle >= 0 && cycle < DEMO_MATCH_S;
+  const matchT = waiting ? 0 : auto ? 20 - cycle : Math.max(0, DEMO_MATCH_S - cycle);
+  /* The robot, from the scripted match (see demo-match.js): at its start while it waits for the match, and
+   * where the match left it afterwards. */
+  const play = demoMatch(Math.min(DEMO_MATCH_S, Math.max(0, cycle)));
+  const { vx, vy, omega } = enabled ? play.fieldVelocity : { vx: 0, vy: 0, omega: 0 };
+  const speed = Math.hypot(vx, vy);
+  /* How hard it is being pushed about: the change in its velocity since the last tick, smoothed over a
+   * quarter of a second, in m/s². */
+  const last = demo.motion;
+  const since = last ? t - last.t : Infinity;
+  const push = since > 0 && since < 0.5
+    ? last.push + (Math.min(8, Math.hypot(vx - last.vx, vy - last.vy) / since) - last.push) * Math.min(1, since / 0.25)
+    : 0;
+  demo.motion = { t, vx, vy, push };
+  const m = play.mechanisms;
+  /* Disabled, everything that spins stops; the hood and the intake stay where they are. */
+  const running = (value) => (enabled ? value : 0);
+  const shooterRps = running(m.shooterRps);
+  /* The battery sags with the drivetrain and the flywheel and drains through the match, recovers a little
+   * once the robot is disabled, and is swapped for a charged one before the next match. */
+  const volts = waiting
+    ? 12.86 + 0.01 * Math.sin(t * 0.5)
+    : enabled
+      ? 12.72 - 0.16 * speed - 0.05 * push - 0.004 * shooterRps - cycle * 0.0018
+      : 12.64 - DEMO_MATCH_S * 0.0018 + 0.1 * (1 - Math.exp(-(cycle - DEMO_MATCH_S) / 10));
   const set = (k, tag, v) => { nt.v[k] = { t: tag, v }; };
 
-  set("/FMSInfo/FMSControlData", "num", (enabled ? BIT.enabled : 0) | BIT.ds | BIT.fms | (auto ? BIT.auto : 0));
+  /* Waiting for the match the robot is on the Driver Station alone; the field attaches as the match starts. */
+  set("/FMSInfo/FMSControlData", "num", (enabled ? BIT.enabled : 0) | BIT.ds | (waiting ? 0 : BIT.fms) | (auto ? BIT.auto : 0));
   set("/FMSInfo/IsRedAlliance", "bool", true);
   set("/FMSInfo/EventName", "str", "Demo");
   set("/FMSInfo/MatchNumber", "num", 7);
@@ -180,27 +203,30 @@ function demoTick() {
   // seconds after auto — exactly as FMS sends it. Red here, so the red hub sits out shifts 1 and 3.
   set("/FMSInfo/GameSpecificMessage", "str", auto || cycle < 23 ? "" : "R");
 
-  const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
-  set("/Catalyst/Drive/FrontLeft/Velocity", "num", moving * drive / 60);
-  set("/Catalyst/Drive/FrontRight/Velocity", "num", moving * (drive + 120) / 60);
-  set("/Catalyst/Drive/BackLeft/Velocity", "num", moving * (drive - 90) / 60);
-  set("/Catalyst/Drive/BackRight/Velocity", "num", moving * (drive + 40) / 60);
-  set("/Catalyst/Shooter/Velocity", "num", moving * (4900 + 700 * Math.sin(t * 0.6)) / 60);
+  /* Each drive motor from its module: a 6.03:1 reduction onto a 4 in wheel. */
+  const motorRps = (mps) => running(Math.abs(mps) / (2 * Math.PI * 0.0508) * 6.03);
+  set("/Catalyst/Drive/FrontLeft/Velocity", "num", motorRps(play.modules[0]));
+  set("/Catalyst/Drive/FrontRight/Velocity", "num", motorRps(play.modules[2]));
+  set("/Catalyst/Drive/BackLeft/Velocity", "num", motorRps(play.modules[4]));
+  set("/Catalyst/Drive/BackRight/Velocity", "num", motorRps(play.modules[6]));
+  set("/Catalyst/Shooter/Velocity", "num", shooterRps);
   set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
   set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
   set("/Catalyst/Brownout/MeasuredVoltage", "num", volts);
 
-  set("/Catalyst/Physics/Slip/Factor", "num", moving * Math.max(0, 0.42 * Math.sin(t * 2.1)));
-  set("/Catalyst/Physics/TippingUsage", "num", moving * (0.29 + 0.16 * Math.sin(t * 0.8)));
-  set("/Catalyst/Physics/TractionUsage", "num", moving * (0.5 + 0.35 * Math.abs(Math.sin(t * 1.9))));
+  /* Physics Core's advisories follow how hard the robot is driven: slip only under hard acceleration,
+   * tipping and traction rising with it, and turning taking some traction too. */
+  set("/Catalyst/Physics/Slip/Factor", "num", running(Math.min(0.6, Math.max(0, (push - 3.2) * 0.18))));
+  set("/Catalyst/Physics/TippingUsage", "num", running(Math.min(0.9, 0.12 + push * 0.09)));
+  set("/Catalyst/Physics/TractionUsage", "num", running(Math.min(0.95, 0.2 + push * 0.12 + Math.abs(omega) * 0.04)));
   set("/Catalyst/Physics/Quality/Confidence", "num", 0.86 + 0.09 * Math.sin(t * 0.4));
 
-  const radius = 2.4;
-  set("/Catalyst/Physics/PoseArray", "nums", [
-    8.2 + radius * Math.cos(tm * 0.42),
-    4.1 + radius * Math.sin(tm * 0.42) * 0.7,
-    (tm * 0.42 + Math.PI / 2) % (Math.PI * 2),
-  ]);
+  set("/Catalyst/Physics/PoseArray", "nums", play.pose);
+  /* The modules as SwerveModuleState[] decodes, speed then angle, and as the swerve tile reads them, angle
+   * then speed. Disabled, the wheels stop where they point. */
+  const modules = play.modules.map((v, i) => (i % 2 === 0 ? running(v) : v));
+  set("/Catalyst/Swerve/ModuleStates", "nums", modules);
+  set("/Catalyst/Drive/ModuleVelocities", "nums", [0, 1, 2, 3].flatMap((i) => [modules[i * 2 + 1], modules[i * 2]]));
 
   /* Systemcore, as a machine in good order under load.
    *
@@ -264,62 +290,35 @@ function demoTick() {
   set("/Catalyst/CAN/Health/canivore/REC", "num", 0);
   set("/Catalyst/CAN/Health/canivore/TEC", "num", 0);
 
-  /* The mechanisms, under the names team 5805's REBUILT robot publishes them (see mechanisms.js), and on
-   * the same lap the robot drives: it intakes along one side of its loop with the intake slid out, stows
-   * and spins up coming round, then shoots across the far side with the hood tracking. Each mechanism
-   * answers its goal the way a real one does, with a lag rather than a jump, so the hood swings and the
-   * flywheel winds up and down on screen as they would on the robot. */
-  {
-    const now = performance.now();
-    const m = demo.mech ?? (demo.mech = { at: now, hood: 13, shooter: 12.5, deploy: 5 });
-    const dt = Math.min(0.25, Math.max(0, (now - m.at) / 1000));
-    m.at = now;
-    const lap = (((tm * 0.42) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    const phase = !enabled ? "idle" : lap < 2.2 ? "intake" : lap < 2.9 ? "prepare" : lap < 3.9 ? "score" : "idle";
-    const follow = (value, goal, seconds) => goal + (value - goal) * Math.exp(-dt / seconds);
-    const hoodGoal = phase === "prepare" || phase === "score" ? 27 + 7 * Math.sin(tm * 0.9) : 13;
-    const shooterGoal = phase === "prepare" || phase === "score" ? 1600 / 60 : enabled ? 750 / 60 : 0;
-    const deployGoal = phase === "intake" ? 11.8 : phase === "score" && lap > 3.3 ? 5 : enabled ? 11.8 : 5;
-    m.hood = follow(m.hood, hoodGoal, 0.12);
-    m.shooter = follow(m.shooter, shooterGoal, 0.35);
-    m.deploy = follow(m.deploy, deployGoal, 0.18);
-    set("/Catalyst/Hood/AngleDegrees", "num", m.hood);
-    set("/Catalyst/Hood/GoalAngle", "num", hoodGoal);
-    set("/Catalyst/Deploy/Homed", "bool", true);
-    set("/Catalyst/Deploy/LengthInches", "num", m.deploy);
-    set("/Catalyst/Deploy/GoalInches", "num", deployGoal);
-    set("/Catalyst/Intake/Speed", "num", phase === "intake" ? 1 : phase === "score" ? 5 / 12 : 0);
-    /* Loaded only while it is actually going through FUEL: a free-spinning intake draws a few amps. */
-    set("/Catalyst/Intake/CurrentAmps", "num",
-      phase === "intake" ? (lap > 0.5 && lap < 1.9 ? 30 + 5 * Math.sin(t * 9) : 3) : phase === "score" ? 4 : 0);
-    set("/Catalyst/Conveyor/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? 1 / 12 : 0);
-    set("/Catalyst/Feeder/Speed", "num", phase === "score" ? 10 / 12 : phase === "intake" ? -1 / 12 : 0);
-    set("/Catalyst/Shooter/VelocityRPS", "num", m.shooter);
-    set("/Catalyst/Shooter/SetpointRPS", "num", shooterGoal);
-    set("/Catalyst/Shooter/AtSpeed", "bool", Math.abs(m.shooter - shooterGoal) < 1);
-    set("/Catalyst/RobotManager/State", "str",
-      phase === "prepare" ? "PREPARE_SCORE" : phase === "score" ? "SCORE" : "IDLE");
-    set("/Catalyst/HopperManager/State", "str",
-      phase === "intake" ? "INTAKING" : phase === "score" ? "SCORE" : enabled ? "IDLE_DEPLOYED" : "IDLE_STOWED");
-    set("/Catalyst/HopperManager/IsFull", "bool", false);
+  /* The mechanisms, under the names team 5805's REBUILT robot publishes them (see mechanisms.js), as the
+   * scripted match plays them: the intake slid out and eating only where there is FUEL, the hood and the
+   * flywheel chasing the shot, the hopper's state from 5805's own manager. */
+  set("/Catalyst/Hood/AngleDegrees", "num", m.hoodDeg);
+  set("/Catalyst/Hood/GoalAngle", "num", m.hoodGoalDeg);
+  set("/Catalyst/Deploy/Homed", "bool", true);
+  set("/Catalyst/Deploy/LengthInches", "num", m.deployInches);
+  set("/Catalyst/Deploy/GoalInches", "num", m.deployGoalInches);
+  set("/Catalyst/HopperManager/DeployPose", "str", m.deployPose);
+  set("/Catalyst/Intake/Speed", "num", running(m.intakeSpeed));
+  set("/Catalyst/Intake/CurrentAmps", "num", running(m.intakeCurrentAmps));
+  set("/Catalyst/Conveyor/Speed", "num", running(m.conveyorSpeed));
+  set("/Catalyst/Feeder/Speed", "num", running(m.feederSpeed));
+  set("/Catalyst/Shooter/VelocityRPS", "num", shooterRps);
+  set("/Catalyst/Shooter/SetpointRPS", "num", running(m.shooterGoalRps));
+  set("/Catalyst/Shooter/AtSpeed", "bool", enabled && Math.abs(m.shooterRps - m.shooterGoalRps) < 1);
+  set("/Catalyst/RobotManager/State", "str", enabled ? m.robotState : "IDLE");
+  set("/Catalyst/HopperManager/State", "str", enabled ? m.hopperState : m.deployInches > 8 ? "IDLE_DEPLOYED" : "IDLE_STOWED");
+  set("/Catalyst/HopperManager/IsFull", "bool", m.hopperFull);
 
-    /* Aiming at the red HUB: aligning while it spins up, shooting on the move while it scores, leading the
-       HUB by its velocity over the ball's time of flight. */
-    const target = [11.93, 4.035];
-    const px = 8.2 + radius * Math.cos(tm * 0.42);
-    const py = 4.1 + radius * 0.7 * Math.sin(tm * 0.42);
-    const vx = -radius * 0.42 * Math.sin(tm * 0.42);
-    const vy = radius * 0.7 * 0.42 * Math.cos(tm * 0.42);
-    const distance = Math.hypot(target[0] - px, target[1] - py);
-    const flight = 0.25 + distance * 0.18;
-    set("/Catalyst/Aim/State", "str",
-      phase === "prepare" ? (lap < 2.7 ? "ALIGNING" : "ALIGNED") : phase === "score" ? "SOTF" : "IDLE");
-    set("/Catalyst/Aim/Target", "nums", target);
-    set("/Catalyst/Aim/AimPoint", "nums", [target[0] - vx * flight, target[1] - vy * flight]);
-    set("/Catalyst/Aim/HeadingErrorDeg", "num", phase === "prepare" ? Math.max(0.5, (2.7 - lap) * 45) : 0.8);
-    set("/Catalyst/Aim/DistanceMeters", "num", distance);
-    set("/Catalyst/Aim/TimeOfFlightSeconds", "num", flight);
-  }
+  /* The aim: aligning onto the HUB, locked on, shooting on the move - or, while the HUB is off, lobbing
+   * FUEL at a point in the alliance zone. */
+  const aim = play.aim;
+  set("/Catalyst/Aim/State", "str", enabled ? aim.state : "IDLE");
+  set("/Catalyst/Aim/Target", "nums", aim.target);
+  set("/Catalyst/Aim/AimPoint", "nums", aim.aimPoint);
+  set("/Catalyst/Aim/HeadingErrorDeg", "num", aim.headingErrorDeg);
+  set("/Catalyst/Aim/DistanceMeters", "num", aim.distanceMeters);
+  set("/Catalyst/Aim/TimeOfFlightSeconds", "num", aim.timeOfFlightSeconds);
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
@@ -416,28 +415,23 @@ function demoTick() {
              : "limelight-left|OK|97% accepted|55.0|68.0|true",
     "limelight-right|NO_TARGETS|no usable target|57.0|66.0|true",
     "limelight-ground|OK|91% accepted|54.0|71.0|true"]);
-  /* PathPlanner's path while the demo robot follows one: the next few seconds of the loop it drives, in
-   * auto as a planned path, and for a stretch of teleop with an Autopilot engaged, so both ways of
-   * drawing a plan can be seen. Empty otherwise, as PathPlanner leaves it between paths. */
-  const autopiloting = enabled && cycle >= 70 && cycle < 105;
-  const pathAhead = [];
-  if (enabled && (auto || autopiloting)) {
-    const ahead = auto ? 4.5 : 3.2;
-    for (let s = 0; s <= ahead + 1e-9; s += 0.1) {
-      const u = (tm + s) * 0.42;
-      pathAhead.push(8.2 + radius * Math.cos(u), 4.1 + radius * Math.sin(u) * 0.7, (u + Math.PI / 2) % (Math.PI * 2));
-    }
-  }
-  set("/PathPlanner/activePath", "nums", pathAhead);
-  set("/Catalyst/Behavior/Cycle/Phase", "str", autopiloting ? (Math.floor(cycle / 12) % 2 ? "Score" : "Acquire") : "DriverControl");
+  /* The path ahead while something other than the driver has the robot: PathPlanner's through auto, and in
+   * teleop an Autopilot's own, with the phase of the cycle it is running. Empty otherwise, as both leave it
+   * between paths. */
+  const path = enabled ? play.path : null;
+  const planned = path && path.source === "pathplanner";
+  set("/PathPlanner/activePath", "nums", planned ? path.points : []);
+  set("/Catalyst/Drive/PlannedPath", "nums", path && !planned ? path.points : []);
+  set("/Catalyst/Drive/PlannedPathSource", "str", path && !planned ? path.source : "");
+  set("/Catalyst/Behavior/Cycle/Phase", "str", enabled ? play.autopilotPhase : "DriverControl");
 
-  const demoX = 8.2 + radius * Math.cos(tm * 0.42);
-  const demoY = 4.1 + radius * Math.sin(tm * 0.42) * 0.7;
-  const fromStart = Math.hypot(demoX - 10.6, demoY - 4.1);
+  /* Whether the robot is on its auto start: exactly, while it waits for the match. */
+  const fromStart = Math.hypot(play.pose[0] - START_POSE[0], play.pose[1] - START_POSE[1]);
+  const startTurn = Math.atan2(Math.sin(play.pose[2] - START_POSE[2]), Math.cos(play.pose[2] - START_POSE[2]));
   set("/Catalyst/Auto/StartCheck/Available", "bool", true);
   set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart < 0.3);
   set("/Catalyst/Auto/StartCheck/DistanceMeters", "num", fromStart);
-  set("/Catalyst/Auto/StartCheck/HeadingErrorDeg", "num", 6 * Math.sin(t * 0.3));
+  set("/Catalyst/Auto/StartCheck/HeadingErrorDeg", "num", (startTurn * 180) / Math.PI);
 
   if (!has(TUNABLE_MANIFEST)) {
     set(TUNABLE_MANIFEST, "str", JSON.stringify([
@@ -478,6 +472,7 @@ function setDemo(on) {
   $("#setDemoTog").setAttribute("aria-checked", String(on));
   if (on) {
     demo.t0 = performance.now();
+    demo.motion = null;
     /* The mirror of the branch below, and it was missing. Everything in the store belonged to the link
      * that was there a moment ago, status included, and switching to demo did not disown any of it —
      * so the first paint could print the real robot's round trip beside "demo data — not a robot", and
@@ -2058,14 +2053,13 @@ define("field", {
        that the chip does not say better. */
     const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
     x.foff.hidden = !(drawn && drawn.clamped);
-    /* What the robot's aiming is doing, in words under the figures, in the blue its marks on the field
-       are drawn in: aligning with the error still to close, locked on with the distance, or shooting on
-       the move. */
+    /* What the robot's aiming is doing, in words under the figures, grey or blue as its marks on the field
+       are: aligning, locked on with the distance, or shooting on the move. */
     const aim = linked && ds.enabled ? readAim(ntView) : null;
     const aimState = aim ? aim.state : "";
     const range = aim && aim.distance !== null ? ` · ${aim.distance.toFixed(1)} m` : "";
     const aimText = !aim ? ""
-      : aim.state === "ALIGNING" ? `Aligning${aim.headingErrorDeg !== null ? ` · ${Math.abs(aim.headingErrorDeg).toFixed(0)}°` : ""}`
+      : aim.state === "ALIGNING" ? "Aligning"
       : aim.state === "ALIGNED" ? `Locked on${range}`
       : `Shooting on the move${range}`;
     if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
@@ -4019,6 +4013,7 @@ const parkState = {
   failed: false,
   offFrame: null,
   hideTimer: null,
+  liftTimer: null,      // a move into Park waiting for the board to clear before the robot lifts
   move: 0,              // counts moves between Park and Drive; a newer one cuts an older one short
 };
 
@@ -4167,25 +4162,31 @@ function loadParkScene() {
 
 /* ---- the moves between Park and Drive ----
  *
- * Tesla's shift out of Park: the parked car shrinks into its driving visualisation and the world comes
- * in round it. Here the robot on the Park stage travels onto the field tile - the stage's camera flies
- * to the exact shot the field view has of the robot, so the robot itself shrinks, turns and settles
- * into place - while the stage's black ground and floor fade and the board comes up behind it, from a
- * touch larger than life to its place, as one piece. The field view takes the robot over in the frame
- * it lands. Going into Park runs the same path backwards: the robot lifts off the field and grows back
- * into the middle as the board recedes into the dark behind it.
+ * Tesla's shift out of Park: the parked car turns and settles into its driving view, and the world comes
+ * up round it. Here the robot on the Park stage glides into the field tile - the stage's camera flies to
+ * the exact shot the field view has of the robot, so the robot turns, shrinks and lands in place - and the
+ * view takes it over in the frame it lands.
  *
- * One thing moves - the robot, on a critically damped spring - and everything else is a fade or a
- * slight scale of a whole layer, so the compositor carries it and nothing is laid out mid-move. There
- * are no edges sweeping across the board, and nothing is revealed piecemeal.
+ * The order is what keeps it clean: the robot never crosses anything. Into Drive, the stage's words step
+ * aside, and as the robot sets off the dark lifts onto a board with only the field tile on it, coming up
+ * under the robot as a window for it to land in. The rest of the board wakes as it lands, tile by tile,
+ * nearest the field tile first. Into Park the same happens backwards: the other tiles go first, all
+ * together, and only then does the robot lift out of its tile and grow back into the middle of the dark,
+ * with the stage's words returning as it arrives.
  *
- * Getting to the board is never held up for the show. It is live under the stage from the first frame
- * out, and a move is cut short and reversed from exactly where it is the instant the robot's state
- * changes again. With nothing to hand over - no field tile, no robot on it, reduced motion - Park
- * simply fades. */
+ * Nothing sweeps across the screen and nothing is laid out mid-move: the robot is drawn by one canvas,
+ * the ground and the tiles only fade and settle, and the compositor carries all of it. A move is cut short
+ * and reversed from exactly where it is the instant the robot's state changes again. With nothing to hand
+ * over - no field tile, no robot on it, reduced motion - Park simply fades. */
 
 const DRIVE_MOVE_MS = 900;     // into Drive
 const PARK_MOVE_MS = 1000;     // into Park: a touch longer, a more deliberate lift
+/* How long the board takes to clear before the robot lifts off it. */
+const BOARD_CLEAR_MS = 190;
+/* The board waking round the robot: how long each tile takes, and the step between one tile and the
+   next, nearest the field tile first. */
+const TILE_WAKE_MS = 420;
+const TILE_STEP_MS = 32;
 
 function reducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -4199,55 +4200,22 @@ function ramp(a, b, x) {
 
 /**
  * The field tile that can take the robot from Park or give it back: its entry, its scene, and its canvas
- * as a rectangle measured from Park's canvas, as the board lays it out at rest. Null when there is no
- * such tile.
+ * as a rectangle measured from Park's canvas. Null when there is no such tile.
  */
 function fieldHandover() {
-  const board = $("#board");
   const park = $("#parkCanvas").getBoundingClientRect();
   if (!park.width || !park.height) return null;
-  /* Measured with the board at its resting size, even mid-move, so a move cut short lands where the
-     robot will really be drawn. */
-  const scaled = board.style.transform;
-  board.style.transform = "";
-  try {
-    for (const entry of live.values()) {
-      if (entry.item.type !== "field" || !entry.state.scene || !entry.tile?.isConnected) continue;
-      const r = entry.body.querySelector("[data-x=canvas]")?.getBoundingClientRect();
-      if (!r || r.width < 40 || r.height < 40) continue;
-      const b = board.getBoundingClientRect();
-      return {
-        entry,
-        scene: entry.state.scene,
-        rect: { x: r.left - park.left, y: r.top - park.top, w: r.width, h: r.height },
-        /* The board grows and shrinks about the field tile, so it seems to come out of the car panel
-           and to go back into it. */
-        origin: `${(r.left + r.width / 2 - b.left).toFixed(1)}px ${(r.top + r.height / 2 - b.top).toFixed(1)}px`,
-      };
-    }
-    return null;
-  } finally {
-    board.style.transform = scaled;
+  for (const entry of live.values()) {
+    if (entry.item.type !== "field" || !entry.state.scene || !entry.tile?.isConnected) continue;
+    const r = entry.body.querySelector("[data-x=canvas]")?.getBoundingClientRect();
+    if (!r || r.width < 40 || r.height < 40) continue;
+    return {
+      entry,
+      scene: entry.state.scene,
+      rect: { x: r.left - park.left, y: r.top - park.top, w: r.width, h: r.height },
+    };
   }
-}
-
-/* The board's own fade and scale during a move, written straight to its style every frame. It is its
-   own compositor layer for the length of the move, so a frame of the move is the GPU moving one texture
-   rather than the browser repainting every tile on the board. */
-function styleBoard(opacity, scale, origin) {
-  const board = $("#board");
-  if (board.style.willChange !== "opacity, transform") board.style.willChange = "opacity, transform";
-  board.style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
-  board.style.transform = Math.abs(scale - 1) < 1e-4 ? "" : `scale(${scale.toFixed(4)})`;
-  if (origin !== undefined) board.style.transformOrigin = origin;
-}
-
-function restBoard() {
-  const board = $("#board");
-  board.style.opacity = "";
-  board.style.transform = "";
-  board.style.transformOrigin = "";
-  board.style.willChange = "";
+  return null;
 }
 
 /* The stage's black ground, a layer of its own under the robot. A move fades it by opacity, which the
@@ -4257,44 +4225,109 @@ function styleGround(opacity) {
   $("#parkGround").style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
 }
 
-/* Where a move cut short left things, so the next move starts from what is on screen. */
-function boardOpacityNow() {
-  const set = $("#board").style.opacity;
-  if (set !== "") return Number(set);
-  return app.dataset.park === "on" ? 0 : 1;
-}
-function boardScaleNow() {
-  const match = /scale\(([\d.]+)\)/.exec($("#board").style.transform);
-  return match ? Number(match[1]) : 1;
-}
+/* Where a move cut short left the ground, so the next move starts from what is on screen. */
 function groundNow(el) {
-  if (el.hidden) return 0;
+  if (el.hidden || el.style.visibility === "hidden") return 0;
   const set = $("#parkGround").style.opacity;
   return set === "" ? 1 : Number(set);
+}
+
+/* The field tile's own fade during a move, written every frame in step with the robot. */
+function styleFieldTile(tile, opacity) {
+  tile.style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
+}
+function fieldTileNow(tile) {
+  if (app.dataset.park === "on") return 0;
+  const set = tile.style.opacity;
+  return set === "" ? 1 : Number(set);
+}
+
+/* The rest of the board, tile by tile, with the Web Animations API: an animation rather than an inline
+   style holds a tile hidden, so cancelling it leaves the board exactly as it is laid out, and a tile
+   dragged or resized later has nothing left over on it. */
+const tileMoves = new WeakMap();
+const TILE_HIDDEN = { opacity: 0, transform: "translateY(10px) scale(0.985)" };
+const TILE_SHOWN = { opacity: 1, transform: "none" };
+
+/** The board's tiles other than `field`, nearest it first. */
+function tilesAround(field) {
+  const at = field.getBoundingClientRect();
+  const cx = at.left + at.width / 2;
+  const cy = at.top + at.height / 2;
+  return [...document.querySelectorAll("#board > .t")]
+    .filter((tile) => tile !== field)
+    .map((tile) => {
+      const r = tile.getBoundingClientRect();
+      /* By the gap between the two tiles rather than between their middles, so a long tile beside the
+         field tile counts as next to it. */
+      const dx = Math.max(0, Math.abs(r.left + r.width / 2 - cx) - (r.width + at.width) / 2);
+      const dy = Math.max(0, Math.abs(r.top + r.height / 2 - cy) - (r.height + at.height) / 2);
+      return { tile, gap: Math.hypot(dx, dy), far: Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy) };
+    })
+    .sort((a, b) => a.gap - b.gap || a.far - b.far)
+    .map((x) => x.tile);
+}
+
+/** Show or hide `tile`, from wherever it is now. */
+function moveTile(tile, show, { delay = 0, duration = TILE_WAKE_MS } = {}) {
+  const running = tileMoves.get(tile);
+  let from = show ? TILE_HIDDEN : TILE_SHOWN;
+  if (running) {
+    const style = getComputedStyle(tile);
+    from = { opacity: style.opacity, transform: style.transform };
+    running.cancel();
+  }
+  const anim = tile.animate([from, show ? TILE_SHOWN : TILE_HIDDEN], {
+    duration,
+    delay,
+    easing: show ? "cubic-bezier(0.2, 0, 0, 1)" : "cubic-bezier(0.4, 0, 1, 1)",
+    fill: "both",
+  });
+  tileMoves.set(tile, anim);
+  if (show) {
+    /* Shown is how a tile is anyway: once it is there, the animation comes off. */
+    anim.finished.then(() => {
+      if (tileMoves.get(tile) !== anim) return;
+      anim.cancel();
+      tileMoves.delete(tile);
+    }, () => {});
+  }
+  return anim;
+}
+
+/** Every tile back as the board lays it out. */
+function restTiles() {
+  for (const tile of document.querySelectorAll("#board > .t")) {
+    tileMoves.get(tile)?.cancel();
+    tileMoves.delete(tile);
+    tile.style.opacity = "";
+  }
 }
 
 function showPark() {
   const el = $("#park");
   clearTimeout(parkState.hideTimer);
+  clearTimeout(parkState.liftTimer);
   const move = ++parkState.move;
   loadParkScene();
   const scene = parkState.scene;
-  const cutShort = Boolean(scene?.flying) && !el.hidden;
+  const cutShort = Boolean(scene?.flying) && !el.hidden && el.style.visibility !== "hidden";
   const onBoard = app.dataset.park !== "on";
   const ground = cutShort ? groundNow(el) : 0;
-  const boardFrom = cutShort ? boardOpacityNow() : 1;
-  const scaleFrom = cutShort ? boardScaleNow() : 1;
-  /* Laid out so it can be measured, and see-through until the move has decided how it starts: every
-     style written before this function returns lands in the same frame. */
+  /* Laid out so it can be measured, and not drawn until the move has decided how it starts. */
   el.hidden = false;
-  if (!cutShort) styleGround(0);
+  if (!cutShort) {
+    el.style.visibility = "hidden";
+    styleGround(0);
+  }
   const hand = scene && onBoard && !reducedMotion() ? fieldHandover() : null;
   const shot = hand && !cutShort ? hand.scene.shot() : null;
 
   if (!hand || (!cutShort && !shot)) {
     /* Nothing to lift off the field: fade in. */
+    el.style.visibility = "";
     styleGround(1);
-    restBoard();
+    restTiles();
     el.dataset.ui = "on";
     el.dataset.state = "in";
     app.dataset.park = "entering";
@@ -4306,58 +4339,93 @@ function showPark() {
     return;
   }
 
-  el.dataset.state = "fly";
-  el.dataset.ui = "off";
+  const field = hand.entry.tile;
   app.dataset.park = "entering";
-  paintParkInfo();
-  scene.setActive(true);
-  const flight = scene.fly({
-    from: cutShort ? "current" : { ...shot, rect: hand.rect },
-    to: "stage",
-    duration: PARK_MOVE_MS,
-    /* The field view under the rising robot draws in step with it. */
-    sync: (now) => hand.scene.frame(now),
-    onProgress(eased, raw) {
-      /* The board recedes first, into the car panel it came out of; the dark comes up behind the robot
-         as it lifts; the stage's words come back once it is nearly home. */
-      const away = ramp(0, 0.45, eased);
-      styleBoard(boardFrom * (1 - away), scaleFrom + (0.965 - scaleFrom) * ramp(0, 0.7, eased), hand.origin);
-      styleGround(ground + (1 - ground) * ramp(0.1, 0.6, eased));
-      if (raw > 0.7 && el.dataset.ui !== "on") el.dataset.ui = "on";
-    },
-  });
-  /* The stage's first frame is drawn now, with the robot exactly where the field view has it, so the
-     field view's own robot can go in the same frame without a flicker of neither or both. */
-  scene.renderNow();
-  hand.scene.setRobotShown(false);
-  hand.entry.tile.dataset.handover = "true";
+  field.dataset.handover = "true";
+  /* The rest of the board goes first, all of it together, so the robot has nothing to cross. */
+  for (const tile of tilesAround(field)) moveTile(tile, false, { duration: BOARD_CLEAR_MS });
 
-  flight.then((landed) => {
-    if (!landed || move !== parkState.move) return;
-    app.dataset.park = "on";
-    delete el.dataset.state;
-    el.dataset.ui = "on";
-    styleGround(1);
-    restBoard();
-    hand.scene.setRobotShown(true);
-    delete hand.entry.tile.dataset.handover;
-    placeCallouts();
-  });
+  const lift = () => {
+    if (move !== parkState.move) return;
+    el.style.visibility = "";
+    el.dataset.state = "fly";
+    el.dataset.ui = "off";
+    paintParkInfo();
+    scene.setActive(true);
+    const fieldFrom = fieldTileNow(field);
+    const flight = scene.fly({
+      from: cutShort ? "current" : { ...shot, rect: hand.rect },
+      to: "stage",
+      duration: PARK_MOVE_MS,
+      /* The field view under the rising robot draws in step with it. */
+      sync: (now) => hand.scene.frame(now),
+      onProgress(eased, raw) {
+        /* The dark comes up behind the robot as it lifts, over the field tile it came out of; the stage's
+           words come back once it is nearly home. */
+        styleGround(ground + (1 - ground) * ramp(0.08, 0.55, eased));
+        styleFieldTile(field, fieldFrom * (1 - ramp(0.3, 0.6, eased)));
+        if (raw > 0.7 && el.dataset.ui !== "on") el.dataset.ui = "on";
+      },
+    });
+    /* The stage's first frame is drawn now, with the robot exactly where the field view has it, so the
+       field view's own robot can go in the same frame without a flicker of neither or both. */
+    scene.renderNow();
+    hand.scene.setRobotShown(false);
+
+    flight.then((landed) => {
+      if (!landed || move !== parkState.move) return;
+      app.dataset.park = "on";
+      delete el.dataset.state;
+      el.dataset.ui = "on";
+      styleGround(1);
+      restTiles();
+      hand.scene.setRobotShown(true);
+      delete field.dataset.handover;
+      placeCallouts();
+    });
+  };
+  if (cutShort) lift();
+  else parkState.liftTimer = setTimeout(lift, BOARD_CLEAR_MS * 0.85);
 }
 
 function hidePark() {
   const el = $("#park");
   clearTimeout(parkState.hideTimer);
+  clearTimeout(parkState.liftTimer);
   const move = ++parkState.move;
   const scene = parkState.scene;
+
+  if (!el.hidden && el.style.visibility === "hidden") {
+    /* Enabled again while the board was still clearing for Park: the robot never left, so the board just
+       comes back. */
+    el.hidden = true;
+    el.style.visibility = "";
+    app.dataset.park = "off";
+    for (const entry of live.values()) {
+      if (entry.item.type === "field") delete entry.tile?.dataset.handover;
+    }
+    for (const tile of document.querySelectorAll("#board > .t")) {
+      if (tileMoves.has(tile)) moveTile(tile, true, { duration: 260 });
+    }
+    return;
+  }
+
   const ground = groundNow(el);
-  const boardFrom = app.dataset.park === "on" ? 0 : boardOpacityNow();
-  const scaleFrom = app.dataset.park === "on" ? 1.03 : boardScaleNow();
+  const fromPark = app.dataset.park === "on";
   /* The board is back under the stage from the first frame, live, drawn but not yet seen. */
   app.dataset.park = "leaving";
   const hand = scene && !el.hidden && !reducedMotion() ? fieldHandover() : null;
+  let around = [];
+  let fieldFrom = 1;
   if (hand) {
-    styleBoard(boardFrom, scaleFrom, hand.origin);
+    /* Every tile but the field tile held back until the robot is nearly down, and the field tile itself
+       from wherever the last move left it. */
+    around = tilesAround(hand.entry.tile);
+    for (const tile of around) {
+      if (fromPark || !tileMoves.has(tile)) moveTile(tile, false, { duration: 0 });
+    }
+    fieldFrom = fromPark ? 0 : fieldTileNow(hand.entry.tile);
+    styleFieldTile(hand.entry.tile, fieldFrom);
     /* The field view is told the robot is enabled before it is asked where its camera will be, so the
        stage lands on the driving camera and not on the parked one it is about to leave. */
     hand.entry.spec.update(hand.entry.body, hand.entry.item.cfg, hand.entry.refs, hand.entry.tile, hand.entry.state);
@@ -4368,7 +4436,7 @@ function hidePark() {
 
   if (!hand || !shot) {
     /* Nothing to land on: fade out over the board, whose field view swings in from above. */
-    restBoard();
+    restTiles();
     el.dataset.state = "out";
     styleGround(1);
     for (const entry of live.values()) entry.state.scene?.arrive?.();
@@ -4381,10 +4449,17 @@ function hidePark() {
     return;
   }
 
+  const field = hand.entry.tile;
   hand.scene.setRobotShown(false);
-  hand.entry.tile.dataset.handover = "true";
+  field.dataset.handover = "true";
   el.dataset.state = "fly";
   el.dataset.ui = "off";
+  let woke = false;
+  const wake = () => {
+    if (woke) return;
+    woke = true;
+    around.forEach((tile, i) => moveTile(tile, true, { delay: i * TILE_STEP_MS }));
+  };
   scene
     .fly({
       from: "current",
@@ -4397,11 +4472,12 @@ function hidePark() {
       duration: DRIVE_MOVE_MS,
       /* The field view draws each frame first, so the shot read from it is the one on its canvas. */
       sync: (now) => hand.scene.frame(now),
-      onProgress(eased) {
-        /* The dark lifts as the robot starts to move, and the board comes up behind it and settles to
-           its size as the robot lands. */
-        styleGround(ground * (1 - ramp(0.02, 0.42, eased)));
-        styleBoard(boardFrom + (1 - boardFrom) * ramp(0.05, 0.5, eased), scaleFrom + (1 - scaleFrom) * eased, hand.origin);
+      onProgress(eased, raw) {
+        /* The dark lifts as the robot sets off, onto a board with only the field tile on it, which comes
+           up under the robot to take it; the rest of the board wakes as the robot comes down. */
+        styleGround(ground * (1 - ramp(0.04, 0.45, eased)));
+        styleFieldTile(field, fieldFrom + (1 - fieldFrom) * ramp(0.12, 0.62, eased));
+        if (raw >= 0.55) wake();
       },
     })
     .then((landed) => {
@@ -4413,10 +4489,11 @@ function hidePark() {
       el.hidden = true;
       delete el.dataset.state;
       styleGround(1);
-      restBoard();
+      styleFieldTile(field, 1);
+      wake();
       app.dataset.park = "off";
       scene.setActive(false);
-      delete hand.entry.tile.dataset.handover;
+      delete field.dataset.handover;
     });
 }
 
