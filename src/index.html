@@ -153,23 +153,26 @@
     </div>
   </div>
 
+  <!-- The pop-ups, after Tesla's: the screen dims and a dark sheet sits over it. Each is a title, a body
+       that scrolls under it, and a foot holding the one blue button, so the button stays in reach
+       however long the body is. -->
   <!-- component palette -->
   <div class="modal" id="pickModal">
-    <div class="picker">
-      <h3>Add a component</h3>
+    <div class="picker" role="dialog" aria-labelledby="pickTitle">
+      <h3 id="pickTitle">Add a component</h3>
       <p>Each one binds to NetworkTables keys you choose, so nothing here is hard-coded to a season or a robot.</p>
-      <div id="pickBody"></div>
-      <button class="close" id="pickClose">Done</button>
+      <div class="pbody" id="pickBody"></div>
+      <div class="pfoot"><button class="close" id="pickClose">Done</button></div>
     </div>
   </div>
 
   <!-- per-component configuration -->
   <div class="modal" id="cfgModal">
-    <div class="picker narrow">
+    <div class="picker narrow" role="dialog" aria-labelledby="cfgTitle">
       <h3 id="cfgTitle">Configure</h3>
       <p id="cfgDesc"></p>
-      <div id="cfgBody"></div>
-      <button class="close" id="cfgClose">Done</button>
+      <div class="pbody" id="cfgBody"></div>
+      <div class="pfoot"><button class="close" id="cfgClose">Done</button></div>
     </div>
   </div>
 

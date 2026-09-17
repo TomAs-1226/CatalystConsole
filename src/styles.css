@@ -1271,7 +1271,10 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 
 /* ================================================================= modals ==== */
 /* Tesla's pop-up: the screen behind dims, and a dark rounded sheet sits over it with its action as a
-   solid blue button along the bottom. No frosted glass - Tesla dims, it does not blur. */
+   solid blue button along the bottom. No frosted glass - Tesla dims, it does not blur.
+
+   The sheet is a column. The title stays where it is, the rows scroll under it, and the button sits at
+   the foot in reach whatever is scrolled; on a long palette it used to scroll away with the cards. */
 .modal {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(0, 0, 0, 0.62);
@@ -1279,52 +1282,75 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .modal[data-open="true"] { display: flex; }
 .picker {
-  background: var(--cat-surface-1); border: 0;
-  border-radius: 18px; padding: 28px; max-width: 800px; width: 100%;
-  max-height: 90vh; overflow: auto;
+  display: flex; flex-direction: column; width: 100%; max-width: 840px; max-height: min(90vh, 880px);
+  background: var(--cat-surface-1); border: 0; border-radius: 18px; overflow: hidden;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
-/* The same hairline thumb the sheets and the settings pane use. Without it the palette gets the
-   user agent's own scrollbar, which on a near-black dialog is a bar of light down one edge and the
-   brightest thing in the program — brighter than the one accent, which is the whole problem. */
-.picker::-webkit-scrollbar { width: 8px; }
-.picker::-webkit-scrollbar-thumb { background: var(--cat-hair-str); border-radius: 999px; }
 /* Configure holds one label beside one control per row; the component palette holds a grid of
    cards. The narrower measure was an inline width on the markup, which is the one place a value
    like this cannot be found by anyone looking at the stylesheet. */
-.picker.narrow { max-width: 560px; }
-.picker h3 { margin: 0 0 6px; font-size: 22px; font-weight: var(--cat-w-medium); letter-spacing: 0; color: var(--cat-white); }
-.picker p { margin: 0 0 16px; font-size: var(--fs-13); color: var(--cat-muted); line-height: 1.55; }
-.pg {
-  font-size: var(--fs-15); letter-spacing: 0; text-transform: none;
-  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 20px 0 10px;
+.picker.narrow { max-width: 600px; }
+.picker h3 {
+  margin: 0; padding: 28px 28px 0;
+  font-size: 22px; font-weight: var(--cat-w-medium); line-height: 1.25; letter-spacing: 0; color: var(--cat-white);
 }
-.cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
+.picker > p { margin: 6px 0 0; padding: 0 28px; font-size: 14px; color: var(--cat-dim); line-height: 1.5; }
+/* The rows fade out under the title and above the button rather than being cut off at a hard edge. At
+   rest the fades cover only this padding, so nothing is dimmed until it scrolls. */
+.pbody {
+  flex: 1 1 auto; min-height: 0; overflow: hidden auto; margin-top: 4px; padding: 10px 28px 14px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 14px), transparent);
+}
+.pfoot { flex: none; padding: 8px 28px 24px; }
+
+/* The palette's groups and cards. A card is a grey tile with a white line drawing of what it puts on
+   the board, the way Tesla's launcher draws its apps, then its name and one line on what it shows. */
+.pg {
+  font-size: 16px; letter-spacing: 0; text-transform: none;
+  color: var(--cat-white); font-weight: var(--cat-w-medium); margin: 24px 0 10px;
+}
+.pg:first-child { margin-top: 4px; }
+.cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; }
 .item {
-  background: var(--cat-surface-2); border: 0; border-radius: 12px;
-  padding: 14px; cursor: pointer; text-align: left; color: var(--cat-text); font-family: var(--sans);
-  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-height: 136px; padding: 16px; border: 0; border-radius: 14px;
+  background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); text-align: left; cursor: pointer;
+  transition:
+    background-color var(--cat-dur-effect) var(--cat-ease-effect),
+    transform var(--cat-dur-hold) var(--cat-ease-hold);
 }
 .item:hover { background: var(--cat-surface-3); }
-.item .i { color: var(--cat-muted); display: block; margin-bottom: 8px; }
-/* The signal marks provenance, which is what the accent is for here: these are Catalyst's own tiles
-   rather than generic ones. */
-.item.own .i { color: var(--cat-coral); }
-.item .n2 { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
-.item .d2 { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.4; }
+.item:active { transform: scale(0.98); }
+.item .i { width: 26px; height: 26px; flex: none; margin-bottom: 10px; color: var(--cat-white); }
+.item .n2 { font-size: var(--fs-15); font-weight: var(--cat-w-medium); line-height: 1.3; color: var(--cat-white); }
+.item .d2 { font-size: var(--fs-13); line-height: 1.45; color: var(--cat-dim); }
+
 /* The action, the way Tesla sets one: a solid blue rectangle, softly rounded, white words. */
 .picker .close {
-  margin-top: 20px; width: 100%; height: 48px; border: 0;
+  display: block; width: 100%; height: 48px; margin: 0; border: 0;
   border-radius: 8px; background: var(--cat-signal); color: #ffffff;
-  font-family: var(--sans); font-size: var(--fs-15); font-weight: var(--cat-w-medium); cursor: pointer;
+  font-family: var(--sans); font-size: 16px; font-weight: var(--cat-w-medium); cursor: pointer;
   transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .picker .close:hover { background: var(--cat-signal-lt); }
+.picker .close:active { background: var(--cat-signal-dk); }
 
-.cfgrow { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px; padding: 8px 0; }
-.cfgrow label { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-text); }
+/* Configure's rows are Settings rows: the name, with its explanation under it in grey, and the control
+   at the right edge. A topic or a title is text that can run long, so it takes the row's full width
+   under its name rather than being cut off in a column beside it. */
+.cfgrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 250px);
+  align-items: center; column-gap: 24px; row-gap: 12px; min-height: 72px; padding: 16px 0;
+}
+.cfgrow + .cfgrow { border-top: 1px solid var(--cat-hair); }
+.cfgrow.wide { grid-template-columns: minmax(0, 1fr); }
+.cfglab label { display: block; font-size: 16px; font-weight: var(--cat-w-medium); line-height: 1.35; color: var(--cat-white); }
 .cfgrow select, .cfgrow input { width: 100%; }
-.hint { font-size: var(--fs-12); color: var(--cat-muted); margin-top: 4px; line-height: 1.45; }
+.cfgsize { display: flex; gap: 8px; min-width: 0; }
+.cfgsize select { flex: 1 1 0; }
+.hint { font-size: var(--fs-13); color: var(--cat-dim); margin-top: 3px; line-height: 1.5; }
 
 /* ---- layout export / import ---- */
 #impText {
@@ -2172,6 +2198,7 @@ kbd {
   .rulelist li { grid-template-columns: 1fr; gap: 8px; }
   .garage { padding: 24px 16px 20px; }
   .gspecs { grid-template-columns: 1fr; gap: 20px; }
+  .cfgrow { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ================================================================= motion ==== */

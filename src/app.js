@@ -2139,12 +2139,20 @@ function openConfig(item) {
   const bodyEl = $("#cfgBody");
   bodyEl.innerHTML = "";
 
-  const add = (label, control, hint) => {
-    const row = el("div", "cfgrow");
-    const wrap = el("div");
-    wrap.appendChild(control);
-    if (hint) wrap.appendChild(el("div", "hint", hint));
-    row.append(el("label", null, label), wrap);
+  /* A Settings row: the name with its explanation under it, and the control at the right edge. Text
+   * that runs long - a topic, a note - takes the full width under its name instead, where a column
+   * beside it would cut a path off after its first segment; a title or a unit is a word or two and
+   * sits at the edge like a number. The label is tied to its field, so a click on the name lands in
+   * the box. */
+  const SHORT_TEXT = ["title", "unit"];
+  const add = (label, control, hint, wide) => {
+    const row = el("div", wide ? "cfgrow wide" : "cfgrow");
+    const lab = el("div", "cfglab");
+    const name = el("label", null, label);
+    if (control.id) name.htmlFor = control.id;
+    lab.appendChild(name);
+    if (hint) lab.appendChild(el("div", "hint", hint));
+    row.append(lab, control);
     bodyEl.appendChild(row);
   };
 
@@ -2167,18 +2175,25 @@ function openConfig(item) {
       control = el("input");
       control.type = "text";
       control.value = item.cfg[field.key] ?? "";
-      if (field.type === "topic") control.setAttribute("list", "ntkeys");
+      if (field.type === "topic") {
+        control.setAttribute("list", "ntkeys");
+        /* A path is typed back into robot code exactly, so it is set in the mono face. */
+        control.classList.add("mono");
+        control.spellcheck = false;
+      }
     }
+    control.id = `cfg-${field.key}`;
     control.oninput = () => {
       item.cfg[field.key] = field.type === "number" ? Number(control.value) : control.value;
     };
-    add(field.label, control, field.hint);
+    add(field.label, control, field.hint,
+      field.type === "topic" || (field.type === "text" && !SHORT_TEXT.includes(field.key)));
   }
 
-  const size = el("div");
-  size.style.cssText = "display:flex;gap:8px";
+  const size = el("div", "cfgsize");
   const mk = (label, value, max, apply) => {
     const s = el("select");
+    s.setAttribute("aria-label", label);
     for (let i = 1; i <= max; i++) {
       const o = el("option", null, `${label} ${i}`);
       o.value = String(i);
@@ -2202,6 +2217,37 @@ $("#cfgClose").onclick = () => {
 
 /* ---------------------------------------------------------------- picker modal */
 
+/* A white line drawing for each component on its card in the palette, the way Tesla's launcher draws
+ * its apps. Kept here rather than on the component definitions, because a drawing is how the palette
+ * presents a component and not part of what the component is; a type with none gets a plain tile. */
+const PICK_ICONS = {
+  match: `<path d="M5.5 21V4M5.5 4h11l-2.2 4 2.2 4h-11"/>`,
+  tower: `<path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><circle cx="12" cy="12" r="2.6"/>`,
+  gauge: `<path d="M4.6 16.5a8 8 0 1 1 14.8 0"/><path d="m12 13 3.6-4"/><circle cx="12" cy="13.5" r="1.3" fill="currentColor"/>`,
+  battery: `<rect x="3" y="7" width="16" height="10" rx="2.2"/><path d="M21.2 10.5v3M6.5 10v4M9.8 10v4"/>`,
+  systemcore: `<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/>`,
+  autonomy: `<circle cx="12" cy="12" r="8.5"/><path d="m15.4 8.6-2 4.8-4.8 2 2-4.8z"/>`,
+  motorhistory: `<rect x="3" y="8" width="13" height="9" rx="2"/><path d="M16 11h3.5v3H16M8 8V5.5M11 8V5.5M9.5 17v2.5"/>`,
+  health: `<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>`,
+  physics: `<circle cx="12" cy="10.5" r="6.5"/><circle cx="12" cy="10.5" r="2.2"/><path d="M4 20.5h16"/>`,
+  impacts: `<path d="M12 3v4.5M12 16.5V21M3 12h4.5M16.5 12H21M5.6 5.6l3 3M15.4 15.4l3 3M18.4 5.6l-3 3M8.6 15.4l-3 3"/>`,
+  swerve: `<rect x="7" y="6" width="10" height="12" rx="2.2"/><path d="M3.5 5v4.5M3.5 14.5V19M20.5 5v4.5M20.5 14.5V19"/>`,
+  alerts: `<path d="M12 4.2 20.8 19.5H3.2z"/><path d="M12 10v4.2M12 16.8v.1"/>`,
+  auto: `<path d="M4 5.5v6l5-3z"/><path d="M12.5 8.5H20M4 15.5h16M4 19.5h11"/>`,
+  value: `<path d="M5 9h14M5 15h14M10 4.5 8.5 19.5M15.5 4.5 14 19.5"/>`,
+  lamps: `<circle cx="5.5" cy="12" r="2.6"/><circle cx="12" cy="12" r="2.6"/><circle cx="18.5" cy="12" r="2.6"/>`,
+  graph: `<path d="M3.5 15.5 8.5 10l3.5 3.5 7.5-8"/><path d="M3.5 20h17"/>`,
+  stopwatch: `<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V10M9.5 3h5M12 3v3.5M18.3 7.2l1.3-1.3"/>`,
+  note: `<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h5M9 12.5h7M9 16h5"/>`,
+  field: `<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.4"/>`,
+};
+const PICK_ICON_PLAIN = `<rect x="4.5" y="4.5" width="15" height="15" rx="3"/>`;
+
+function pickIcon(type) {
+  return `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" `
+    + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PICK_ICONS[type] || PICK_ICON_PLAIN}</svg>`;
+}
+
 function openPicker() {
   const bodyEl = $("#pickBody");
   bodyEl.innerHTML = "";
@@ -2214,8 +2260,11 @@ function openPicker() {
     bodyEl.appendChild(el("div", "pg", group));
     const grid = el("div", "cat");
     for (const [type, spec] of items) {
-      const btn = el("button", `item ${group === "Catalyst" ? "own" : ""}`);
-      btn.innerHTML = `<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
+      /* Catalyst's own tiles used to wear the accent on their cards to mark where they came from. The
+       * group heading above them already says so, and blue is kept for what is switched on. */
+      const btn = el("button", "item");
+      btn.type = "button";
+      btn.innerHTML = `${pickIcon(type)}<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
       btn.onclick = () => {
         const spot = findSpace(spec.w, spec.h);
         layout.push({ type, x: spot.x, y: spot.y, w: spec.w, h: spec.h, cfg: defaults(spec) });
@@ -5464,11 +5513,11 @@ const KEYS = Object.assign(Object.create(null), {
  * `pointerdown`, not `click`, because the whole point is to answer at the moment of the press.
  *
  * Only controls that are pressed: the views, the dock, the settings rail, its buttons and its quick
- * controls. Not the tiles, which are surfaces repainting at 10 Hz, and not the chips, which are
- * readouts that happen to be clickable. `stateLayer` declines to run at all under
+ * controls, and the palette's cards. Not the tiles, which are surfaces repainting at 10 Hz, and not
+ * the chips, which are readouts that happen to be clickable. `stateLayer` declines to run at all under
  * `prefers-reduced-motion` and removes its own element, so nothing here has to be undone. */
 window.addEventListener("pointerdown", (e) => {
-  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose, .qtile") : null;
+  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose, .qtile, .item") : null;
   if (hit && !hit.disabled) stateLayer(hit, e);
 }, { passive: true });
 
