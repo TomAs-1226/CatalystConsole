@@ -1,11 +1,13 @@
 /* FUEL inside the robot.
  *
- * The hopper shows as many balls as the hopper estimate says it holds (see mechanisms.js createHopper),
- * packed into the hopper's interior the way balls settle - a layer at a time from the floor up, each
- * layer nestled into the gaps of the one below. A ball the robot takes in rolls in through the intake
- * from the carpet in front of it and drops into its place; a ball fed to the shooter leaves from the top
- * of the pile toward the feeder. Like the shots, it is a picture of what the estimate says, not a
- * simulation of how the balls move.
+ * The hopper shows as many balls as the hopper estimate says it holds (see mechanisms.js createHopper), in
+ * the places the robot's CAD analysis packed. A ball the robot takes in rolls off the carpet in front of
+ * the intake, under its front roller and up into the pile; a ball fed to the shooter leaves from the place
+ * nearest the feeder, and the rest of the pile moves up behind it the way a conveyor advances a queue. Like
+ * the shots, it is a picture of what the estimate says, not a simulation of how the balls move.
+ *
+ * Places inside the intake travel with it: when it slides back to compact the pile before a shot, the balls
+ * it carries ride back with it instead of being dealt out to other places.
  *
  * Everything here is in the robot's own frame (x front, y up, z right), inside the robot model, so it
  * travels and turns with the robot in both views.
@@ -15,11 +17,13 @@ import * as THREE from "./vendor/three.module.min.js";
 import { FUEL_DIAMETER_M } from "./mechanisms.js";
 
 const RADIUS = FUEL_DIAMETER_M / 2;
-const ARRIVE_S = 0.42;
-const LEAVE_S = 0.18;
-/* When the hopper changes shape - the intake sliding out opens room, sliding back squeezes the pile - the
-   balls already in it move to their new places rather than jumping. */
-const SETTLE_S = 0.3;
+/* A pickup: rolled in under the front roller, then carried up into its place. */
+const ARRIVE_S = 0.55;
+const ROLL_IN = 0.3;
+/* Into the feeder. */
+const LEAVE_S = 0.2;
+/* The pile moving up a place behind a ball that has gone. */
+const ADVANCE_S = 0.22;
 /* Arrivals in a burst are staggered, so a big intake reads as a stream rather than a teleport. */
 const STAGGER_S = 0.07;
 
@@ -58,23 +62,44 @@ export function packSlots(min, max, radius = RADIUS) {
   return slots;
 }
 
+/**
+ * The order places fill in: those that stay put before those the intake carries, and within each, the
+ * nearest the feeder first - a hopper that feeds from its back fills from its back. `slots` are
+ * `{ at: [x, y, z], moves }`; returns their indices in fill order.
+ */
+export function fillOrder(slots, feeder) {
+  const far = (p) => Math.hypot(p[0] - feeder[0], p[1] - feeder[1], p[2] - feeder[2]);
+  return slots
+    .map((slot, index) => ({ index, moves: Boolean(slot.moves), far: far(slot.at) }))
+    .sort((a, b) => Number(a.moves) - Number(b.moves) || a.far - b.far || a.index - b.index)
+    .map((s) => s.index);
+}
+
+/** Where a place is with the intake `offset` from where the places were measured. */
+export function slotPosition(slot, offset) {
+  if (!slot.moves || !offset) return slot.at;
+  return [slot.at[0] + offset[0], slot.at[1] + offset[1], slot.at[2] + offset[2]];
+}
+
 const smooth = (u) => {
   const x = Math.min(1, Math.max(0, u));
   return x * x * (3 - 2 * x);
 };
 
 /**
- * `slots` are where balls sit, lowest first ([x, y, z] in the robot frame) - or `box` ({ min, max }) to
- * pack them - `mouth` where balls come in from (a point on the carpet just in front of the intake; move
- * it with setMouth as the intake slides), `feeder` where they leave to, `colour` FUEL's. Returns
- * { root, setCount, setMouth, step, count, capacity, setColour, dispose }.
+ * `slots` are where balls sit: `{ at: [x, y, z], moves }` in the robot frame, `moves` for places inside the
+ * intake, or plain [x, y, z] for places that stay put. `mouth` is where balls come in from - the front of
+ * the intake's lowest roller at ball height - and `feeder` where they leave to. Returns
+ * { root, setCount, setIntake, step, count, capacity, setColour, dispose }.
  */
-export function createHopperBalls({ slots: given_slots = null, box = null, mouth, feeder, colour = "#a8913e", material: given = null, maxSlots = null }) {
-  let slots = given_slots ?? packSlots(box.min, box.max);
+export function createHopperBalls({ slots: given, mouth, feeder, colour = "#a8913e", material: givenMaterial = null }) {
+  const slots = given.map((s) => (Array.isArray(s) ? { at: s, moves: false } : { at: s.at, moves: Boolean(s.moves) }));
+  const order = fillOrder(slots, feeder);
   let entry = [mouth[0], mouth[1], mouth[2]];
+  let offset = null;
   const geometry = new THREE.IcosahedronGeometry(RADIUS, 2);
-  const material = given ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
-  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, maxSlots ?? slots.length));
+  const material = givenMaterial ?? new THREE.MeshStandardMaterial({ color: colour, roughness: 0.9, metalness: 0 });
+  const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, slots.length + 8));
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -82,113 +107,107 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
   root.name = "hopper-fuel";
   root.add(mesh);
 
-  /* One entry per slot in use, in fill order: { from, at, since, leaving }. */
-  const balls = [];
-  let wanted = 0;
+  /* The balls in the pile, nearest the feeder first: { rank, since, lane, from, moved }. Balls on their way
+     into the feeder are kept apart: { at, since }. */
+  let pile = [];
+  let leaving = [];
   let lastArrival = -Infinity;
+  let arrivals = 0;
   const matrix = new THREE.Matrix4();
   const place = new THREE.Vector3();
-  const turn = new THREE.Quaternion();
+  const still = new THREE.Quaternion();
   const size = new THREE.Vector3();
 
+  const placeOf = (rank) => slotPosition(slots[order[Math.min(rank, order.length - 1)]], offset);
+
+  /* Where a ball in the pile is drawn at `now`, and whether it is still on its way there. */
+  function drawn(ball, now) {
+    const home = placeOf(ball.rank);
+    const t = (now - ball.since) / 1000;
+    if (t < 0) return { at: pickupStart(ball), scale: 0, moving: true };
+    if (t < ARRIVE_S) return { at: pickupAt(ball, home, t / ARRIVE_S), scale: Math.min(1, 0.7 + t / 0.08 * 0.3), moving: true };
+    if (ball.from) {
+      const u = (now - ball.moved) / 1000 / ADVANCE_S;
+      if (u < 1) {
+        const k = smooth(u);
+        return {
+          at: [ball.from[0] + (home[0] - ball.from[0]) * k, ball.from[1] + (home[1] - ball.from[1]) * k, ball.from[2] + (home[2] - ball.from[2]) * k],
+          scale: 1,
+          moving: true,
+        };
+      }
+      ball.from = null;
+    }
+    return { at: home, scale: 1, moving: false };
+  }
+
+  /* A pickup's path: from the carpet a hand's width in front of the roller, rolling in under it, then up
+     through the intake and over into its place on a curve. The lane is where across the intake's width
+     the ball came in. */
+  function pickupStart(ball) {
+    return [entry[0] + 0.16, RADIUS, entry[2] + ball.lane];
+  }
+  function pickupAt(ball, home, u) {
+    const start = pickupStart(ball);
+    const under = [entry[0] - 0.03, RADIUS + 0.01, entry[2] + ball.lane * 0.9];
+    if (u < ROLL_IN) {
+      /* Grabbed by the roller: quick, and quicker as it is drawn under. */
+      const k = (u / ROLL_IN) ** 1.6;
+      return [start[0] + (under[0] - start[0]) * k, start[1] + (under[1] - start[1]) * k, start[2] + (under[2] - start[2]) * k];
+    }
+    const k = smooth((u - ROLL_IN) / (1 - ROLL_IN));
+    const lift = [(under[0] + home[0]) / 2, Math.max(under[1], home[1]) + 0.1, (under[2] + home[2]) / 2];
+    const a = (1 - k) * (1 - k);
+    const b = 2 * (1 - k) * k;
+    const c = k * k;
+    return [a * under[0] + b * lift[0] + c * home[0], a * under[1] + b * lift[1] + c * home[1], a * under[2] + b * lift[2] + c * home[2]];
+  }
+
   function setCount(count, now) {
-    wanted = Math.max(0, Math.min(slots.length, Math.round(count)));
-    /* Arrivals: each from the intake mouth, staggered behind the last. */
-    while (balls.filter((b) => !b.leaving).length < wanted) {
+    const wanted = Math.max(0, Math.min(slots.length, Math.round(count)));
+    /* Arrivals: each rolled in from the carpet, staggered behind the last, into the next place. */
+    while (pile.length < wanted) {
       const since = Math.max(now, lastArrival + STAGGER_S * 1000);
       lastArrival = since;
-      const index = balls.filter((b) => !b.leaving).length;
-      balls.splice(index, 0, { slot: index, since, leaving: false });
+      arrivals++;
+      /* A lane across the intake that wanders from ball to ball, the same every time. */
+      const lane = Math.sin(arrivals * 2.399) * 0.17;
+      pile.push({ rank: pile.length, since, lane, from: null, moved: 0 });
     }
-    /* Departures: from the top of the pile. */
-    let staying = balls.filter((b) => !b.leaving).length;
-    for (let i = balls.length - 1; i >= 0 && staying > wanted; i--) {
-      if (balls[i].leaving) continue;
-      balls[i].leaving = true;
-      balls[i].since = now;
-      staying--;
-    }
-  }
-
-  /* Where a ball is drawn at `now`: its slot, or on its way from where the hopper last reshaped. */
-  function settledAt(ball, now) {
-    const slot = slots[Math.min(ball.slot, slots.length - 1)];
-    if (!ball.from) return slot;
-    const u = smooth((now - ball.moved) / 1000 / SETTLE_S);
-    if (u >= 1) {
-      ball.from = null;
-      return slot;
-    }
-    return [ball.from[0] + (slot[0] - ball.from[0]) * u, ball.from[1] + (slot[1] - ball.from[1]) * u, ball.from[2] + (slot[2] - ball.from[2]) * u];
-  }
-
-  /* Change the places balls sit - a different list for the stowed and the extended hopper. Balls in the
-     pile move over to their new places; any the smaller hopper has no room for are squeezed out in place. */
-  function setSlots(next, now) {
-    if (next === slots || !Array.isArray(next)) return;
-    for (const ball of balls) {
-      if (ball.leaving) continue;
-      if (now - ball.since >= ARRIVE_S * 1000) {
-        ball.from = settledAt(ball, now);
-        ball.moved = now;
+    /* Departures: the ball nearest the feeder goes in, and everything behind it moves up a place. */
+    while (pile.length > wanted) {
+      const first = pile.shift();
+      leaving.push({ at: drawn(first, now).at, since: now });
+      for (const ball of pile) {
+        const was = drawn(ball, now);
+        ball.rank -= 1;
+        if (now - ball.since >= ARRIVE_S * 1000) {
+          ball.from = was.at;
+          ball.moved = now;
+        }
       }
     }
-    slots = next;
-    let kept = 0;
-    for (const ball of balls) {
-      if (ball.leaving) continue;
-      if (kept >= slots.length) {
-        ball.leaving = true;
-        ball.squeezed = settledAt(ball, now);
-        ball.since = now;
-      } else {
-        kept++;
-      }
-    }
-    wanted = Math.min(wanted, slots.length);
   }
 
   function step(now) {
     let moving = false;
-    for (let i = balls.length - 1; i >= 0; i--) {
-      if (balls[i].leaving && (now - balls[i].since) / 1000 > LEAVE_S) balls.splice(i, 1);
+    leaving = leaving.filter((ball) => (now - ball.since) / 1000 < LEAVE_S);
+    let i = 0;
+    for (const ball of pile) {
+      const shown = drawn(ball, now);
+      if (shown.moving) moving = true;
+      place.set(shown.at[0], shown.at[1], shown.at[2]);
+      size.setScalar(shown.scale);
+      mesh.setMatrixAt(i++, matrix.compose(place, still, size));
     }
-    mesh.count = balls.length;
-    balls.forEach((ball, i) => {
-      const slot = ball.leaving && ball.squeezed ? ball.squeezed : settledAt(ball, now);
-      const t = (now - ball.since) / 1000;
-      let s = 1;
-      if (ball.leaving && ball.squeezed) {
-        place.set(slot[0], slot[1], slot[2]);
-        s = 1 - smooth(t / LEAVE_S);
-        moving = true;
-      } else if (ball.leaving) {
-        const u = smooth(t / LEAVE_S);
-        place.set(slot[0] + (feeder[0] - slot[0]) * u, slot[1] + (feeder[1] - slot[1]) * u, slot[2] + (feeder[2] - slot[2]) * u);
-        s = 1 - u;
-        moving = true;
-      } else if (t < 0) {
-        s = 0;
-        place.set(entry[0], entry[1], entry[2]);
-        moving = true;
-      } else if (t < ARRIVE_S) {
-        /* Up the intake and over into the pile: a quadratic curve through a point above the midway. */
-        const u = smooth(t / ARRIVE_S);
-        const mid = [(entry[0] + slot[0]) / 2, Math.max(entry[1], slot[1]) + 0.12, (entry[2] + slot[2]) / 2];
-        const a = (1 - u) * (1 - u);
-        const b = 2 * (1 - u) * u;
-        const c = u * u;
-        place.set(a * entry[0] + b * mid[0] + c * slot[0], a * entry[1] + b * mid[1] + c * slot[1], a * entry[2] + b * mid[2] + c * slot[2]);
-        s = smooth(t / 0.08);
-        moving = true;
-      } else {
-        place.set(slot[0], slot[1], slot[2]);
-        if (ball.from) moving = true;
-      }
-      turn.set(0, 0, 0, 1);
-      size.setScalar(s);
-      mesh.setMatrixAt(i, matrix.compose(place, turn, size));
-    });
+    for (const ball of leaving) {
+      const u = smooth((now - ball.since) / 1000 / LEAVE_S);
+      place.set(ball.at[0] + (feeder[0] - ball.at[0]) * u, ball.at[1] + (feeder[1] - ball.at[1]) * u, ball.at[2] + (feeder[2] - ball.at[2]) * u);
+      size.setScalar(1 - u * 0.6);
+      mesh.setMatrixAt(i++, matrix.compose(place, still, size));
+      moving = true;
+    }
+    mesh.count = i;
     mesh.instanceMatrix.needsUpdate = true;
     return moving;
   }
@@ -196,25 +215,26 @@ export function createHopperBalls({ slots: given_slots = null, box = null, mouth
   return {
     root,
     setCount,
-    setSlots,
     step,
-    /** Where balls come in from now, as the intake slides. */
-    setMouth(point) {
-      entry = [point[0], point[1], point[2]];
+    /** How far the intake is from where the places were measured, [x, y, z] in metres, and where balls
+     *  come in from now. The places inside the intake move with it. */
+    setIntake(nextOffset, nextMouth) {
+      offset = nextOffset ? [nextOffset[0], nextOffset[1], nextOffset[2]] : null;
+      if (nextMouth) entry = [nextMouth[0], nextMouth[1], nextMouth[2]];
     },
     /** How many balls the hopper can show. */
     get capacity() {
       return slots.length;
     },
     get count() {
-      return wanted;
+      return pile.length;
     },
     setColour(next) {
-      if (next && !given) material.color.set(next);
+      if (next && !givenMaterial) material.color.set(next);
     },
     dispose() {
       geometry.dispose();
-      if (!given) material.dispose();
+      if (!givenMaterial) material.dispose();
       mesh.dispose();
     },
   };

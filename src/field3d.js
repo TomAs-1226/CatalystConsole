@@ -27,6 +27,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
 import { FEED_RATE, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
+import { createMotionFilter } from "./motion-filter.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -1235,9 +1236,19 @@ export function createField(canvas, opts) {
   const motionLine = makeRibbon(TRIM, MOTION_OPACITY, 0.3);
   scene.add(plannedBand, motionLine);
   let plan = null;          // { points: [[x, z], ...] in the scene, improvised }
-  let travelTurn = 0;       // how fast the direction of travel is turning, rad/s
+  /* How the robot is moving, filtered (see motion-filter.js): the robot's own chassis velocity when it
+     publishes one, a filter on its pose otherwise. The motion line and the robot drawn between reports
+     both run on this, so neither twitches with every noisy report. */
+  const motion = createMotionFilter();
+  /* What the motion line shows, eased toward the filter a little more for the eye: its turn, and whether
+     it is shown at all, which has a margin either side of its speed so a robot creeping about that speed
+     does not flicker it on and off. */
+  let shownTurn = 0;
+  let motionShown = 0;
+  let motionWanted = false;
+  const PREDICT_SHOW_MPS = 0.35;
+  const PREDICT_HIDE_MPS = 0.2;
   const PREDICT_S = 1.6;
-  const PREDICT_MIN_SPEED = 0.25;
 
   /* The part of the plan still ahead of the robot, starting from the robot itself. A plan the robot is
      nowhere near is drawn from its own start instead, rather than with a line to wherever it is. */
@@ -1280,7 +1291,7 @@ export function createField(canvas, opts) {
     const steps = 26;
     const dt = PREDICT_S / steps;
     for (let i = 0; i < steps; i++) {
-      direction += travelTurn * dt;
+      direction += shownTurn * dt;
       x += Math.cos(direction) * speed * dt;
       z += Math.sin(direction) * speed * dt;
       out.push([x, z]);
@@ -1304,7 +1315,13 @@ export function createField(canvas, opts) {
        steps back rather than being a second blue band of the same weight. */
     planDim = reduced ? (aimLock > 0.5 ? 0.45 : 1) : planDim + ((aimFade > 0 ? 1 - 0.55 * aimLock : 1) - planDim) * (1 - Math.exp(-dt / 0.15));
     plannedBand.material.uniforms.uOpacity.value = PLANNED_OPACITY * pathFade * planDim;
-    motionLine.material.uniforms.uOpacity.value = MOTION_OPACITY * pathFade;
+    const moving = reported ? Math.hypot(reported.vx, reported.vz) : 0;
+    motionWanted = motionWanted ? moving > PREDICT_HIDE_MPS : moving > PREDICT_SHOW_MPS;
+    const showGoal = motionWanted ? 1 : 0;
+    motionShown = reduced ? showGoal : showGoal + (motionShown - showGoal) * Math.exp(-dt / 0.14);
+    if (Math.abs(motionShown - showGoal) < 0.004) motionShown = showGoal;
+    shownTurn = reduced ? motion.turn : motion.turn + (shownTurn - motion.turn) * Math.exp(-dt / 0.18);
+    motionLine.material.uniforms.uOpacity.value = MOTION_OPACITY * pathFade * motionShown;
     const shown = pathFade > 0 && robot.visible && !unplaced;
     let drifting = pathFade !== want;
     const arriving = shown && plan && plan.end;
@@ -1328,8 +1345,9 @@ export function createField(canvas, opts) {
       plannedBand.visible = false;
     }
     const speed = reported ? Math.hypot(reported.vx, reported.vz) : 0;
-    if (shown && speed > PREDICT_MIN_SPEED) layRibbon(motionLine, motionAhead(), 0.05, 0.016);
+    if (shown && motionShown > 0 && speed > 0.05) layRibbon(motionLine, motionAhead(), 0.05, 0.016);
     else motionLine.visible = false;
+    if (motionShown !== showGoal || Math.abs(shownTurn - motion.turn) > 1e-3) drifting = true;
     return drifting;
   }
 
@@ -1831,6 +1849,14 @@ export function createField(canvas, opts) {
         reported = null;
       }
       const [fx, fy, theta] = state.pose;
+      /* The robot's own velocity, robot-relative [vx, vy, omega], into the scene's frame: field x is the
+         scene's x and field y its -z. */
+      if (Array.isArray(state.velocity) && state.velocity.slice(0, 2).every(Number.isFinite)) {
+        const [rvx, rvy] = state.velocity;
+        const c = Math.cos(theta);
+        const s = Math.sin(theta);
+        motion.velocity(performance.now() / 1000, rvx * c - rvy * s, -(rvx * s + rvy * c));
+      }
       const x = fx - poseLength / 2;
       const z = -(fy - poseWidth / 2);
       /* WPILib's heading turns counter-clockwise seen from above, and field y is three's -z, so the
@@ -1845,6 +1871,8 @@ export function createField(canvas, opts) {
         shown.z = z;
         shown.heading = heading;
         reported = { x, z, heading, vx: 0, vz: 0, vh: 0, at: now };
+        motion.reset();
+        motion.pose(now / 1000, x, z);
         if (!robot.visible) {
           cameraHeading = heading;
           headingSpeed = 0;
@@ -1858,28 +1886,21 @@ export function createField(canvas, opts) {
         const gap = (now - reported.at) / 1000;
         const fresh = gap > 0.01 && gap < 0.5;
         const blend = (old, measured) => (fresh ? old * 0.4 + measured * 0.6 : 0);
-        const vx = blend(reported.vx, (x - reported.x) / gap);
-        const vz = blend(reported.vz, (z - reported.z) / gap);
-        /* How fast the direction of travel is turning, for the motion line. Not the heading's rate: a
-           swerve robot can spin while it drives straight. */
-        if (fresh && Math.hypot(vx, vz) > PREDICT_MIN_SPEED && Math.hypot(reported.vx, reported.vz) > PREDICT_MIN_SPEED) {
-          const rate = angleTo(Math.atan2(reported.vz, reported.vx), Math.atan2(vz, vx)) / gap;
-          travelTurn = travelTurn * 0.6 + Math.max(-3, Math.min(3, rate)) * 0.4;
-        } else {
-          travelTurn = 0;
-        }
+        motion.pose(now / 1000, x, z);
+        const turning = Array.isArray(state.velocity) && Number.isFinite(state.velocity[2]) ? state.velocity[2] : null;
         reported = {
           x,
           z,
           heading,
-          vx,
-          vz,
-          vh: blend(reported.vh, angleTo(reported.heading, heading) / gap),
+          vx: motion.vx,
+          vz: motion.vy,
+          vh: turning ?? blend(reported.vh, angleTo(reported.heading, heading) / gap),
           at: now,
         };
         dirty = true;
-      } else if (now - reported.at > 150 && (reported.vx || reported.vz || reported.vh)) {
+      } else if (now - reported.at > 150 && (reported.vx || reported.vz || reported.vh) && !motion.measured(now / 1000)) {
         /* The same pose twice, a while apart: the robot has stopped, so stop carrying it forward. */
+        motion.stop();
         reported = { ...reported, vx: 0, vz: 0, vh: 0, at: now };
         dirty = true;
       }

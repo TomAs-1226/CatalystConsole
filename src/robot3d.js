@@ -596,16 +596,19 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
     .filter((md) => md.steer && md.wheel);
   const positions = cadSpec(m).modules;
 
-  /* FUEL in the hopper, in the positions the CAD analysis packed, lowest first: one list for the hopper
-     with the intake stowed, a longer one for the room the intake opens up when it slides out. */
-  const stowedSlots = m.hopper?.ballCentres?.stowed ?? [];
-  const deployedSlots = m.hopper?.ballCentres?.deployed ?? stowedSlots;
-  const slots = deployedSlots.length >= stowedSlots.length ? deployedSlots : stowedSlots;
+  /* FUEL in the hopper, in the places the CAD analysis packed with the intake slid out. The places inside
+     the intake's part of the hopper are carried by it (see hopper3d.js), so the pile compacts as the intake
+     slides back rather than being dealt out to other places. */
+  const places = m.hopper?.ballCentres?.deployed ?? m.hopper?.ballCentres?.stowed ?? [];
+  const carriedBox = (m.hopper?.boxes ?? []).find((box) => box.movesWith === "intake");
+  const carriedFrom = carriedBox?.atIntakeExtension ?? m.intake.travel ?? 0.3;
+  const inside = (p, box) => [0, 1, 2].every((k) => p[k] >= box.min[k] - 0.02 && p[k] <= box.max[k] + 0.02);
+  const slots = places.map((at) => ({ at, moves: Boolean(carriedBox && inside(at, carriedBox)) }));
   const feeder = m.rollers.find((r) => r.role === "feeder" && r.node === "roller-feeder-3")?.center
     ?? m.rollers.find((r) => r.role === "feeder")?.center
     ?? [-0.09, 0.42, 0];
   const hopperBalls = slots.length
-    ? createHopperBalls({ slots: stowedSlots.length ? stowedSlots : slots, maxSlots: slots.length, mouth: intakeMouth(m, 0), feeder, material: fuel })
+    ? createHopperBalls({ slots, mouth: intakeMouth(m, carriedFrom), feeder, material: fuel })
     : null;
   if (hopperBalls) group.add(hopperBalls.root);
 
@@ -660,14 +663,12 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
     }
 
     if (hopperBalls) {
-      hopperBalls.setMouth(intakeMouth(m, state.deploy));
+      /* The intake carries its places with it, measured from where they were packed. */
+      const slid = intakeSlide(m, state.deploy);
+      const packed = intakeSlide(m, carriedFrom);
+      hopperBalls.setIntake([slid[0] - packed[0], slid[1] - packed[1], slid[2] - packed[2]], intakeMouth(m, state.deploy));
       const share = Number.isFinite(hopperShare) ? Math.min(1, Math.max(0, hopperShare)) : 0;
-      /* The extended hopper's places only once the intake is most of the way out; retracting squeezes the
-         pile back into the stowed hopper, as the real one does. */
-      const extended = state.deploy > (m.intake.travel ?? 0.3) * 0.75;
-      const room = extended || !stowedSlots.length ? deployedSlots : stowedSlots;
-      hopperBalls.setSlots(room, now);
-      hopperBalls.setCount(Math.min(room.length, Math.round(share * slots.length)), now);
+      hopperBalls.setCount(Math.round(share * slots.length), now);
       if (hopperBalls.step(now)) moving = true;
     }
     return moving;

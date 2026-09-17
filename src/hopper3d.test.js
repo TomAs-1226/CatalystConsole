@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { packSlots } from "./hopper3d.js";
+import { fillOrder, packSlots, slotPosition } from "./hopper3d.js";
 
 const R = 0.075;
 
@@ -30,4 +30,23 @@ test("the same hopper packs the same way every time", () => {
 
 test("a box too small for a ball holds none", () => {
   assert.equal(packSlots([0, 0, 0], [0.1, 0.1, 0.1], R).length, 0);
+});
+
+test("a hopper fills from its feeder back, and the intake's places last", () => {
+  const feeder = [-0.1, 0.4, 0];
+  const slots = [
+    { at: [0.5, 0.36, 0], moves: true },
+    { at: [0.3, 0.36, 0], moves: false },
+    { at: [0.0, 0.36, 0], moves: false },
+    { at: [0.4, 0.36, 0], moves: true },
+  ];
+  assert.deepEqual(fillOrder(slots, feeder), [2, 1, 3, 0]);
+});
+
+test("the intake carries its places and leaves the rest where they are", () => {
+  const carried = { at: [0.5, 0.36, 0.1], moves: true };
+  const fixed = { at: [0.0, 0.36, 0.1], moves: false };
+  slotPosition(carried, [-0.17, 0.016, 0]).forEach((v, k) => assert.ok(Math.abs(v - [0.33, 0.376, 0.1][k]) < 1e-9, `axis ${k}: ${v}`));
+  assert.deepEqual(slotPosition(fixed, [-0.17, 0.016, 0]), [0.0, 0.36, 0.1]);
+  assert.deepEqual(slotPosition(carried, null), [0.5, 0.36, 0.1]);
 });

@@ -239,6 +239,12 @@ function demoTick() {
 
   const pose = waiting ? demoCarried(cycle + DEMO_PREMATCH_S) : play.pose;
   set("/Catalyst/Physics/PoseArray", "nums", pose);
+  /* The chassis velocity SwerveSubsystem publishes: robot-relative, from the wheels and the gyro. */
+  {
+    const c = Math.cos(pose[2]);
+    const s = Math.sin(pose[2]);
+    set("/Catalyst/Swerve/ChassisVelocities", "nums", [vx * c + vy * s, -vx * s + vy * c, omega]);
+  }
   /* The modules as SwerveModuleState[] decodes, speed then angle, and as the swerve tile reads them, angle
    * then speed. Disabled, the wheels stop where they point. */
   const modules = play.modules.map((v, i) => (i % 2 === 0 ? running(v) : v));
@@ -2183,8 +2189,16 @@ define("field", {
       : "";
     if (x.fplace.textContent !== placeText) x.fplace.textContent = placeText;
     if (x.fplace.hidden !== !placeText) x.fplace.hidden = !placeText;
+    /* The robot's own chassis velocity, from wheel odometry and the gyro, so the field view can draw where it
+       is heading without differentiating a noisy pose (see motion-filter.js). Only while it is changing: one
+       that has sat unchanged for half a second is a robot that stopped publishing - unless it is zero. */
+    const velocityKey = has("/Catalyst/Swerve/ChassisVelocities") ? "/Catalyst/Swerve/ChassisVelocities" : "/Catalyst/Swerve/ChassisSpeeds";
+    const chassis = linked ? arr(velocityKey) : null;
+    const chassisUsable = Array.isArray(chassis) && chassis.length >= 3 && chassis.slice(0, 3).every(Number.isFinite)
+      && (poseAge(velocityKey) < 500 || chassis.slice(0, 3).every((v) => Math.abs(v) < 1e-3));
     state.scene?.update({
       pose: drawn ? [drawn.x, drawn.y, drawn.theta] : null,
+      velocity: chassisUsable && drawn ? [chassis[0], chassis[1], chassis[2]] : null,
       placed: linked ? place.placed : null,
       heading: place.heading,
       alliance: alliance(),
