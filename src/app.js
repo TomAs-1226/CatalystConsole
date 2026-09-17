@@ -25,6 +25,7 @@ import { stateLayer } from "./motion.js";
 /* How the board words a large figure and a topic path's segment; its own module so the rules can be
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
+import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
@@ -817,7 +818,7 @@ define("match", {
     /* Name the shift rather than just the period — during teleop "Shift 3" is the thing a driver
      * actually needs, because it decides whether their hub is scoring. */
     const shift = t !== null && ds.enabled && !ds.auto
-      ? (SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1]).name
+      ? segmentAt(t)?.name ?? null
       : null;
     x.phase.textContent = shift ? `${ds.mode} · ${shift}` : ds.mode;
     x.time.textContent = clock(t);
@@ -846,42 +847,26 @@ define("match", {
   },
 });
 
-/* --- fuel tower -------------------------------------------------------------- */
+/* --- hub activation ---------------------------------------------------------- */
 
-/* REBUILT teleop, from the 2026 game manual (Table 6-2). Teleop runs 140 s and the match clock counts
- * down, so each segment is expressed as the time remaining when it ends.
+/* REBUILT switches each alliance's HUB on and off through teleop, and the schedule lives in hub.js: the
+ * segments from the game manual, the FMS game data that decides the alternation, and a countdown to the
+ * moment this alliance's hub really changes.
  *
- * Both HUBS are active during AUTO, the TRANSITION SHIFT and END GAME. Through shifts 1-4 they
- * alternate: the alliance that scored more FUEL in AUTO is inactive for shift 1, and FMS relays which
- * alliance that was in the game-specific message at the start of teleop. */
-const SHIFTS = [
-  { name: "Transition", endsAt: 130, always: true },
-  { name: "Shift 1", endsAt: 105, index: 0 },
-  { name: "Shift 2", endsAt: 80, index: 1 },
-  { name: "Shift 3", endsAt: 55, index: 2 },
-  { name: "Shift 4", endsAt: 30, index: 3 },
-  { name: "End game", endsAt: 0, always: true },
-];
+ * The tile is read from across a drive station in the middle of a match, so the state is the tile: the
+ * whole card turns green while the hub scores and stays dark while it does not, the word says Active or
+ * Inactive as large as the tile allows, and the countdown under it names what comes next. Amber is kept
+ * for the last few seconds before a change and for nothing else. The strip along the bottom is the rest
+ * of the match for this alliance - green where the hub scores - so the next change is visible before it
+ * is counted down. */
 
-/**
- * Which alliance's hub goes inactive first, from the FMS game-specific message.
- *
- * WPILib documents the 2026 message as a single character — `R` or `B` — naming the alliance whose
- * goal goes inactive first, which is the alliance that scored more FUEL in auto. It is an empty string
- * until roughly three seconds after auto ends, once scoring has been assessed, so null here is the
- * normal state for the first part of a match rather than a fault.
- */
-function inactiveFirstAlliance() {
-  const text = (str("/FMSInfo/GameSpecificMessage", "") || "").trim().toLowerCase();
-  if (text.startsWith("r")) return "red";
-  if (text.startsWith("b")) return "blue";
-  return null;
-}
+/* Auto and the six teleop segments, as parts of the strip in proportion to how long each runs. */
+const HUB_STRIP = [{ name: "Auto", from: AUTO_S, to: 0 }, ...TELEOP_SEGMENTS];
 
 define("tower", {
   name: "Hub activation",
   group: "Match",
-  desc: "Whether your alliance HUB is scoring this shift, and how long until that changes",
+  desc: "Whether your alliance HUB is scoring now, how long until that changes, and the rest of the match",
   w: 3, h: 2,
   tileClass: "tower",
   config: [
@@ -890,90 +875,113 @@ define("tower", {
     { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
       hint: "Optional override: seconds until the state flips." },
     { key: "warn", label: "Warn at", type: "number", def: 5,
-      hint: "Seconds before a change when the tile starts to say Check." },
+      hint: "Seconds before a change when the countdown turns amber." },
   ],
   render(body) {
     body.innerHTML = `
-      <div class="fill">
-        <div class="tw-state">
-          <div class="who" data-x="who">Alliance unknown</div>
-          <div class="status" data-x="status">No data</div>
-        </div>
-        <div class="tw-count" data-x="countRow" hidden>
-          <span class="n" data-x="count"></span><span class="u" data-x="unit">s</span>
-        </div>
-        <div class="tw-meter">
-          <div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="cap" data-x="src" style="margin-top:6px">waiting for robot</div>
-        </div>
+      <div class="fill hub">
+        <div class="hub-now"><i class="hub-lamp" aria-hidden="true"></i><span class="hub-word" data-x="word">No match</span></div>
+        <div class="hub-next"><span class="n" data-x="count"></span><span class="u" data-x="unit">s</span><span class="hub-then" data-x="then"></span></div>
+        <div class="hub-strip" aria-hidden="true">${HUB_STRIP.map((s) => `<i style="flex-grow:${s.from - s.to}"></i>`).join("")}</div>
+        <div class="cap hub-src" data-x="src">waiting for robot</div>
       </div>`;
   },
-  update(body, cfg, x, tile) {
+  update(body, cfg, x, tile, state) {
     const side = alliance();
-    x.who.textContent = side ? `${side === "red" ? "Red" : "Blue"} hub` : "Alliance unknown";
-    x.who.className = `who ${side || ""}`;
+    const sub = tile.querySelector(":scope > .h > .s");
+    if (sub) setText(sub, side ? `${side === "red" ? "Red" : "Blue"} hub` : "No alliance");
 
-    /* A robot that publishes its own answer wins — it may know something we do not. Otherwise the
-     * schedule comes straight out of the rules plus the FMS game data, which is exact rather than
-     * estimated. */
-    let active = bool(cfg.activeKey, null);
-    let left = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
-    let source = active !== null || left !== null ? "robot" : null;
-    let segment = null;
+    const t = matchTime();
+    const plan = hubPlan({
+      t, auto: ds.auto, enabled: ds.enabled, side,
+      first: inactiveFirst(str("/FMSInfo/GameSpecificMessage", "")),
+    });
 
-    if (active === null || left === null) {
-      const t = matchTime();
-      if (t !== null && !ds.auto && ds.enabled) {
-        segment = SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1];
-        if (left === null) left = Math.max(0, t - segment.endsAt);
-
-        if (active === null) {
-          if (segment.always) {
-            active = true;                       // both hubs are active here, no game data needed
-            source = "rule — both hubs active";
-          } else {
-            const inactiveFirst = inactiveFirstAlliance();
-            if (inactiveFirst && side) {
-              // Named alliance sits out shift 1, then the two alternate every shift.
-              const weSitOutFirst = inactiveFirst === side;
-              active = weSitOutFirst ? segment.index % 2 === 1 : segment.index % 2 === 0;
-              source = `FMS · ${segment.name}`;
-            } else {
-              source = side ? "waiting for FMS game data" : "waiting for alliance";
-            }
-          }
-        }
-      } else if (t !== null && ds.auto) {
-        active = true;
+    /* A robot that publishes its own answer wins - it may know something we do not. Its countdown is
+     * taken to run to its own next change; the schedule's is only borrowed when the two agree on now. */
+    let { active, left, until } = plan;
+    let next = plan.next?.active ?? null;
+    let source = null;
+    const robotActive = cfg.activeKey ? bool(cfg.activeKey, null) : null;
+    const robotLeft = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
+    if (robotActive !== null || robotLeft !== null) {
+      source = "From the robot";
+      if (robotActive !== null && robotActive !== plan.active) {
+        active = robotActive;
         left = null;
-        source = "rule — both hubs active in auto";
+        until = null;
+      }
+      if (robotLeft !== null) {
+        left = Math.max(0, robotLeft);
+        until = active === null ? "segment" : "change";
+        next = active === null ? null : !active;
       }
     }
 
-    const soon = active !== null && left !== null && left <= cfg.warn;
-    tile.dataset.active = active === true && !soon ? "true" : "false";
-    tile.dataset.soon = soon ? "true" : "false";
-    /* Whether the hub is scoring at all, closing seconds included, which is what the bars draw. */
-    setFlag(tile, "hub", active === true ? "on" : "off");
+    const hub = active === true ? "on" : active === false ? "off" : "none";
+    const soon = until === "change" && left !== null && left <= cfg.warn;
+    setFlag(tile, "hub", hub);
+    setFlag(tile, "soon", soon);
 
-    /* No countdown - auto, where both hubs score throughout, or no match at all - is not drawn, rather
-     * than drawn as a dash on a line of its own. The pill already says which of those it is. Compared
-     * before it is written, because assigning `hidden` rewrites the attribute ten times a second. */
-    if (x.countRow.hidden !== (left === null)) x.countRow.hidden = left === null;
-    if (left !== null) setText(x.count, left.toFixed(1));
-
-    if (active === null) {
-      x.status.textContent = segment ? segment.name : "No data";
-      x.src.textContent = source || "no match in progress";
-      return;
+    /* The moment it changes, the card says so once: a ring of the new state's colour that fades as the
+     * countdown starts again. Only for a change during a match - not for the tile being built, and not
+     * for a robot coming or going. */
+    if (state.hub && state.hub !== hub && state.hub !== "none" && hub !== "none" && !reducedMotion()) {
+      const ring = hub === "on" ? "rgba(48, 209, 88, 0.95)" : "rgba(235, 235, 240, 0.7)";
+      tile.animate(
+        [{ boxShadow: `inset 0 0 0 3px ${ring}` }, { boxShadow: "inset 0 0 0 3px rgba(0, 0, 0, 0)" }],
+        { duration: 1400, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
     }
+    state.hub = hub;
 
-    // Sentence case, as every other state on the board is written now. The pill's colour and the tile's
-    // tint already carry the urgency the capitals were adding.
-    x.status.textContent = soon
-      ? (active ? "Closing" : "Opening")
-      : (active ? "Hub active" : "Hub inactive");
-    x.src.textContent = source || "robot";
+    setText(x.word, active === true ? "Active" : active === false ? "Inactive"
+      : plan.period === "none" && !source ? "No match" : "Waiting");
+
+    /* What comes next, with its countdown. With nothing to count - auto, or no match - the row keeps
+     * its height so the card does not jump when the countdown arrives. */
+    let then = "";
+    if (left !== null) {
+      setText(x.count, left.toFixed(1));
+      then = until === "end" ? "to the end"
+        : until === "change" ? (next ? "until active" : "until inactive")
+        : `until ${plan.next?.name ?? "the next shift"}`;
+    } else {
+      setText(x.count, "");
+      then = plan.period === "auto" ? "Both hubs score in auto" : "";
+    }
+    setFlag(x.unit, "hidden", left === null);
+    setText(x.then, then);
+
+    if (source === null) {
+      const segment = plan.segment;
+      source = plan.period === "auto" ? "Auto"
+        : plan.period === "none" ? (t === null ? "No match clock from the robot" : "No match in progress")
+        : segment.both ? `${segment.name} · both hubs`
+        : active !== null ? `${segment.name} · FMS`
+        : side ? `${segment.name} · waiting for FMS` : `${segment.name} · no alliance`;
+    }
+    setText(x.src, source);
+
+    /* The strip: auto, then teleop, each part green where this alliance's hub scores and dimmed once it
+     * has run. The part the match is in shows how far through it is. */
+    const parts = body.querySelector(".hub-strip").children;
+    const period = plan.period;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const segment = i === 0 ? null : plan.plan[i - 1];
+      const on = i === 0 ? true : segment.active;
+      const done = period === "none" ? 0 : i === 0 ? plan.autoDone : period === "auto" ? 0 : segment.done;
+      const now = period === "auto" ? i === 0 : period === "teleop" && i === plan.index + 1;
+      setFlag(part, "state", period === "none" ? "idle" : on === true ? "on" : on === false ? "off" : "unknown");
+      setFlag(part, "now", now);
+      setFlag(part, "past", !now && done >= 1);
+      const fill = now ? `${(done * 100).toFixed(1)}%` : "";
+      if (part.style.getPropertyValue("--done") !== fill) {
+        if (fill) part.style.setProperty("--done", fill);
+        else part.style.removeProperty("--done");
+      }
+    }
   },
 });
 

@@ -551,8 +551,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 
    Paint only: these selectors are re-evaluated every time app.js rewrites a className, ten times a
    second, and a background never reflows. */
-.t:has(.warn),
-.t.tower[data-soon="true"] { background-color: color-mix(in srgb, var(--cat-warn) 2.5%, var(--cat-surface-1)); }
+.t:has(.warn) { background-color: color-mix(in srgb, var(--cat-warn) 2.5%, var(--cat-surface-1)); }
 /* `.al.error` is the alert manager's word for the same thing `.crit` means everywhere else in
    app.js — a raised error is a fault, and a tile holding one must not rank below a tile holding a
    warning. Listed rather than folded in, because the two names come from two different publishers
@@ -582,8 +581,7 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   line-height: 1.25;
 }
 /* The two pills are one shape in two levels: a tint and a word, no ring. */
-.t:has(.warn) > .h::after,
-.t.tower[data-soon="true"] > .h::after {
+.t:has(.warn) > .h::after {
   display: block; content: "Check";
   background: var(--cat-warn-tint);
   color: var(--cat-warn);
@@ -742,46 +740,74 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
 .seglab span { flex: 1; }
 
 /* ---- hub activation ----
-   Colour is most of the message here: from across the drive station you should know whether your
-   hub is live without reading a word. The word is there anyway, in a pill, for the reader that
-   colour does not reach. */
-.tower { position: relative; overflow: hidden; }
-.tower .fill { justify-content: space-between; }
-.tower .status {
-  display: inline-block; padding: 5px 14px; border-radius: 999px; white-space: nowrap;
-  font-size: var(--fs-15); font-weight: var(--cat-w-medium); letter-spacing: 0;
-}
-.tower .n { font-size: min(var(--fs-32), 30cqh); }
-/* The hub's state is a word in a grey capsule with a light in front of it - green while the hub
-   scores, amber in the seconds before it changes, none while it is off - the way Tesla lights a
-   small lamp beside a word rather than washing a panel in colour. The bars fill white. */
-.tower .status { background: var(--cat-surface-2); color: var(--cat-white); }
-.tower .status::before {
-  content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px;
-  border-radius: 50%; background: var(--cat-faint);
-}
-.tower[data-active="true"] .status::before { background: var(--cat-ok); }
-.tower[data-soon="true"] .status::before { background: var(--cat-warn); border-radius: 1px; transform: rotate(45deg); }
-.tower[data-active="false"] .status { color: var(--cat-dim); }
-/* The countdown keeps its unit beside it whatever width the tile is, and with no countdown to show
-   - auto, or no match - it is not drawn at all rather than leaving a dash on a line of its own. */
-.tower .tw-count { white-space: nowrap; }
-.tower .tw-count[hidden] { display: none; }
-/* The bars are the hub itself: white while it scores, including the seconds it has left, and empty
-   while it does not. The amber in those last seconds is the lamp's and the header's to say. */
-.tower .bars { display: flex; gap: 4px; margin-top: 8px; }
-.tower .bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--cat-track); }
-.tower[data-hub="on"] .bars i { background: var(--cat-data); }
-.tower .who {
-  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
-  letter-spacing: 0; text-transform: none; color: var(--cat-dim);
-}
-.tower .who.red, .tower .who.blue { color: var(--cat-body); }
+   The one tile on the board whose state is its whole message, read from across a drive station in the
+   middle of a match. So the state is the card: green while this alliance's hub scores, the plain dark
+   card while it does not, and the word as large as the tile allows. Green here is the telltale's green,
+   not an accent - it means the same thing as the lamp beside it - and amber is kept for the countdown in
+   the last seconds before a real change. Sizes come from the tile's own container, so a 2x2 tile on a
+   laptop and a 3x3 tile on a monitor are the same composition. */
+.t.tower { transition: background-color 420ms var(--cat-ease-smooth); }
+.t.tower[data-hub="on"] { background-color: color-mix(in srgb, var(--cat-ok) 19%, var(--cat-surface-1)); }
+.t .fill.hub { justify-content: space-between; gap: clamp(2px, 3cqh, 10px); }
 
-/* Opacity only — a compositor property, so a tile that is already repainting ten times a second
-   does not also relayout twice a second for a pulse. */
-@keyframes towerPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.tower[data-active="true"] .status::before { animation: towerPulse 1.6s ease-in-out infinite; }
+.hub-now { display: flex; align-items: center; gap: 0.3em; min-width: 0; font-size: clamp(20px, min(28cqh, 17cqw), 46px); }
+.hub-lamp {
+  flex: none; width: 0.36em; height: 0.36em; border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--cat-faint);
+  transition: background-color 420ms var(--cat-ease-smooth), box-shadow 420ms var(--cat-ease-smooth);
+}
+.tower[data-hub="on"] .hub-lamp {
+  background: var(--cat-ok);
+  box-shadow: 0 0 0 0.12em color-mix(in srgb, var(--cat-ok) 28%, transparent);
+}
+.tower[data-hub="off"] .hub-lamp { box-shadow: inset 0 0 0 2px var(--cat-body); }
+.hub-word {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--sans); font-weight: var(--cat-w-semi); letter-spacing: -0.015em; line-height: 1.05;
+  color: var(--cat-dim);
+}
+.tower[data-hub="on"] .hub-word { color: var(--cat-ok); }
+.tower[data-hub="off"] .hub-word { color: var(--cat-white); }
+
+/* The countdown and what it runs to. The row is always laid out, empty or not, so the card never jumps
+   when a countdown starts. */
+.hub-next {
+  display: flex; align-items: baseline; min-width: 0; white-space: nowrap;
+  min-height: 1.1em; font-size: clamp(15px, min(19cqh, 12cqw), 32px); line-height: 1.1;
+}
+.hub-next .n { font-size: 1em; }
+.hub-next .u { margin-left: 3px; }
+.hub-next .u[data-hidden="true"] { display: none; }
+.hub-then {
+  min-width: 0; margin-left: 0.45em; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-body);
+}
+.hub-next .n:empty + .u + .hub-then { margin-left: 0; }
+.tower[data-soon="true"] .hub-next .n,
+.tower[data-soon="true"] .hub-next .u,
+.tower[data-soon="true"] .hub-then { color: var(--cat-warn); }
+@keyframes hubSoon { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.tower[data-soon="true"] .hub-lamp { animation: hubSoon 1s ease-in-out infinite; }
+
+/* The rest of the match for this alliance: auto, then the six teleop segments, each as long as it runs.
+   Green where the hub scores, the track where it does not, fainter still where FMS has not said yet.
+   What has run is dimmed, and the part the match is in is taller, darkened up to where the match is. */
+.hub-strip { display: flex; align-items: center; gap: 3px; height: 8px; flex: none; }
+.hub-strip i {
+  position: relative; flex: 10 1 0; min-width: 3px; height: 5px; border-radius: 999px; overflow: hidden;
+  background: var(--cat-track);
+  transition: background-color 420ms var(--cat-ease-smooth), opacity 420ms var(--cat-ease-smooth);
+}
+.hub-strip i[data-state="on"] { background: var(--cat-ok); }
+.hub-strip i[data-state="unknown"] { background: color-mix(in srgb, var(--cat-track) 45%, transparent); }
+.hub-strip i[data-past="true"] { opacity: 0.35; }
+.hub-strip i[data-now="true"] { height: 8px; }
+.hub-strip i[data-now="true"]::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--done, 0%);
+  background: rgba(0, 0, 0, 0.5);
+}
+.hub-src { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tower[data-hub="on"] .hub-src { color: var(--cat-body); }
 
 /* ---- gauges ---- */
 .gaugewrap { display: flex; gap: 8px; align-items: center; justify-content: space-around; flex: 1; min-height: 0; }
@@ -863,45 +889,17 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   .ml { margin-top: 3px; }
   .t .track { margin: 5px 0; }
   .cap { line-height: 1.3; }
-
-  /* Hub activation keeps its three facts - which hub, whether it is live, how long it has - but the
-     countdown moves up beside the pill instead of taking a row of its own. */
-  .tower .fill { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto; column-gap: 12px; }
-  .tower .tw-state { grid-column: 1; grid-row: 1; min-width: 0; }
-  .tower .tw-count { grid-column: 2; grid-row: 1; align-self: end; }
-  .tower .tw-meter { grid-column: 1 / -1; grid-row: 3; }
-  .tower .bars { margin-top: 4px; }
-}
-
-/* A narrow Hub activation tile, two columns on a laptop screen: the pill steps down a size rather than
-   breaking its two words onto two lines. */
-@container tile (max-width: 230px) {
-  .tower .status { font-size: var(--fs-13); padding: 3px 10px; }
-  .tower .n { font-size: min(var(--fs-24), 26cqh); }
-  /* The rule in force, on one line; the whole sentence is in the tooltip-free wide tile. */
-  .tower .cap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-}
-
-/* Short and narrower still, where the pill and a two-digit countdown do not fit side by side: the
-   countdown goes up to the hub's name, and the pill takes the row under both. */
-@container tile (max-height: 120px) and (max-width: 200px) {
-  .tower .fill { grid-template-rows: auto auto 1fr auto; }
-  .tower .tw-state { display: contents; }
-  .tower .who { grid-column: 1; grid-row: 1; align-self: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tower .status { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
-  .tower .tw-count { grid-row: 1; align-self: center; }
-  .tower .tw-meter { grid-row: 4; }
 }
 
 /* The shortest tiles, on a window that has given most of its height to something else. Explanations
    give way here - which rule is in force, what the budget is - and every state stays. */
 @container tile (max-height: 80px) {
   .tower .cap, .t .m3 ~ .cap { display: none; }
+  .hub-then { font-size: var(--fs-12); }
   .t .track { margin: 3px 0; }
   .segs { margin-top: 4px; }
   /* The phase line above the clock already names the period, so the segment names are the repeat. */
   .seglab { display: none; }
-  .tower .status { padding: 2px 10px; font-size: var(--fs-13); }
 }
 
 /* ---- alert rows ----
@@ -2495,7 +2493,7 @@ kbd {
   /* The hairline stays; only its travel goes. */
   .sweep i { animation: none; opacity: 0; }
   .ssec[data-active="true"] { animation: none; }
-  .tower[data-active="true"] .status { animation: none; }
+  .tower[data-soon="true"] .hub-lamp { animation: none; }
   .notice { animation: none; }
 }
 
