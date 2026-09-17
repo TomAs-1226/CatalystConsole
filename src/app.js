@@ -17,7 +17,7 @@
 
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
-import { clampToField, countState, deviceSummary, drivePath, notices as computeNotices, robotPlacement } from "./devices.js";
+import { clampToField, countState, deviceSummary, drivePath, notices as computeNotices, robotPlacement, startGuide } from "./devices.js";
 /* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
@@ -150,9 +150,25 @@ const demo = { on: false, t0: performance.now(), timer: null };
 /* The demo match and the whole cycle it repeats on, in seconds: the robot waiting on the field, disabled,
    long enough for the board to step aside for Park and be looked at; the match; and the robot disabled
    again after it, with the Field Management System still attached. */
-const DEMO_PREMATCH_S = 15;
+const DEMO_PREMATCH_S = 20;
 const DEMO_MATCH_S = 160;
-const DEMO_CYCLE_S = 190;
+const DEMO_CYCLE_S = 195;
+
+/* The demo robot while it waits for the match, `s` seconds in: carried onto its auto's start from a metre
+   and a half away, set down a little off, nudged square, and left there. [x, y, heading]. */
+function demoCarried(s) {
+  const [x, y, heading] = START_POSE;
+  const smooth = (a, b, v) => {
+    const u = Math.min(1, Math.max(0, (v - a) / (b - a)));
+    return u * u * (3 - 2 * u);
+  };
+  const walk = smooth(0.5, 4.5, s);
+  const nudge = smooth(5.5, 6.8, s);
+  const lerp = (from, to, u) => from + (to - from) * u;
+  const setDown = [x + 0.14, y - 0.07, heading + 0.2];
+  const from = [x - 1.1, y - 0.95, heading + 0.9];
+  return [0, 1, 2].map((i) => lerp(lerp(from[i], setDown[i], walk), [x, y, heading][i], nudge));
+}
 
 function demoTick() {
   const t = (performance.now() - demo.t0) / 1000;
@@ -221,7 +237,8 @@ function demoTick() {
   set("/Catalyst/Physics/TractionUsage", "num", running(Math.min(0.95, 0.2 + push * 0.12 + Math.abs(omega) * 0.04)));
   set("/Catalyst/Physics/Quality/Confidence", "num", 0.86 + 0.09 * Math.sin(t * 0.4));
 
-  set("/Catalyst/Physics/PoseArray", "nums", play.pose);
+  const pose = waiting ? demoCarried(cycle + DEMO_PREMATCH_S) : play.pose;
+  set("/Catalyst/Physics/PoseArray", "nums", pose);
   /* The modules as SwerveModuleState[] decodes, speed then angle, and as the swerve tile reads them, angle
    * then speed. Disabled, the wheels stop where they point. */
   const modules = play.modules.map((v, i) => (i % 2 === 0 ? running(v) : v));
@@ -425,13 +442,16 @@ function demoTick() {
   set("/Catalyst/Drive/PlannedPathSource", "str", path && !planned ? path.source : "");
   set("/Catalyst/Behavior/Cycle/Phase", "str", enabled ? play.autopilotPhase : "DriverControl");
 
-  /* Whether the robot is on its auto start: exactly, while it waits for the match. */
-  const fromStart = Math.hypot(play.pose[0] - START_POSE[0], play.pose[1] - START_POSE[1]);
-  const startTurn = Math.atan2(Math.sin(play.pose[2] - START_POSE[2]), Math.cos(play.pose[2] - START_POSE[2]));
+  /* The auto start check, as AutoStartCheck publishes it: the demo robot is carried onto its start while it
+   * waits for the match. */
+  const fromStart = Math.hypot(pose[0] - START_POSE[0], pose[1] - START_POSE[1]);
+  const startTurn = Math.atan2(Math.sin(pose[2] - START_POSE[2]), Math.cos(pose[2] - START_POSE[2]));
   set("/Catalyst/Auto/StartCheck/Available", "bool", true);
-  set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart < 0.3);
+  set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart <= 0.3 && Math.abs(startTurn) <= (10 * Math.PI) / 180);
   set("/Catalyst/Auto/StartCheck/DistanceMeters", "num", fromStart);
   set("/Catalyst/Auto/StartCheck/HeadingErrorDeg", "num", (startTurn * 180) / Math.PI);
+  set("/Catalyst/Auto/StartCheck/Expected", "nums", [...START_POSE]);
+  set("/Catalyst/Auto/StartCheck/Current", "nums", pose);
 
   if (!has(TUNABLE_MANIFEST)) {
     set(TUNABLE_MANIFEST, "str", JSON.stringify([
@@ -2018,6 +2038,7 @@ define("field", {
           <span>θ <b data-x="ft">—</b>°</span>
         </div>
         <div class="car-aim" data-x="aim" data-state="" hidden><i aria-hidden="true"></i><span data-x="aimText"></span></div>
+        <div class="car-start" data-x="start" data-ready="false" hidden><i aria-hidden="true"></i><span data-x="startText"></span></div>
         <div class="fc off" data-x="foff" hidden>drawn at the wall</div>
         <div class="fc place" data-x="fplace" hidden></div>
       </div>
@@ -2141,6 +2162,19 @@ define("field", {
     if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
     if (x.aim.dataset.state !== aimState) x.aim.dataset.state = aimState;
     if (x.aimText.textContent !== aimText) x.aimText.textContent = aimText;
+    /* The auto's start, while the robot is disabled and its auto says where it starts: how far off and which
+       way to turn, or that it is there. */
+    const guide = linked && !ds.enabled ? startGuide(ntView) : null;
+    const turn = guide && guide.headingErrorDeg !== null && Math.abs(guide.headingErrorDeg) >= 1
+      ? ` · turn ${Math.abs(guide.headingErrorDeg).toFixed(0)}° ${guide.headingErrorDeg > 0 ? "right" : "left"}`
+      : "";
+    const startText = !guide ? ""
+      : guide.ready ? "On the auto's start"
+      : `Auto start${guide.distance !== null ? ` · ${guide.distance.toFixed(2)} m` : ""}${turn}`;
+    const showStart = Boolean(guide && (guide.near || guide.ready));
+    if (x.start.hidden !== !showStart) x.start.hidden = !showStart;
+    if (x.start.dataset.ready !== String(Boolean(guide?.ready))) x.start.dataset.ready = String(Boolean(guide?.ready));
+    if (x.startText.textContent !== startText) x.startText.textContent = startText;
     /* Said under the figures whenever the position is not the estimator's own: where a vision fix is
        standing in for it, and when there is nothing to place the robot with at all. */
     const placeText = !linked ? ""
@@ -2164,6 +2198,7 @@ define("field", {
       /* Its mechanisms, and how many balls have left the shooter (see trackMechanisms). */
       mechanisms: linked ? mechanismState.now : null,
       aim,
+      startGuide: guide,
       fired: mechanismState.fired,
       hopper: mechanismState.hopper.fill / mechanismState.hopper.capacity,
     });
@@ -3933,6 +3968,52 @@ function paintNotices() {
   if (!$("#alertPop").hidden) paintAlertPop(active);
 }
 
+/* ---- the HUB's heads-up ----
+ * Just before the alliance's HUB changes in teleop, a capsule drops over the top of the board and counts
+ * down to it, the way Tesla counts down to a turn: "HUB active in 3" with a green lamp, "HUB inactive in 3"
+ * with a white one. When the HUB changes it says so for a moment and goes. It is not an alert - nothing is
+ * wrong - so it is not counted with the alerts and does not wait in the triangle. The schedule is hub.js's,
+ * the same one the Hub activation tile reads, so the two never disagree. */
+const CUE_LEAD_S = 5;
+const CUE_HOLD_MS = 2200;
+const cueState = { active: null, changedAt: -Infinity, sig: "" };
+
+function paintMatchCue() {
+  const el = $("#matchCue");
+  const linked = nt.status.connected || demo.on;
+  const side = alliance();
+  const now = performance.now();
+  const plan = linked && ds.enabled && !ds.auto && side
+    ? hubPlan({
+        t: matchTime(), auto: ds.auto, enabled: ds.enabled, side,
+        first: inactiveFirst(str("/FMSInfo/GameSpecificMessage", "")),
+      })
+    : null;
+  const active = plan && plan.period === "teleop" && typeof plan.active === "boolean" ? plan.active : null;
+  if (active !== null && cueState.active !== null && active !== cueState.active) cueState.changedAt = now;
+  cueState.active = active;
+
+  let text = "";
+  let count = "";
+  let on = false;
+  if (plan && plan.period === "teleop" && plan.until === "change" && Number.isFinite(plan.left)
+      && plan.left <= CUE_LEAD_S && typeof plan.next?.active === "boolean") {
+    on = plan.next.active;
+    text = on ? "HUB active in" : "HUB inactive in";
+    count = String(Math.max(1, Math.ceil(plan.left)));
+  } else if (active !== null && now - cueState.changedAt < CUE_HOLD_MS) {
+    on = active;
+    text = active ? "HUB active" : "HUB inactive";
+  }
+  const sig = `${text}|${count}|${on}`;
+  if (sig === cueState.sig) return;
+  cueState.sig = sig;
+  el.hidden = !text;
+  el.dataset.on = String(on);
+  el.querySelector(".cue-text").textContent = text;
+  el.querySelector(".cue-n").textContent = count;
+}
+
 /* The pop-ups are kept by key rather than redrawn, so one arriving does not restart the others, and one
  * leaving can slide away instead of vanishing mid-read. */
 function paintToasts(bar, toasts) {
@@ -4078,6 +4159,8 @@ const PARK_ENTER_MS = 2500;
 const PARK_ENTER_FMS_MS = 8000;
 /* The fade between Park and the board, matching the CSS below it. */
 const PARK_FADE_MS = 520;
+/* How long the robot sits on its auto's start, with the start drawn green, before Park comes. */
+const START_CONFIRM_MS = 2500;
 
 const parkState = {
   on: false,
@@ -4194,6 +4277,20 @@ function parkWanted(now) {
     return false;
   }
   if (parkState.dismissed) return false;
+  /* Someone is putting the robot on its auto's start: the board stays, with the start drawn on the field,
+     until the robot is on it and has been for a moment. A robot far from its start is somewhere else on the
+     field, and Park comes as usual. */
+  const guide = linked ? startGuide(ntView) : null;
+  if (guide && guide.near && !guide.ready) {
+    parkState.startReadyAt = null;
+    return false;
+  }
+  if (guide && guide.near && guide.ready) {
+    if (parkState.startReadyAt == null) parkState.startReadyAt = now;
+    if (now - parkState.startReadyAt < START_CONFIRM_MS) return false;
+  } else {
+    parkState.startReadyAt = null;
+  }
   if (parkState.since === null) parkState.since = now;
   const wait = !linked ? 0 : ds.fms ? PARK_ENTER_FMS_MS : PARK_ENTER_MS;
   return now - parkState.since >= wait;
@@ -4672,12 +4769,14 @@ function trackDrive(now) {
   const d = driveLog.current;
   if (!(linked && ds.enabled)) {
     /* An enable shorter than a second is a slip of the finger, not a drive. */
-    if (d && now - d.start >= 1000) driveLog.last = { ...d, seconds: (now - d.start) / 1000 };
+    if (d && now - d.start >= 1000) {
+      driveLog.last = { ...d, seconds: (now - d.start) / 1000, shot: Math.max(0, mechanismState.fired - d.firedAt) };
+    }
     driveLog.current = null;
     return;
   }
   const drive = d ?? (driveLog.current = {
-    start: now, metres: 0, top: 0, speed: 0, lowest: null, pose: null, at: now, posed: false,
+    start: now, metres: 0, top: 0, speed: 0, lowest: null, pose: null, at: now, posed: false, firedAt: mechanismState.fired,
   });
   const volts = batteryVolts();
   if (volts !== null) drive.lowest = drive.lowest === null ? volts : Math.min(drive.lowest, volts);
@@ -4788,7 +4887,8 @@ function paintParkInfo() {
     const far = last.metres < 100 ? last.metres.toFixed(1) : last.metres.toFixed(0);
     setText("#parkDrive", last.posed ? `${far} m · ${time}` : time);
     setText("#parkDriveSub",
-      [last.posed && `top ${last.top.toFixed(1)} m/s`, last.lowest !== null && `lowest ${last.lowest.toFixed(1)} V`]
+      [last.shot >= 1 && `~${Math.round(last.shot)} FUEL shot`, last.posed && `top ${last.top.toFixed(1)} m/s`,
+        last.lowest !== null && `lowest ${last.lowest.toFixed(1)} V`]
         .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Nothing published to measure");
   }
 
@@ -6685,6 +6785,7 @@ function paint() {
   standDownOverlaysOnEnable();
   paintHeader();
   paintNotices();
+  paintMatchCue();
   fitStatusBar();
   paintDockAuto();
   trackDrive(performance.now());

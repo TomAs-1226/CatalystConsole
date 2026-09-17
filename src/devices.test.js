@@ -11,6 +11,8 @@ import {
   notices,
   ROBOT_HALF_METERS,
   robotPlacement,
+  START_NEAR_M,
+  startGuide,
   VISION_FRESH_MS,
 } from "./devices.js";
 
@@ -340,4 +342,38 @@ test("broken paths are refused: too short, ragged, or off the field", () => {
   assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([40, 40, 0, 41, 41, 0]) })), null);
   const partly = drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0, NaN, 2, 0, 3, 3, 0]) }));
   assert.deepEqual(partly.points, [[1, 1], [3, 3]]);
+});
+
+/* ---- the auto's start ---- */
+
+test("the auto's start is shown while disabled, with how far off the robot is and which way to turn", () => {
+  const start = {
+    "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true },
+    "/Catalyst/Auto/StartCheck/Ready": { t: "bool", v: false },
+    "/Catalyst/Auto/StartCheck/DistanceMeters": { t: "num", v: 0.42 },
+    "/Catalyst/Auto/StartCheck/HeadingErrorDeg": { t: "num", v: 6.5 },
+    "/Catalyst/Auto/StartCheck/Expected": { t: "nums", v: [15.35, 6.5, 2.66] },
+    "/Catalyst/Auto/StartCheck/Current": { t: "nums", v: [15.0, 6.28, 2.77] },
+  };
+  const guide = startGuide(view(start));
+  assert.deepEqual(guide.expected, [15.35, 6.5, 2.66]);
+  assert.deepEqual(guide.current, [15.0, 6.28, 2.77]);
+  assert.equal(guide.ready, false);
+  assert.equal(guide.distance, 0.42);
+  assert.equal(guide.headingErrorDeg, 6.5);
+  assert.equal(guide.near, true);
+  assert.equal(startGuide(view(start), { enabled: true }), null, "enabled: the start is history");
+});
+
+test("no start is shown without an expected pose, and a far robot is not being placed", () => {
+  assert.equal(startGuide(view({ "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: false } })), null);
+  assert.equal(startGuide(view({ "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true } })), null, "no Expected");
+  const far = startGuide(view({
+    "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true },
+    "/Catalyst/Auto/StartCheck/Expected": { t: "nums", v: [1, 1, 0] },
+    "/Catalyst/Auto/StartCheck/Current": { t: "nums", v: [8, 5, 0] },
+  }));
+  assert.ok(far.distance > START_NEAR_M, "distance from the poses when the check does not say");
+  assert.equal(far.near, false);
+  assert.equal(far.headingErrorDeg, null);
 });

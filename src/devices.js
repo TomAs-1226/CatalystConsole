@@ -370,6 +370,41 @@ const STATE_WORDS = {
   REJECTING: "most estimates rejected",
 };
 
+/* Someone putting the robot on its auto's start is within this of it; further off, the robot is somewhere
+   else on the field and the start is not what anyone is doing. */
+export const START_NEAR_M = 2.5;
+
+/**
+ * The auto's start, while the robot is disabled and being put there: from the library's AutoStartCheck -
+ * the pose the selected auto starts from, where the robot is, and whether that is inside the check's
+ * tolerances. `{ expected: [x, y, θ], current: [x, y, θ] | null, ready, distance, headingErrorDeg, near }`
+ * in field metres and radians, or null while the robot is enabled, the check has nothing to compare, or it
+ * publishes no expected pose. `headingErrorDeg` is the robot's heading less the start's, so positive means
+ * turn right; `near` is within START_NEAR_M.
+ */
+export function startGuide(read, { enabled = false } = {}) {
+  if (enabled || !read.bool || !read.bool(`${START}Available`, false)) return null;
+  const pose = (key) => {
+    const v = read.arr(key);
+    return Array.isArray(v) && v.length >= 3 && [v[0], v[1], v[2]].every(Number.isFinite) ? [v[0], v[1], v[2]] : null;
+  };
+  const expected = pose(`${START}Expected`);
+  if (!expected) return null;
+  const current = pose(`${START}Current`);
+  const said = read.num(`${START}DistanceMeters`, null);
+  const distance = Number.isFinite(said) ? said
+    : current ? Math.hypot(current[0] - expected[0], current[1] - expected[1]) : null;
+  const turn = read.num(`${START}HeadingErrorDeg`, null);
+  return {
+    expected,
+    current,
+    ready: read.bool(`${START}Ready`, false) === true,
+    distance,
+    headingErrorDeg: Number.isFinite(turn) ? turn : null,
+    near: distance !== null && distance <= START_NEAR_M,
+  };
+}
+
 /** Everything that deserves the bar above the board, most severe first.
  *
  *  Vision faults come from the robot's per-camera health rows rather than from the alert list, so the

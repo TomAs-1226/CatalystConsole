@@ -51,6 +51,7 @@ const RED = T("--red-alliance");
 const BLUE = T("--blue-alliance");
 const FLOOR = T("--draw-floor");
 const SIGNAL = T("--cat-signal");       /* the path ahead of the robot */
+const OK = T("--cat-ok");               /* the robot on its auto's start */
 const TRIM = T("--cat-ink-strong");     /* the key light, the centre line */
 const SKY = T("--draw-sky");
 const BOUNCE = T("--draw-bounce");
@@ -92,8 +93,17 @@ const TELEPORT_M = 1.5;
    whipped round with it would make a driver sick. Rates are a spring's natural frequency, in radians a
    second (see spring): 4.4 trails a steady turn by the same 0.45 s the camera always has. */
 const CAMERA_TURN_RATE = 4.4;
-/* The slower swing round to look over the robot at what it aims at (see placeCamera). */
-const AIM_TURN_RATE = 3.2;
+/* The swing round to look over the robot at what it aims at when an aim begins (see placeCamera): settled
+   in about half a second, so the camera is round before the first ball leaves. */
+const AIM_TURN_RATE = 8;
+/* While aiming, the share of the robot's sweep round its target the camera turns with. The rest is seen as
+   the robot turning, which is the point of drawing it. */
+const AIM_FOLLOW = 0.35;
+/* ...and the most the camera's heading may be off the bearing from the robot to its target, radians. */
+const AIM_SLACK = 0.8;
+/* The framing's own spring while aiming: quicker than the chase camera's, so the picture keeps up with a
+   robot driving past its target. */
+const AIM_SWING_RATE = 7.5;
 const CAMERA_SWING_RATE = 5;
 /* How long the camera keeps the aiming shot once the robot stops aiming, so a robot that aims, shoots,
    and aims again a moment later does not swing the camera away and back between the two. */
@@ -817,36 +827,64 @@ export function createField(canvas, opts) {
 
   /* ---- trail ---- */
 
+  /* Where the robot has just been, as a wake: a faint grey line that fades away behind it and is gone
+     TRAIL_S after the robot passed, so the carpet is never covered in the whole match's driving. Grey
+     and faint, because where the robot has been matters less than where it is going, and blue is kept
+     for the plan ahead. */
+  const TRAIL_S = 4;
+  const TRAIL_OPACITY = 0.3;
   let trail = null;
   let trailPoints = 0;
+  const trailTimes = new Float64Array(Math.max(1, trailLen));
   if (trailLen > 0) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(trailLen * 3), 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(trailLen * 4), 4));
     geo.setDrawRange(0, 0);
-    /* Grey and faint: where the robot has been matters less than where it is going, and blue is kept
-       for the plan ahead. */
-    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: TRIM, transparent: true, opacity: 0.2, toneMapped: false }));
+    trail = new THREE.Line(geo, new THREE.LineBasicMaterial({
+      color: TRIM, vertexColors: true, transparent: true, depthWrite: false, toneMapped: false,
+    }));
     trail.frustumCulled = false;
     scene.add(trail);
   }
 
-  function pushTrail(x, z) {
+  function pushTrail(x, z, now) {
     if (!trail) return;
     const attr = trail.geometry.getAttribute("position");
     const a = attr.array;
-    if (trailPoints < trailLen) {
-      a[trailPoints * 3] = x;
-      a[trailPoints * 3 + 1] = 0.02;
-      a[trailPoints * 3 + 2] = z;
-      trailPoints++;
-    } else {
+    if (trailPoints >= trailLen) {
       a.copyWithin(0, 3);
-      a[(trailLen - 1) * 3] = x;
-      a[(trailLen - 1) * 3 + 1] = 0.02;
-      a[(trailLen - 1) * 3 + 2] = z;
+      trailTimes.copyWithin(0, 1);
+      trailPoints = trailLen - 1;
     }
-    trail.geometry.setDrawRange(0, trailPoints);
+    a[trailPoints * 3] = x;
+    a[trailPoints * 3 + 1] = 0.02;
+    a[trailPoints * 3 + 2] = z;
+    trailTimes[trailPoints] = now;
+    trailPoints++;
     attr.needsUpdate = true;
+  }
+
+  /** Fade the wake by age and let go of what has faded. True while any of it is still there. */
+  function fadeTrail(now) {
+    if (!trail || trailPoints === 0) return false;
+    let gone = 0;
+    while (gone < trailPoints && now - trailTimes[gone] >= TRAIL_S * 1000) gone++;
+    const position = trail.geometry.getAttribute("position");
+    if (gone > 0) {
+      position.array.copyWithin(0, gone * 3, trailPoints * 3);
+      trailTimes.copyWithin(0, gone, trailPoints);
+      trailPoints -= gone;
+      position.needsUpdate = true;
+    }
+    const colour = trail.geometry.getAttribute("color");
+    for (let i = 0; i < trailPoints; i++) {
+      const left = 1 - Math.min(1, Math.max(0, (now - trailTimes[i]) / (TRAIL_S * 1000)));
+      colour.setXYZW(i, 1, 1, 1, TRAIL_OPACITY * left * left);
+    }
+    colour.needsUpdate = true;
+    trail.geometry.setDrawRange(0, trailPoints);
+    return trailPoints > 0;
   }
 
   /* ---- the path ahead (see above) ---- */
@@ -898,6 +936,107 @@ export function createField(canvas, opts) {
     destination.add(arrow);
   }
 
+  /* ---- the auto's start (see devices.js startGuide) ----
+     While the robot is disabled and its auto says where it starts, that place is drawn on the carpet the way
+     Autopark draws the space it is backing into: the robot's own footprint with a notch at its front, so
+     the way to face is plain, grey until the robot is inside the check's tolerances and green once it is,
+     and a faint line from the robot to it while it is some way off. While someone is putting the robot
+     there, the camera looks down on both (see wantedRel). */
+  const startMark = new THREE.Group();
+  startMark.visible = false;
+  scene.add(startMark);
+  const startMaterial = new THREE.MeshBasicMaterial({
+    color: TRIM, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+  });
+  const startFillMaterial = startMaterial.clone();
+  const startLine = makeRibbon(TRIM, 0, 0.45);
+  startLine.material.uniforms.uReach.value = 0.8;
+  scene.add(startLine);
+  const START_GREY = new THREE.Color(TRIM);
+  const START_READY = new THREE.Color(OK);
+  let startSize = "";
+  let startInfo = null;     // { expected: [x, z, heading], ready, near, distance } in the scene
+  let startFade = 0;
+  let startReady = 0;
+
+  function shapeStart(length, width) {
+    const key = `${length.toFixed(3)}x${width.toFixed(3)}`;
+    if (key === startSize) return;
+    startSize = key;
+    for (const child of [...startMark.children]) {
+      child.geometry.dispose();
+      startMark.remove(child);
+    }
+    const rounded = (w, h, r) => {
+      const shape = new THREE.Shape();
+      shape.moveTo(-w / 2 + r, -h / 2);
+      shape.lineTo(w / 2 - r, -h / 2);
+      shape.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+      shape.lineTo(w / 2, h / 2 - r);
+      shape.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+      shape.lineTo(-w / 2 + r, h / 2);
+      shape.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+      shape.lineTo(-w / 2, -h / 2 + r);
+      shape.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+      return shape;
+    };
+    const line = 0.045;
+    const outline = rounded(length, width, 0.1);
+    outline.holes.push(rounded(length - 2 * line, width - 2 * line, 0.1 - line));
+    const notch = new THREE.Shape();
+    notch.moveTo(length / 2 - 0.06, 0);
+    notch.lineTo(length / 2 - 0.2, 0.09);
+    notch.lineTo(length / 2 - 0.2, -0.09);
+    notch.closePath();
+    const parts = [
+      [new THREE.ShapeGeometry(rounded(length - 2 * line, width - 2 * line, 0.1 - line), 6), startFillMaterial],
+      [new THREE.ShapeGeometry(outline, 6), startMaterial],
+      [new THREE.ShapeGeometry(notch), startMaterial],
+    ];
+    for (const [geometry, material] of parts) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 2;
+      startMark.add(mesh);
+    }
+  }
+
+  /** Lay the start for this frame. True while it is fading or changing colour. */
+  function placeStart(dt) {
+    const want = startInfo && robot.visible && !unplaced ? 1 : 0;
+    const ease = (value, goal, seconds) => {
+      const next = reduced ? goal : goal + (value - goal) * Math.exp(-dt / seconds);
+      return Math.abs(next - goal) < 0.002 ? goal : next;
+    };
+    startFade = ease(startFade, want, 0.18);
+    const readyGoal = startInfo?.ready ? 1 : 0;
+    startReady = ease(startReady, readyGoal, 0.15);
+    const visible = startFade > 0 && startInfo;
+    startMark.visible = Boolean(visible);
+    if (!visible) {
+      startLine.visible = false;
+      return startFade !== want;
+    }
+    const spec = model.spec;
+    shapeStart(spec ? spec.bumperLength : 0.9, spec ? spec.bumperWidth : 0.9);
+    const [sx, sz, heading] = startInfo.expected;
+    startMark.position.set(sx, 0.015, sz);
+    startMark.rotation.y = heading;
+    startMaterial.color.copy(START_GREY).lerp(START_READY, startReady);
+    startMaterial.opacity = startFade * (0.7 + 0.25 * startReady);
+    startFillMaterial.color.copy(startMaterial.color);
+    startFillMaterial.opacity = startFade * (0.05 + 0.12 * startReady);
+    const off = Math.hypot(sx - robot.position.x, sz - robot.position.z);
+    if (off > 0.2) {
+      layRibbon(startLine, [[robot.position.x, robot.position.z], [sx, sz]], 0.07, 0.014);
+      startLine.material.uniforms.uColor.value.copy(START_GREY);
+      startLine.material.uniforms.uOpacity.value = startFade * (1 - startReady) * 0.55;
+    } else {
+      startLine.visible = false;
+    }
+    return startFade !== want || startReady !== readyGoal;
+  }
+
   /* ---- aiming (see mechanisms.js readAim) ----
      Drawn the way Tesla draws what Autopilot is doing: in the scene, grey while it is getting ready and
      blue once it has engaged, and nothing that blinks.
@@ -909,10 +1048,12 @@ export function createField(canvas, opts) {
      grey, reaching further toward the HUB as the heading error closes, then blue, with a bead of light
      running down it into the HUB, which brightens once as the bead arrives.
 
-     Shooting on the move, the band is broken into chevrons drifting toward the target, and it runs to the
-     point the robot actually aims at - where its motion carries the ball to the HUB from - so the lead is
-     the angle between the band and the HUB. FUEL lobbed to a place on the carpet, while the HUB is off,
-     is aimed at the same way, with the place ringed on the carpet instead of anything lit.
+     Shooting on the move, the band is broken into chevrons drifting toward the target. It still runs
+     straight to the target, not to the point the shooter leads: that line is the FUEL's own track over
+     the carpet, since the robot's motion carries each ball sideways by exactly the lead, and it is what
+     being locked on looks like. The robot is seen turned off the band by the lead. FUEL lobbed to a
+     place on the carpet, while the HUB is off, is aimed at the same way, with the place ringed on the
+     carpet instead of anything lit.
 
      Every mark is a number the robot published; nothing predicts where a ball goes. The camera, meanwhile,
      pulls up and swings round to look over the robot at the target (see placeCamera). */
@@ -1021,7 +1162,6 @@ export function createField(canvas, opts) {
       return false;
     }
     const [tx, tz] = info.target;
-    const [ax, az] = info.aimPoint;
     const locked = info.state === "ALIGNED" || info.state === "SOTF";
     if (locked && lastAimState !== "ALIGNED" && lastAimState !== "SOTF") lockedAt = now;
     lastAimState = info.state;
@@ -1066,12 +1206,9 @@ export function createField(canvas, opts) {
       openingFill.material.opacity = aimFade * aimLock * (0.2 + 0.25 * arrival);
     }
 
-    /* The band, to just off the target's face - or toward the point the robot leads, while it does. */
-    const leading = info.state === "SOTF" && Math.hypot(ax - tx, az - tz) > 0.08;
-    const ex = leading ? ax : tx;
-    const ez = leading ? az : tz;
-    const dx = ex - robot.position.x;
-    const dz = ez - robot.position.z;
+    /* The band, from the robot to just off the target's face. */
+    const dx = tx - robot.position.x;
+    const dz = tz - robot.position.z;
     const span = Math.hypot(dx, dz) || 1;
     const length = Math.max(0.3, span - (structure ? TARGET_FACE : SPOT_RADIUS + 0.06)) * aimReach;
     const endX = robot.position.x + (dx / span) * length;
@@ -1155,6 +1292,7 @@ export function createField(canvas, opts) {
      stage, as the last thing to arrive, and go as it lifts off again, instead of appearing or vanishing
      in the very frame the robot changes hands. */
   let pathFade = 0;
+  let planDim = 1;
 
   /** Lay the bands for this frame. Returns true while the chevrons are drifting or the bands fading. */
   function placePaths(dt) {
@@ -1162,7 +1300,10 @@ export function createField(canvas, opts) {
     const want = driving ? 1 : 0;
     pathFade = reduced ? want : want + (pathFade - want) * Math.exp(-dt / PATH_FADE_S);
     if (Math.abs(want - pathFade) < 0.004) pathFade = want;
-    plannedBand.material.uniforms.uOpacity.value = PLANNED_OPACITY * pathFade;
+    /* While the robot is locked on a target, the band to it is the thing to read, and the plan it is driving
+       steps back rather than being a second blue band of the same weight. */
+    planDim = reduced ? (aimLock > 0.5 ? 0.45 : 1) : planDim + ((aimFade > 0 ? 1 - 0.55 * aimLock : 1) - planDim) * (1 - Math.exp(-dt / 0.15));
+    plannedBand.material.uniforms.uOpacity.value = PLANNED_OPACITY * pathFade * planDim;
     motionLine.material.uniforms.uOpacity.value = MOTION_OPACITY * pathFade;
     const shown = pathFade > 0 && robot.visible && !unplaced;
     let drifting = pathFade !== want;
@@ -1209,6 +1350,10 @@ export function createField(canvas, opts) {
   let cameraHeading = 0;
   let headingSpeed = 0;
   let aimHeld = 0;
+  let aimHeading = null;    // the heading the camera holds while the robot aims, or null
+  let aimStart = 0;         // the bearing from the robot to its target when the aim began
+  let aimSwept = 0;         // how far that bearing has turned since, unwrapped
+  let aimBearing = 0;       // the bearing last frame
   const stillRel = () => ({ bearing: 0, elevation: 0, r: 0, look: [0, 0, 0] });
 
   /* How far the chase camera has swung away from directly behind the robot to see past something.
@@ -1255,20 +1400,40 @@ export function createField(canvas, opts) {
     return Math.max(byWidth, byLength) * 1.08;
   }
 
-  /** The shot the following camera wants, as polar coordinates in the robot's frame. */
-  function wantedRel(aimed) {
+  /** The shot the following camera wants, as polar coordinates in the frame of `heading`. */
+  function wantedRel(aimed, heading) {
+    if (parked && startInfo && startInfo.near && !startInfo.ready) {
+      /* Someone is putting the robot on its auto's start: look down on both, from high behind the robot,
+         the way Autopark looks down on the space. */
+      const dx = startInfo.expected[0] - robot.position.x;
+      const dz = startInfo.expected[1] - robot.position.z;
+      const [ahead, , side] = turnY([dx, 0, dz], -heading);
+      const look = [ahead * 0.5, 0, side * 0.5];
+      const distance = Math.max(4.5, 3.8 + Math.hypot(dx, dz) * 1.4);
+      const elevation = 0.95;
+      return polar([look[0] - Math.cos(elevation) * distance, Math.sin(elevation) * distance, look[2]], look);
+    }
     if (parked) return polar(PARKED_EYE, PARKED_LOOK);
     if (aimed) {
       /* Aiming: pulled up and back until the robot and what it aims at are both in the picture, the robot in
          the lower half and the target in the upper half, clear of the figures over the top of the panel -
          further back the further away the target is. High, because behind a robot that is shooting there is
          often something tall, its own alliance's wall or the other HUB, that a lower camera would be looking
-         through. */
-      const range = Math.hypot(aimed.target[0] - robot.position.x, aimed.target[1] - robot.position.z);
-      const look = [Math.min(range * 0.5, 4), 0.45, 0];
-      const distance = Math.max(6.5, Math.min(12, 5.5 + range * 0.95));
+         through. The camera looks at the point halfway to the target, to one side of its held heading when
+         the robot has gone round, so both stay in the picture while the heading holds still. */
+      const dx = aimed.target[0] - robot.position.x;
+      const dz = aimed.target[1] - robot.position.z;
+      const range = Math.hypot(dx, dz);
+      const [ahead, , side] = turnY([dx, 0, dz], -heading);
+      const look = [Math.min(Math.max(0, ahead) * 0.55, 4), 0.45, side * 0.62];
+      /* Far enough back that both fit across the picture as well as up it: the robot is 0.62 of the way to
+         one side of the look point and the target the rest of the way to the other, each needing a metre
+         round it. A portrait tile is narrow, so this is what usually decides it. */
+      const halfWidth = Math.tan((camera.fov * Math.PI) / 360) * Math.max(0.3, camera.aspect);
+      const across = Math.max(Math.abs(side) * 0.62, Math.abs(side) * 0.38) + 1;
       const elevation = 0.6;
-      return polar([look[0] - Math.cos(elevation) * distance, look[1] + Math.sin(elevation) * distance, 0], look);
+      const distance = Math.max(6.5, Math.min(14, Math.max(5.5 + range * 0.95, across / halfWidth)));
+      return polar([look[0] - Math.cos(elevation) * distance, look[1] + Math.sin(elevation) * distance, look[2]], look);
     }
     const eye = turnY(CHASE_EYE, chaseSwing);
     const lookAt = turnY(CHASE_LOOK, chaseSwing);
@@ -1293,30 +1458,60 @@ export function createField(canvas, opts) {
     if (Math.abs(swingTarget - chaseSwing) > 1e-3) moving = true;
 
     if (mode === "chase" && robot.visible) {
-      /* While the robot aims, the camera looks where it aims: from behind the robot, over it, at the HUB.
-         A robot that shoots out of its back faces away from its target, and a camera following its
-         heading would watch the balls fly at the lens with the target behind it. The swing round is
-         slower than a turn, so it reads as the camera choosing the shot. */
+      /* While the robot aims, the camera looks where it aims: from behind the robot, over it, at the target.
+         A robot that shoots out of its back faces away from its target, and a camera following its heading
+         would watch the balls fly at the lens with the target behind it.
+
+         It swings round once, as the aim begins, and then holds that heading. A camera that kept turning to
+         the target would turn exactly as the robot does, so the robot would never seem to turn at all - the
+         field would swing round a robot frozen on the screen, and shooting on the move would look like
+         sliding. Held, the robot is seen doing what a swerve does: driving one way while it turns to keep
+         its shooter on the target. As the robot goes round the target the heading turns with half of that
+         sweep (AIM_FOLLOW), never letting the target get more than AIM_SLACK off it, and the framing backs
+         off far enough to keep both in the picture - so the robot's turn stays visible and nothing slides
+         out of shot. The heading is followed at the rate it turns, so the camera never trails behind. */
       aimHeld = aimInfo && !parked ? AIM_HOLD_S : parked ? 0 : Math.max(0, aimHeld - dt);
       const aimed = aimHeld > 0 ? aimInfo ?? aimShown : null;
       if (aimed && aimHeld < AIM_HOLD_S) moving = true;
-      /* Toward the middle of the HUB and the point the robot leads, so both of their marks are in frame. */
-      const aimX = aimed ? (aimed.target[0] + aimed.aimPoint[0]) / 2 : 0;
-      const aimZ = aimed ? (aimed.target[1] + aimed.aimPoint[1]) / 2 : 0;
-      const reference = aimed ? Math.atan2(-(aimZ - robot.position.z), aimX - robot.position.x) : robot.rotation.y;
-      /* A spring on the heading, its offset measured the short way round. */
+      let reference = robot.rotation.y;
+      let referenceRate = 0;
+      if (aimed) {
+        const bearing = Math.atan2(-(aimed.target[1] - robot.position.z), aimed.target[0] - robot.position.x);
+        if (aimHeading === null) {
+          aimStart = bearing;
+          aimSwept = 0;
+          aimBearing = bearing;
+          aimHeading = bearing;
+        }
+        aimSwept += angleTo(aimBearing, bearing);
+        aimBearing = bearing;
+        const before = aimHeading;
+        let next = aimStart + aimSwept * AIM_FOLLOW;
+        const off = angleTo(next, bearing);
+        if (off > AIM_SLACK) next += off - AIM_SLACK;
+        else if (off < -AIM_SLACK) next += off + AIM_SLACK;
+        aimHeading = next;
+        reference = aimHeading;
+        referenceRate = dt > 0 ? Math.max(-3, Math.min(3, (aimHeading - before) / dt)) : 0;
+      } else {
+        aimHeading = null;
+      }
+      /* A spring on the heading, its offset measured the short way round, closing on a reference that may
+         itself be turning: the spring works on the difference, so a steady turn is followed without lag. */
       const turn = -angleTo(cameraHeading, reference);
       if (reduced) {
         cameraHeading -= turn;
         headingSpeed = 0;
       } else {
-        const [next, speed] = spring(turn, headingSpeed, aimed ? AIM_TURN_RATE : CAMERA_TURN_RATE, dt);
-        cameraHeading += next - turn;
-        headingSpeed = speed;
+        /* The spring moves the offset from where the reference will be at the end of this step, so the
+           heading lands on that reference plus the offset. */
+        const [next, speed] = spring(turn, headingSpeed - referenceRate, aimed ? AIM_TURN_RATE : CAMERA_TURN_RATE, dt);
+        cameraHeading += next - turn + referenceRate * dt;
+        headingSpeed = speed + referenceRate;
       }
-      if (Math.abs(angleTo(cameraHeading, reference)) > 1e-3 || Math.abs(headingSpeed) > 1e-3) moving = true;
+      if (Math.abs(angleTo(cameraHeading, reference)) > 1e-3 || Math.abs(headingSpeed - referenceRate) > 1e-3) moving = true;
 
-      const want = wantedRel(aimed);
+      const want = wantedRel(aimed, aimed ? aimHeading : cameraHeading);
       if (!rel) {
         rel = relFromCamera();
         relSpeed = stillRel();
@@ -1326,7 +1521,7 @@ export function createField(canvas, opts) {
       const ease = (offset, key, index) => {
         if (reduced) return 0;
         const velocity = index === undefined ? relSpeed[key] : relSpeed[key][index];
-        const [next, speed] = spring(offset, velocity, CAMERA_SWING_RATE, dt);
+        const [next, speed] = spring(offset, velocity, aimed ? AIM_SWING_RATE : CAMERA_SWING_RATE, dt);
         if (index === undefined) relSpeed[key] = speed;
         else relSpeed[key][index] = speed;
         if (Math.abs(next) > 1e-3 || Math.abs(speed) > 1e-3) moving = true;
@@ -1471,6 +1666,8 @@ export function createField(canvas, opts) {
     const clearingMoving = amount.value !== clearing;
     const pathsMoving = placePaths(dt);
     const aimMoving = placeAim(dt, now);
+    const trailMoving = fadeTrail(now);
+    const startMoving = placeStart(dt);
     if (!environment) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
@@ -1480,7 +1677,7 @@ export function createField(canvas, opts) {
     while (launches.length && launches[0].at <= now) launchBall(launches.shift(), now);
     const shotsMoving = shots.step(now);
     draw();
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0 || aimMoving;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0 || aimMoving || trailMoving || startMoving;
     dirty = false;
   }
 
@@ -1554,6 +1751,18 @@ export function createField(canvas, opts) {
       }
 
       if (state.mechanisms !== undefined) mechanisms = state.mechanisms;
+      if (state.startGuide !== undefined) {
+        const guide = state.startGuide;
+        const next = guide
+          ? {
+              expected: [guide.expected[0] - poseLength / 2, -(guide.expected[1] - poseWidth / 2), guide.expected[2]],
+              ready: guide.ready,
+              near: guide.near,
+            }
+          : null;
+        if (Boolean(next) !== Boolean(startInfo) || next?.ready !== startInfo?.ready || next?.near !== startInfo?.near) dirty = true;
+        startInfo = next;
+      }
       if (state.aim !== undefined) {
         const toScene = ([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)];
         const next = state.aim
@@ -1668,7 +1877,7 @@ export function createField(canvas, opts) {
          top of itself, and a fast one should not leave gaps. */
       if (now - lastTrailAt > 40) {
         lastTrailAt = now;
-        pushTrail(x, z);
+        pushTrail(x, z, now);
       }
     },
 
@@ -1711,13 +1920,15 @@ export function createField(canvas, opts) {
       }
       aimHeld = aimInfo && !parked ? AIM_HOLD_S : 0;
       const aimed = aimHeld > 0 ? aimInfo : null;
-      cameraHeading = aimed
-        ? Math.atan2(-((aimed.target[1] + aimed.aimPoint[1]) / 2 - robot.position.z), (aimed.target[0] + aimed.aimPoint[0]) / 2 - robot.position.x)
-        : robot.rotation.y;
+      aimHeading = aimed ? Math.atan2(-(aimed.target[1] - robot.position.z), aimed.target[0] - robot.position.x) : null;
+      aimStart = aimHeading ?? 0;
+      aimBearing = aimStart;
+      aimSwept = 0;
+      cameraHeading = aimed ? aimHeading : robot.rotation.y;
       headingSpeed = 0;
       chaseSwing = swingTarget;
       if (mode === "chase" && robot.visible) {
-        rel = wantedRel(aimed);
+        rel = wantedRel(aimed, cameraHeading);
         relSpeed = stillRel();
       }
       model.settle();

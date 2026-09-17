@@ -73,6 +73,8 @@
     <div class="views">
       <!-- Floats over the top of whatever view is showing rather than pushing it down, so a camera
            dropping out mid-match changes what the driver sees and not where their tiles are. -->
+      <!-- The HUB's heads-up: a countdown to the alliance HUB changing in teleop. Not an alert. -->
+      <div class="cue" id="matchCue" role="status" aria-live="polite" hidden><i class="cue-lamp" aria-hidden="true"></i><span class="cue-text"></span><span class="cue-n"></span></div>
       <div class="notices" id="notices" role="status" aria-live="polite" hidden></div>
       <div class="view board" role="tabpanel" aria-labelledby="tab-board" data-view="board" data-active="true" id="board"></div>
 

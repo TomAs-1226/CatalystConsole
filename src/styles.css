@@ -1103,6 +1103,24 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 @media (prefers-reduced-motion: reduce) {
   .car-aim, .car-aim i, .car-aim i::after { transition: none; }
 }
+/* The auto's start, in the same quiet line: grey while the robot is off it, green once it is on it - the
+   telltale's green, because being where the auto starts is a state that is fine, not an automation. */
+.car-start {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 4px 11px 4px 8px;
+  border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+  font-size: var(--fs-13); font-weight: var(--cat-w-semi); color: var(--cat-body); white-space: nowrap;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+.car-start[hidden] { display: none; }
+.car-start i {
+  flex: none; box-sizing: border-box; width: 12px; height: 12px; border-radius: 3px;
+  border: 2px solid var(--cat-dim); transition: border-color 220ms ease, background-color 220ms ease;
+}
+.car-start[data-ready="true"] { background: color-mix(in srgb, var(--cat-ok) 22%, rgba(0, 0, 0, 0.6)); color: #ffffff; }
+.car-start[data-ready="true"] i { border-color: var(--cat-ok); background: var(--cat-ok); }
+@media (prefers-reduced-motion: reduce) {
+  .car-start, .car-start i { transition: none; }
+}
 /* The estimator put the robot through a wall and the drawing is holding it inside one. A state, so
    it is allowed amber, as a filled pill so it is seen over a lit scene. */
 .fc.off {
@@ -1296,6 +1314,36 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .notice .nclose:hover { background: var(--cat-surface-2); color: var(--cat-white); }
 @keyframes noticeIn { from { opacity: 0; transform: translateY(-18px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes noticeOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-14px) scale(0.97); } }
+
+/* The HUB's heads-up: a capsule like an alert's, at the top of the board, with a lamp, a few words and a
+   large countdown figure. Green lamp for the HUB coming on, white for it going off. Alerts that arrive
+   at the same moment stack beneath it rather than under it. */
+.cue {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 21;
+  display: flex; align-items: center; gap: 12px; padding: 9px 20px 9px 16px; border-radius: 999px;
+  background: rgba(30, 30, 32, 0.97);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  pointer-events: none; white-space: nowrap;
+  animation: cueIn var(--cat-dur-release) var(--cat-ease-release) both;
+}
+.cue[hidden] { display: none; }
+.cue-lamp {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--cat-body); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
+}
+.cue[data-on="true"] .cue-lamp { background: var(--cat-ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-ok) 28%, transparent); }
+.cue-text { font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.cue-n {
+  font-family: var(--readout); font-variant-numeric: tabular-nums; font-size: 28px; line-height: 1;
+  color: var(--cat-white); min-width: 0.7em; text-align: center;
+}
+.cue-n:empty { display: none; }
+.cue[data-on="true"] .cue-n { color: var(--cat-ok); }
+.cue:not([hidden]) ~ .notices { top: 72px; }
+@keyframes cueIn { from { opacity: 0; transform: translate(-50%, -16px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .cue { animation: none; }
+}
 
 /* The triangle the alerts wait in, top right, as Tesla keeps its own: amber while something needs a
    look, red when something is at fault, grey for a note. A figure beside it counts them. */
