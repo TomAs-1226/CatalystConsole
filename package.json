@@ -5,7 +5,7 @@
   "description": "Driver station companion dashboard for FrcCatalyst",
   "type": "module",
   "scripts": {
-    "test": "node scripts/check-identity.mjs && node --test \"src/**/*.test.js\"",
+    "test": "node scripts/check-identity.mjs && node --test \"src/**/*.test.js\" \"scripts/**/*.test.mjs\"",
     "tauri": "tauri",
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",

@@ -31,7 +31,7 @@ export const CLASS_RULES = [
   ["print", /\bprint(ed)?\b|3d-print|custom htd .*pulley/i],
   ["black", /\bsrpp\b|\bhdpe\b|\buhmw\b|\bdelrin\b|\bacetal\b|\bthunderhex\b|\bchurro\b|\bhex shaft\b/i],
   ["steel", /\bstainless\b|\bsteel\b/i],
-  ["metal", /\btube\b|\bOD x\b|\brack\b|\bbracket\b|\bplate\b|\bgear\b|\bpulley\b|\bsprocket\b|\bbaseplate\b|\bchannel\b|\bextrusion\b|\bflywheel\b|\b(6061|7075)\b|\baluminum\b|\baluminium\b/i],
+  ["metal", /\btube\b|\bOD x\b|\brack\b|\bbracket\b|\bbrace\b|\bgusset\b|\bplate\b|\bgear\b|\bpulley\b|\bsprocket\b|\bbaseplate\b|\bchannel\b|\bextrusion\b|\bflywheel\b|\b(6061|7075)\b|\baluminum\b|\baluminium\b/i],
 ];
 
 /** Strip Onshape's instance suffix: "Intake Front <1>" → "Intake Front". */
@@ -100,7 +100,7 @@ export function classifyPart({ name, path = [], colour = [200, 200, 200], size =
   if (size < minSize && !important) return { keep: false, reason: "tiny part" };
 
   /* This CAD draws polycarbonate, sheet and tube alike, in the same near-white; aluminium is grey. */
-  if (cls === "metal") cls = isDarkNeutral(colour) ? "black" : /\bOD x\b/i.test(text) && isNearWhite(colour) ? "poly" : "aluminium";
+  if (cls === "metal") cls = isDarkNeutral(colour) ? "black" : isPrintColour(colour) ? "print" : /\bOD x\b/i.test(text) && isNearWhite(colour) ? "poly" : "aluminium";
   if (!cls) {
     const inElectronics = path.some((p) => /\b(pdp|pdh|electronics|power)\b/i.test(p));
     if (!text && inElectronics) cls = "electronics";
@@ -124,5 +124,7 @@ function isNearWhite(rgb) {
  */
 export function classifyFace(partClass, faceColour, { treadColours = [] } = {}) {
   if (treadColours.some((c) => Math.abs(c[0] - faceColour[0]) + Math.abs(c[1] - faceColour[1]) + Math.abs(c[2] - faceColour[2]) < 6)) return "tread";
+  /* The rest of such a part is dark anodised plate with light metal (gears, covers) picked out. */
+  if (partClass === "black" && !isDarkNeutral(faceColour)) return "aluminium";
   return partClass;
 }

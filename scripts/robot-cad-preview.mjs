@@ -175,7 +175,7 @@ const attach = (object, nodeName) => {
 };
 const nodeGizmos = [];
 if (manifest) {
-  const f = manifest.frame;
+  const f = manifest.framePerimeter;
   if (f) {
     const y0 = f.bottom ?? 0.03, y1 = f.top ?? 0.08;
     for (const y of [y0, y1]) {

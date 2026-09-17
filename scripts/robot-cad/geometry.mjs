@@ -372,12 +372,21 @@ export function principalAxes(positions, indices) {
   }
   if (!total) return null;
   for (let k = 0; k < 3; k++) c[k] /= total;
+  /* The exact second moment of each triangle's area, (A/12)(Σ vᵢvᵢᵀ + (Σ vᵢ)(Σ vᵢ)ᵀ), so the axes do not
+     depend on how a face happens to be triangulated. */
   const m = [0, 0, 0, 0, 0, 0];
+  const idx = (t, k) => (indices ? indices[t * 3 + k] : t * 3 + k);
   for (let t = 0; t < triangles; t++) {
-    const x = centroids[t * 3] - c[0], y = centroids[t * 3 + 1] - c[1], z = centroids[t * 3 + 2] - c[2];
-    const w = areas[t];
-    m[0] += w * x * x; m[1] += w * x * y; m[2] += w * x * z;
-    m[3] += w * y * y; m[4] += w * y * z; m[5] += w * z * z;
+    const v = [0, 1, 2].map((k) => {
+      const i = idx(t, k);
+      return [positions[i * 3] - c[0], positions[i * 3 + 1] - c[1], positions[i * 3 + 2] - c[2]];
+    });
+    const s = [v[0][0] + v[1][0] + v[2][0], v[0][1] + v[1][1] + v[2][1], v[0][2] + v[1][2] + v[2][2]];
+    const w = areas[t] / 12;
+    const pairs = [[0, 0], [0, 1], [0, 2], [1, 1], [1, 2], [2, 2]];
+    pairs.forEach(([a, b], n) => {
+      m[n] += w * (v[0][a] * v[0][b] + v[1][a] * v[1][b] + v[2][a] * v[2][b] + s[a] * s[b]);
+    });
   }
   const eig = symmetricEigen(m);
   const axes = eig.map(({ vector }) => {

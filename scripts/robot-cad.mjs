@@ -2,7 +2,7 @@
 //
 //   npm run robot-cad                          # newest Assembly*.gltf|glb in ~/Downloads
 //   npm run robot-cad -- "path/to/Assembly 1.glb"
-//   npm run robot-cad -- --budget 90000        # triangle budget (default 100000)
+//   npm run robot-cad -- --budget 90000        # triangle budget (default 120000)
 //
 // Writes src/vendor/robot.glb and src/vendor/robot.json (not committed: src/vendor is generated), then
 // `npm run robot-cad-preview` renders them to PNGs for checking by eye.
@@ -23,7 +23,7 @@ import { baseName, classifyFace, classifyPart, materialColour, partName } from "
 import { cross, creaseNormals, dot, multiply, normalize, principalAxes, scale, sub, add, transformDirection, transformPoint, length, IDENTITY } from "./robot-cad/geometry.mjs";
 import { robotFrame, moduleName, wpilibAngleDeg, wpilibOrder } from "./robot-cad/frame.mjs";
 import { listInstances, readGltfFile } from "./robot-cad/gltf-read.mjs";
-import { beltPulleys, boxOf, cylinders, findHood, findModules, findRollers, framePerimeter, hoodRack, intakeAxis, latticeCapacity, mainAxis, partBox, planes, sameLine, splitModuleFaces, stopContacts, vertices } from "./robot-cad/mechanisms.mjs";
+import { beltPulleys, boxOf, cylinders, findHood, findModules, findRollers, framePerimeter, hoodRack, intakeAxis, mainAxis, partBox, planes, sameLine, splitModuleFaces, stopContacts, vertices } from "./robot-cad/mechanisms.mjs";
 import { readMeshFaces, weldFaces } from "./robot-cad/mesh.mjs";
 import { simplify, simplifierReady } from "./robot-cad/simplify.mjs";
 import { writeGlb } from "./robot-cad/write-glb.mjs";
@@ -80,7 +80,7 @@ const MATERIAL_LOOK = {
 /* ---- arguments and input ---- */
 
 function parseArgs(argv) {
-  const out = { input: null, budget: 100000, outDir: join(root, "src", "vendor"), minSize: 0.012, crease: 35 };
+  const out = { input: null, budget: 120000, outDir: join(root, "src", "vendor"), minSize: 0.012, crease: 35 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--budget") out.budget = Number(argv[++i]);
@@ -294,33 +294,38 @@ async function main() {
   const floorDown = floorFit ? normalize([-1, -floorFit.slope, 0]) : [-1, 0, 0];
   let floorNormal = normalize([floorDown[1], -floorDown[0], 0]);
   if (floorNormal[1] < 0) floorNormal = scale(floorNormal, -1);
-  const spinAxis = (contact, travel) => normalize(cross(contact, travel));
+  /* A roller's spin axis is its fitted axis, signed so positive rotation moves the surface at `contact`
+     (a direction from the axis) along `travel`, the ball's direction of motion there. */
+  const spinAxis = (r, contact, travel) => {
+    const s = dot(cross(contact, travel), r.axis);
+    return s < 0 ? scale(r.axis, -1) : r.axis;
+  };
   const named2 = (list, prefix) => list.map((r, i) => [r, list.length === 1 ? prefix : `${prefix}-${i + 1}`]);
   const rollerInfo = new Map();
   const note = (r, node, role, spin, how, confidence) => rollerInfo.set(r, { node, role, spin, how, confidence });
-  note(flywheel, "roller-flywheel", "shooter-flywheel", spinAxis(normalize(sub(lastRoller.centre, flywheel.centre)), exit.direction),
+  note(flywheel, "roller-flywheel", "shooter-flywheel", spinAxis(flywheel, sub(lastRoller.centre, flywheel.centre), exit.direction),
     "the largest shooter roller; the hood pivots on its axis. Positive spin moves its surface up past the ball toward the exit.", "high");
   hoodRollers.forEach((r, i) => note(r, hoodRollers.length === 2 ? ["roller-hood-lower", "roller-hood-upper"][i] : `roller-hood-${i + 1}`, "shooter-top-roller",
-    spinAxis(normalize(sub(flywheel.centre, r.centre)), exit.direction),
+    spinAxis(r, sub(flywheel.centre, r.centre), exit.direction),
     "pinned through the hood brackets, so it rides on the hood; the ball is squeezed between it and the flywheel. Positive spin moves its ball-side surface toward the exit.", "high"));
   for (const [r, node] of named2(feederRollers, "roller-feeder")) {
-    note(r, node, "feeder", spinAxis([Math.sign(flywheel.centre[0] - r.centre[0]) || -1, 0, 0], [0, 1, 0]),
-      "a fixed shooter roller in the vertical stack below the hood rollers (1 is lowest); Feeder.java is 'the last stage that pushes fuel into the shooter wheels'. Positive spin carries a ball up on the flywheel side.", "medium");
+    note(r, node, "feeder", spinAxis(r, [Math.sign(flywheel.centre[0] - r.centre[0]) || -1, 0, 0], [0, 1, 0]),
+      "a fixed shooter roller in the vertical stack below the hood rollers (1 is lowest); Feeder.java is 'the last stage that pushes fuel into the shooter wheels'. The ball rises on the stack's flywheel side (it has to, to meet the flywheel), so positive spin carries it up there.", "medium");
   }
   for (const [r, node] of named2(conveyorRollers, "roller-conveyor")) {
-    note(r, node, "conveyor", spinAxis(floorNormal, floorDown),
-      "a roller of the sloped hopper floor (1 is frontmost); Conveyor.java 'carries fuel from the hopper toward the tower and feeder'. Positive spin moves balls down the slope toward the feeder.", "medium");
+    note(r, node, "conveyor", spinAxis(r, floorNormal, floorDown),
+      "a roller of the sloped hopper floor (1 is frontmost); Conveyor.java 'carries fuel from the hopper toward the tower and feeder'. Positive spin moves balls lying on it down the slope toward the feeder.", "medium");
   }
   for (const [r, node] of named2(intakeRollers, "roller-intake")) {
-    note(r, node, "intake", spinAxis([0, -1, 0], [-1, 0, 0]),
+    note(r, node, "intake", spinAxis(r, [0, -1, 0], [-1, 0, 0]),
       "a roller on the deploying intake (1 is lowest). Positive spin moves its underside backward, pulling a ball in.", "high");
   }
   for (const [r, node] of named2(inertia, "roller-flywheel-inertia")) {
-    note(r, node, "shooter-inertia-flywheel", rollerInfo.get(flywheel).spin,
-      "a stainless flywheel on its own shaft outside the side plate, belted to the shooter flywheel. Spins the same way.", "high");
+    note(r, node, "shooter-inertia-flywheel", spinAxis(r, [0, 1, 0], cross(rollerInfo.get(flywheel).spin, [0, 1, 0])),
+      "a stainless flywheel on its own shaft outside the side plate, belted to the shooter flywheel, so it turns the same way; its axis is signed like the flywheel's.", "high");
   }
   for (const r of rollers) {
-    if (!rollerInfo.has(r)) note(r, `roller-${rollerInfo.size + 1}`, "other", [0, 0, 1], "a driven tube not recognised as any mechanism's roller.", "low");
+    if (!rollerInfo.has(r)) note(r, `roller-${rollerInfo.size + 1}`, "other", r.axis, "a driven tube not recognised as any mechanism's roller.", "low");
   }
   const drives = driveRatios(parts, rollers, rollerInfo, flywheel);
 
@@ -386,12 +391,19 @@ async function main() {
       const select = job.faces ? (faceIndex) => job.faces.has(faceIndex) : null;
       const mesh = weldFaces(job.part.faces, { select });
       const pa = mesh.indices.length ? principalAxes(mesh.positions, mesh.indices) : null;
-      welded.set(key, { key, mesh, thickness: pa ? pa.axes[0].extent : 0, size: job.part.size, cache: new Map() });
+      /* A hollow tube's thinnest feature is its wall, not its outside: FRC rectangular tube is 1/16 in wall. */
+      const wall = /\btube\b/i.test(job.part.name) && !/\bOD x\b/i.test(job.part.name) ? 0.0625 * INCH : Infinity;
+      welded.set(key, { key, mesh, thickness: Math.min(pa ? pa.axes[0].extent : 0, wall), size: job.part.size, cache: new Map() });
     }
     return welded.get(key);
   };
   for (const job of jobs) job.welded = weldedOf(job);
-  const errorFor = (w, global) => Math.max(0.00005, Math.min(global, 0.03 * w.size, 0.45 * Math.max(w.thickness, 0.0005)));
+  /* Parts inside the drive base are mostly hidden by the bumpers and the superstructure above them, so
+     they get a coarser error; every part keeps within 3% of its size and 80% of its thickness, so a
+     plate cannot collapse through itself. */
+  const hidden = (part) => part.top === "Drive" && !/swerve x2/i.test(part.name);
+  for (const job of jobs) job.welded.weight = Math.max(job.welded.weight ?? 0, hidden(job.part) && job.region === "all" ? 2 : 1);
+  const errorFor = (w, global) => Math.max(0.00005, Math.min(global * w.weight, 0.03 * w.size, 0.8 * Math.max(w.thickness, 0.0005)));
   const simplified = (w, global) => {
     const e = errorFor(w, global);
     const k = e.toFixed(7);
@@ -411,7 +423,7 @@ async function main() {
       } else lo = mid;
     }
   }
-  log(`simplifying: error ${(chosen * 1000).toFixed(3)} mm (capped per part at 3% of its size and 45% of its thickness) -> ${fmt(countAt(chosen))} triangles`);
+  log(`simplifying: error ${(chosen * 1000).toFixed(3)} mm (x2 inside the drive base; capped per part at 3% of its size and 80% of its thickness) -> ${fmt(countAt(chosen))} triangles`);
   if (process.env.ROBOT_CAD_DEBUG) {
     const rows = new Map();
     for (const job of jobs) {
@@ -646,6 +658,33 @@ function hoodCollision(carried, fixed, pivot, axis) {
   return { retract: search(-1), extend: search(1) };
 }
 
+/**
+ * Ball centres packed face-centred-cubic inside `inside(p)`, trying lattice offsets within `bounds` and
+ * keeping the arrangement that fits most, sorted lowest first.
+ */
+function packBalls(inside, bounds, diameter) {
+  const a = diameter * Math.SQRT2;
+  const basis = [[0, 0, 0], [0.5, 0.5, 0], [0.5, 0, 0.5], [0, 0.5, 0.5]];
+  let best = [];
+  const steps = 5;
+  for (let ox = 0; ox < steps; ox++) for (let oy = 0; oy < steps; oy++) for (let oz = 0; oz < steps; oz++) {
+    const offset = [(ox / steps) * a, (oy / steps) * a, (oz / steps) * a];
+    const found = [];
+    for (let i = -1; bounds.min[0] + (i - 1) * a <= bounds.max[0]; i++) {
+      for (let j = -1; bounds.min[1] + (j - 1) * a <= bounds.max[1]; j++) {
+        for (let k = -1; bounds.min[2] + (k - 1) * a <= bounds.max[2]; k++) {
+          for (const b of basis) {
+            const p = [bounds.min[0] + offset[0] + (i + b[0]) * a, bounds.min[1] + offset[1] + (j + b[1]) * a, bounds.min[2] + offset[2] + (k + b[2]) * a];
+            if (inside(p)) found.push(p);
+          }
+        }
+      }
+    }
+    if (found.length > best.length) best = found;
+  }
+  return best.sort((p, q) => p[1] - q[1] || p[0] - q[0] || p[2] - q[2]);
+}
+
 /** Least-squares y = a + slope·x through 2D points. */
 function fitLine(points) {
   if (points.length < 2) return null;
@@ -755,14 +794,16 @@ function buildManifest(c) {
   const topInner = Math.min(...topPoly.flatMap((p) => planes(p).filter((pl) => Math.abs(pl.normal[1]) > 0.99 && pl.area > 0.01).map((pl) => Math.abs(pl.offset))));
   const hopperFront = Math.max(...walls.map((p) => partBox(p).max[0]));
   const back = Math.max(...c.feederRollers.map((r) => r.centre[0] + r.radius));
-  const floorTop = (x) => c.floorFit.at(x) + (c.conveyorRollers[0]?.radius ?? 0) * Math.hypot(1, c.floorFit.slope);
+  /* The floor's top surface: the line through the conveyor rollers' tops, level beyond its front end. */
+  const floorEnd = c.conveyorRollers[0].centre[0];
+  const floorSlope = c.floorFit.slope;
+  const floorTop = (x) => c.floorFit.at(Math.min(x, floorEnd)) + c.conveyorRollers[0].radius * Math.hypot(1, floorSlope);
   const slabs = 3;
   const boxes = [];
   for (let i = 0; i < slabs; i++) {
     const x0 = back + ((hopperFront - back) * i) / slabs;
     const x1 = back + ((hopperFront - back) * (i + 1)) / slabs;
-    const bottom = Math.max(floorTop(Math.min(x1, c.conveyorRollers[0].centre[0])), floorTop(x0));
-    boxes.push({ min: r4([x0, bottom, -wallInner]), max: r4([x1, topInner, wallInner]), movesWith: "static" });
+    boxes.push({ min: r4([x0, floorTop((x0 + x1) / 2), -wallInner]), max: r4([x1, topInner, wallInner]), movesWith: "static" });
   }
   /* The deployed intake's own walls extend the hopper forward. */
   const intakeFrontPoly = c.intakeParts.filter((p) => p.cls === "poly" && /front poly/i.test(p.name));
@@ -776,19 +817,23 @@ function buildManifest(c) {
     const sideInner = Math.min(...intakeSidePoly.flatMap((p) => planes(p).filter((pl) => Math.abs(pl.normal[2]) > 0.99 && pl.area > 0.01).map((pl) => Math.abs(pl.offset * Math.sign(pl.normal[2])))));
     const sideTop = Math.max(...intakeSidePoly.map((p) => partBox(p).max[1])) + toMax[1];
     const rollerTop = Math.max(...c.intakeRollers.map((r) => r.centre[1] + r.radius)) + toMax[1];
-    const bottom = Math.max(rollerTop, floorTop(hopperFront));
     extension = {
-      min: r4([hopperFront, bottom, -sideInner]),
+      min: r4([hopperFront, rollerTop, -sideInner]),
       max: r4([frontInner, sideTop, sideInner]),
       movesWith: "intake",
       atIntakeExtension: r4(CODE.deploy.maxIn * INCH),
     };
   }
   const ball = CODE.ballDiameter;
+  const rb = ball / 2;
   const volume = (b) => (b.max[0] - b.min[0]) * (b.max[1] - b.min[1]) * (b.max[2] - b.min[2]);
   const ballVolume = (Math.PI / 6) * ball ** 3;
-  const staticCapacity = boxes.reduce((s, b) => s + latticeCapacity(b, ball), 0);
-  const extensionCapacity = extension ? latticeCapacity(extension, ball) : 0;
+  /* Ball centres that fit the real section (the floor slopes, which boxes cannot follow). */
+  const inStatic = (p) => p[0] >= back + rb && p[0] <= hopperFront + rb && p[1] <= topInner - rb && Math.abs(p[2]) <= wallInner - rb && (p[1] - floorTop(p[0])) / Math.hypot(1, p[0] < floorEnd ? floorSlope : 0) >= rb;
+  const inExtension = (p) => extension && p[0] >= extension.min[0] && p[0] <= extension.max[0] - rb && p[1] >= extension.min[1] + rb && p[1] <= extension.max[1] - rb && Math.abs(p[2]) <= extension.max[2] - rb;
+  const staticPack = packBalls((p) => inStatic(p) && p[0] <= hopperFront - rb, { min: [back, 0, -wallInner], max: [hopperFront, topInner, wallInner] }, ball);
+  const deployedPack = extension ? packBalls((p) => inStatic(p) || inExtension(p), { min: [back, 0, -wallInner], max: [extension.max[0], topInner, wallInner] }, ball) : staticPack;
+  const staticCapacity = staticPack.length;
 
   /* Intake mouth: under the lowest intake roller, at ball height, when deployed to MAX_LENGTH. */
   const low = c.intakeRollers[0];
@@ -964,7 +1009,7 @@ function buildManifest(c) {
       cadPosition: r4(c.cadExtension),
       cadState: c.intakeState,
       restPosition: 0,
-      stopContacts: c.stops.map((s) => ({ moving: s.moving, fixed: s.fixed, side: s.side })),
+      stopContacts: [...new Map(c.stops.map((s) => [`${s.moving}|${s.fixed}|${s.side}`, { moving: s.moving, fixed: s.fixed, side: s.side }])).values()],
       reference581: { deployAngleDeg: CODE.shooter.deployAngle581Deg },
       how: "axis: the long straight edges of the two 7075 gear racks, square to the robot's sides. Travel: Deploy.java measures inches from the inner hard stop (0) to the outer hard stop (11.9), MAX_LENGTH 11.8, STOW 5.0. CAD position: the rack's hardstop print sits flush against the slider block's back face (same station to 0.1 mm), which only happens at the outer stop. Members: everything in the Intake assembly except Intake Gearboxes (motors, slider blocks, pinions stay fixed).",
       confidence: c.stops.length ? "high" : "medium",
@@ -974,13 +1019,21 @@ function buildManifest(c) {
     hopper: {
       ball: { diameter: CODE.ballDiameter, name: "FUEL" },
       boxes: [...boxes, ...(extension ? [extension] : [])],
+      section: {
+        back: r4(back),
+        front: r4(hopperFront),
+        top: r4(topInner),
+        halfWidth: r4(wallInner),
+        floor: { through: r4([floorEnd, floorTop(floorEnd)]), slopeDeg: Number((Math.atan(floorSlope) * DEG).toFixed(2)), levelBeyondX: r4(floorEnd) },
+      },
       capacity: {
         stowed: staticCapacity,
-        deployed: staticCapacity + extensionCapacity,
+        deployed: deployedPack.length,
         byVolume: { stowed: Math.floor((0.64 * boxes.reduce((s, b) => s + volume(b), 0)) / ballVolume), deployed: Math.floor((0.64 * (boxes.reduce((s, b) => s + volume(b), 0) + (extension ? volume(extension) : 0))) / ballVolume) },
       },
-      how: "walls: inner faces of the hopper's side polycarbonate; top: underside of the top polycarbonate; back: front of the feeder rollers; bottom: the tops of the sloped conveyor rollers, taken at each slab's higher end so balls in a box never sit inside the floor; front: the hopper walls' front edge, and, when deployed, the intake's own front and side polycarbonate. Capacity counts balls on a close-packed lattice inside the boxes; byVolume is 64% random packing of the box volume.",
-      confidence: "medium (the floor slopes 44 deg, so three boxes under-fill the wedge)",
+      ballCentres: { stowed: staticPack.map(r4), deployed: deployedPack.map(r4), order: "lowest first, so the first N are where N balls settle" },
+      how: "walls: inner faces of the hopper's side polycarbonate; top: underside of the top polycarbonate; back: front of the feeder rollers; floor: the tops of the conveyor rollers, a 44 deg slope down toward the feeder; front: the hopper walls' front edge and, when deployed, the intake's front and side polycarbonate above its rollers. Boxes are slabs with the floor at each slab's middle, so their high end dips a little into the floor; ballCentres and capacity come from the best face-centred-cubic packing of 150 mm balls inside the real sloped section; byVolume is 64% random packing of the boxes' volume.",
+      confidence: "medium for the stowed section; low for the deployed extension, whose floor (the intake rollers' tops) is a guess",
     },
     shooter: {
       flywheel: { node: "roller-flywheel", center: r4(c.flywheel.centre), radius: r4(c.flywheel.radius), length: r4(c.flywheel.length), axis: r4(rollerInfo.get(c.flywheel).spin) },
