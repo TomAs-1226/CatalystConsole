@@ -146,6 +146,75 @@ export function robotPlacement(read, { poseKey = "/Catalyst/Physics/PoseArray", 
   return { pose: null, source: null, camera: null, tags: 0, placed: false, heading };
 }
 
+/* ---------------------------------------------------------------- the path ahead */
+
+/** Where a team's own planner publishes the path it means to drive. See drivePath. */
+export const PLANNED_PATH_KEY = "/Catalyst/Drive/PlannedPath";
+/** PathPlanner's path while it follows one: Pose2d[], which the NT client decodes to triples. */
+export const PATHPLANNER_PATH_KEY = "/PathPlanner/activePath";
+
+/**
+ * The name of a Catalyst Autopilot driving the robot right now, or null.
+ *
+ * Autopilot publishes its phase to /Catalyst/Behavior/<name>/Phase: the action it is running, "Engaged",
+ * "Stalled: ..." or "HandingBack: ..." while it has the robot, and "DriverControl" once the driver has
+ * it back.
+ */
+export function engagedAutopilot(read) {
+  for (const key of read.keys()) {
+    const match = /^\/Catalyst\/Behavior\/([^/]+)\/Phase$/.exec(key);
+    if (!match) continue;
+    const phase = read.str(key, "");
+    if (phase && phase !== "DriverControl") return match[1];
+  }
+  return null;
+}
+
+/* A path as [x, y, heading] triples, field metres from the blue origin, cleaned: non-numbers and
+   points far off the field dropped. */
+function pathPoints(raw, length, width) {
+  if (!Array.isArray(raw) || raw.length < 6 || raw.length % 3 !== 0) return null;
+  const points = [];
+  for (let i = 0; i + 2 < raw.length; i += 3) {
+    const x = raw[i];
+    const y = raw[i + 1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (x < -1 || y < -1 || x > length + 1 || y > width + 1) continue;
+    points.push([x, y]);
+  }
+  return points.length >= 2 ? points : null;
+}
+
+/**
+ * The path the robot means to drive, and what kind of plan it is.
+ *
+ * Read from, in order:
+ *   1. /Catalyst/Drive/PlannedPath: a team's own planner, as a number array of [x, y, heading] per
+ *      point in field metres. /Catalyst/Drive/PlannedPathSource says what made it; "autopilot",
+ *      "vision" and "improvised" draw it as an improvised plan, anything else as a planned path.
+ *   2. /PathPlanner/activePath: the path PathPlanner is following.
+ *
+ * A plan counts as improvised when its source says so, or whenever a Catalyst Autopilot is engaged:
+ * its actions pathfind on the fly, and PathPlanner publishes that made-up path on the same topic as a
+ * drawn one, so the topic alone cannot tell them apart.
+ *
+ * Returns { points: [[x, y], ...], style: "planned" | "improvised", source, autopilot } or null.
+ */
+export function drivePath(read, { length = 16.54, width = 8.07 } = {}) {
+  const autopilot = engagedAutopilot(read);
+  const own = pathPoints(read.arr(PLANNED_PATH_KEY), length, width);
+  if (own) {
+    const said = String(read.str(`${PLANNED_PATH_KEY}Source`, "") || "").toLowerCase();
+    const improvised = autopilot !== null || /autopilot|vision|improvis/.test(said);
+    return { points: own, style: improvised ? "improvised" : "planned", source: said || "planner", autopilot };
+  }
+  const followed = pathPoints(read.arr(PATHPLANNER_PATH_KEY), length, width);
+  if (followed) {
+    return { points: followed, style: autopilot !== null ? "improvised" : "planned", source: "pathplanner", autopilot };
+  }
+  return null;
+}
+
 /* ---------------------------------------------------------------- devices */
 
 const MOTOR_TYPE = /talon|kraken|falcon|spark|neo|vortex|venom|motor/i;

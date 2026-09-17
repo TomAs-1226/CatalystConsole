@@ -5,6 +5,8 @@ import {
   clampToField,
   countState,
   deviceSummary,
+  drivePath,
+  engagedAutopilot,
   limelightFix,
   notices,
   ROBOT_HALF_METERS,
@@ -269,4 +271,62 @@ test("cameras named by Catalyst's vision health are looked in even before their 
     "/limelight-ground/botpose_orb_wpiblue": solve(4, 4, 0, 2),
   });
   assert.equal(limelightFix(read, { age: fresh }).camera, "limelight-ground");
+});
+
+/* ---- the path ahead ---- */
+
+const strs = (v) => ({ t: "strs", v });
+const str = (v) => ({ t: "str", v });
+
+test("no path published is no path", () => {
+  assert.equal(drivePath(view({})), null);
+});
+
+test("PathPlanner's active path is a planned path, as field points", () => {
+  const read = view({ "/PathPlanner/activePath": nums([1, 1, 0, 2, 1.5, 0.3, 3, 2, 0.6]) });
+  const path = drivePath(read);
+  assert.deepEqual(path.points, [[1, 1], [2, 1.5], [3, 2]]);
+  assert.equal(path.style, "planned");
+  assert.equal(path.source, "pathplanner");
+});
+
+test("the same path while an Autopilot drives is improvised", () => {
+  const read = view({
+    "/PathPlanner/activePath": nums([1, 1, 0, 2, 1.5, 0.3]),
+    "/Catalyst/Behavior/Cycle/Phase": str("Acquire"),
+  });
+  const path = drivePath(read);
+  assert.equal(path.style, "improvised");
+  assert.equal(path.autopilot, "Cycle");
+});
+
+test("an Autopilot that has handed back is not driving", () => {
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("DriverControl") })), null);
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("") })), null);
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("Stalled: Score cannot start") })), "Cycle");
+});
+
+test("a team's own planner comes before PathPlanner, and says what kind of plan it is", () => {
+  const read = view({
+    "/Catalyst/Drive/PlannedPath": nums([5, 5, 0, 6, 5, 0]),
+    "/Catalyst/Drive/PlannedPathSource": str("MPC"),
+    "/PathPlanner/activePath": nums([1, 1, 0, 2, 2, 0]),
+  });
+  const path = drivePath(read);
+  assert.deepEqual(path.points, [[5, 5], [6, 5]]);
+  assert.equal(path.style, "planned");
+  assert.equal(path.source, "mpc");
+  const vision = drivePath(view({
+    "/Catalyst/Drive/PlannedPath": nums([5, 5, 0, 6, 5, 0]),
+    "/Catalyst/Drive/PlannedPathSource": str("Vision align"),
+  }));
+  assert.equal(vision.style, "improvised");
+});
+
+test("broken paths are refused: too short, ragged, or off the field", () => {
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0]) })), null);
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0, 2]) })), null);
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([40, 40, 0, 41, 41, 0]) })), null);
+  const partly = drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0, NaN, 2, 0, 3, 3, 0]) }));
+  assert.deepEqual(partly.points, [[1, 1], [3, 3]]);
 });
