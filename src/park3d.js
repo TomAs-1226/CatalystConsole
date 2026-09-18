@@ -1205,6 +1205,13 @@ export function createPark(canvas, opts) {
       model.setTeamNumber(value);
     },
 
+    /** Whether the team's CAD is this robot (see robot3d.js setCad). The model announces a change, which
+     *  reframes and redraws the stage. */
+    setCad(on) {
+      if (disposed) return;
+      model.setCad(on);
+    },
+
     /** The robot's mechanism readings and hopper estimate (see robot3d.js setMechanisms). */
     setMechanisms(readings, hopperFill) {
       if (disposed) return;

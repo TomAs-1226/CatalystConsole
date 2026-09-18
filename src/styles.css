@@ -2840,7 +2840,14 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 .park-part dt { font-size: var(--fs-13); color: var(--cat-dim); }
 .park-part dd { margin: 0; font-size: var(--fs-15); color: var(--cat-white); font-variant-numeric: tabular-nums; text-align: right; }
 
-.callout { -webkit-appearance: none; appearance: none; font: inherit; cursor: pointer; text-align: left; }
+/* A callout is a button so it can open its part's page, but it is drawn as the words on the stage it
+   always was: no face, no border, no padding - the browser's grey button box made every label a pale
+   tile with white text on it. The hairline and the text are the whole of it. */
+.callout {
+  -webkit-appearance: none; appearance: none; font: inherit; cursor: pointer; text-align: left;
+  background: none; border: 0; padding: 0; margin: 0; color: inherit; border-radius: 6px;
+}
+.callout:focus-visible { outline: 2px solid var(--cat-signal); outline-offset: 4px; }
 .callout[aria-expanded="true"] { color: var(--cat-white); }
 
 /* ---------------------------------------------------------------- a profile's robot settings

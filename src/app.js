@@ -106,8 +106,21 @@ function has(key) {
 /* --------------------------------------------------------- driver station state */
 
 /* WPILib packs the control word into /FMSInfo/FMSControlData. The bit layout is part of the DS
- * protocol and has been stable for years, but we only ever read it. */
+ * protocol and has been stable for years, but we only ever read it. 2027 publishes a struct at
+ * /FMSInfo/ControlWord instead, and the backend hands that over in these same bits (see control_word in
+ * nt4.rs); whichever of the two the robot publishes is the one read. */
 const BIT = { enabled: 1, auto: 2, test: 4, estop: 8, fms: 16, ds: 32 };
+
+/** The robot's control word, from whichever topic its WPILib publishes it on; null when neither. */
+function controlWord() {
+  return num("/FMSInfo/FMSControlData", null) ?? num("/FMSInfo/ControlWord", null);
+}
+
+/** What the FMS says about the match - the hub schedule's first inactive alliance - from 2026's topic
+ *  or 2027's. */
+function gameMessage() {
+  return str("/FMSInfo/GameSpecificMessage", null) ?? str("/FMSInfo/GameData", "");
+}
 
 const ds = {
   word: 0,
@@ -120,7 +133,8 @@ const ds = {
   get mode() {
     if (this.estop) return "E-STOP";
     if (!this.enabled) return "Disabled";
-    if (this.test) return "Test";
+    /* 2027 calls it utility, and a robot on 2027 publishes the struct word. */
+    if (this.test) return has("/FMSInfo/ControlWord") ? "Utility" : "Test";
     if (this.auto) return "Autonomous";
     return "Teleop";
   },
@@ -1067,7 +1081,7 @@ define("tower", {
     const t = matchTime();
     const plan = hubPlan({
       t, auto: ds.auto, enabled: ds.enabled, side,
-      first: inactiveFirst(str("/FMSInfo/GameSpecificMessage", "")),
+      first: inactiveFirst(gameMessage()),
     });
 
     /* A robot that publishes its own answer wins - it may know something we do not. Its countdown is
@@ -2300,7 +2314,9 @@ define("field", {
       /* The path ahead while the robot drives: PathPlanner's or a team planner's, improvised while an
          Autopilot has the robot (see drivePath). The field view adds where its motion is heading. */
       path: linked && ds.enabled ? drivePath(ntView, { length: cfg.length, width: cfg.width }) : null,
-      /* The same robot the Park stage draws: its size from the spec sheet, its number on the bumpers. */
+      /* The same robot the Park stage draws: its size from the spec sheet, its number on the bumpers, and
+         the team's CAD only when that is this robot. */
+      cad: cadFits(),
       spec: linked ? parkRobotSpec() : {},
       team: parkTeam(linked),
       /* Its mechanisms, and how many balls have left the shooter (see trackMechanisms). */
@@ -4123,7 +4139,7 @@ function paintMatchCue() {
   const plan = linked && ds.enabled && !ds.auto && side
     ? hubPlan({
         t: matchTime(), auto: ds.auto, enabled: ds.enabled, side,
-        first: inactiveFirst(str("/FMSInfo/GameSpecificMessage", "")),
+        first: inactiveFirst(gameMessage()),
       })
     : null;
   const active = plan && plan.period === "teleop" && typeof plan.active === "boolean" ? plan.active : null;
@@ -4886,6 +4902,18 @@ const mechanismState = {
   now: null, at: null, fired: 0, matchFired: 0, wasEnabled: false, hopper: createHopper({ feedRate: FEED_RATE }),
 };
 
+/* The team's CAD is one particular robot - 5805's offseason shooter - and it is drawn only for the robot
+ * it depicts: the demo, which plays that robot, or a robot publishing the mechanisms it animates (a hood,
+ * an intake, a shooter). A drivebase such as X1 publishes none of them and is drawn from its own published
+ * size instead, rather than as somebody else's robot with a shooter it does not have. With nothing on the
+ * link the last answer stands, so the "last seen" robot keeps its shape. */
+let cadDecision = true;
+function cadFits() {
+  if (demo.on) cadDecision = true;
+  else if (nt.status.connected) cadDecision = mechanismState.now !== null;
+  return cadDecision;
+}
+
 function trackMechanisms(now) {
   const linked = nt.status.connected || demo.on;
   const m = linked ? readMechanisms(ntView) : null;
@@ -5247,6 +5275,7 @@ function paintParkInfo() {
   }
 
   if (parkState.scene) {
+    parkState.scene.setCad?.(cadFits());
     if (parkState.lastAlliance !== side) {
       parkState.lastAlliance = side;
       parkState.scene.setAlliance(side);
@@ -6185,6 +6214,7 @@ async function driverSection(on) {
     }
   }
   driverStage.setActive(true);
+  driverStage.setRobot?.(nt.status.connected || demo.on ? parkRobotSpec() : {}, cadFits());
   driverStage.play();
 }
 
@@ -6685,9 +6715,12 @@ function paintGarageModel() {
     garageRobot.onChange(garageShow);
   }
   const signature = JSON.stringify(spec);
+  const cadChanged = garageRobot.setCad(cadFits());
   if (signature !== garageSpec) {
     garageSpec = signature;
     garageRobot.setSpec(normalizeRobot(spec));
+    garageShow();
+  } else if (cadChanged) {
     garageShow();
   }
   const team = num(`${SPEC_ROOT}Identity/TeamNumber`, null);
@@ -7739,7 +7772,7 @@ function isLive(word) {
 }
 
 function standDownOverlaysOnEnable() {
-  const word = num("/FMSInfo/FMSControlData", null);
+  const word = controlWord();
   if (word === null) { lastControlWord = null; return; }
 
   const wasLive = lastControlWord !== null && isLive(lastControlWord);
@@ -7795,7 +7828,7 @@ function onFrame() {
     buf.push(v);
     if (buf.length > HIST_LEN) buf.shift();
   }
-  ds.word = num("/FMSInfo/FMSControlData", 0) | 0;
+  ds.word = (controlWord() ?? 0) | 0;
   if (nt.keysDirty) {
     nt.keysDirty = false;
     refreshTopicList();

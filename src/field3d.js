@@ -1748,6 +1748,7 @@ export function createField(canvas, opts) {
          stale backing-store size until the next animation frame. */
       resize();
 
+      if (state.cad !== undefined && model.setCad(state.cad)) dirty = true;
       if (state.spec !== undefined && model.setSpec(state.spec)) dirty = true;
       if (state.team !== undefined) model.setTeamNumber(state.team);
       if (state.mechanisms !== undefined || state.hopper !== undefined) {

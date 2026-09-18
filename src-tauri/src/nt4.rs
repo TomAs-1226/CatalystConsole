@@ -527,6 +527,9 @@ fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
         Some(inner) => (inner, true),
         None => (name, false),
     };
+    if name == "ControlWord" && !array {
+        return control_word(bytes).map(NtValue::Num);
+    }
     /* Every struct here is a run of doubles, so the width in bytes is all that tells them apart. The
        swerve and chassis ones are listed under both names WPILib has given them (2027 renamed speeds to
        velocities); Pose3d is a translation and a quaternion (x y z, w x y z). */
@@ -556,6 +559,45 @@ fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
     Some(NtValue::Nums(nums))
 }
 
+/// WPILib 2027's control word, as the bits of the 2026 `/FMSInfo/FMSControlData` the page already reads.
+///
+/// 2027 stopped publishing FMSControlData. It publishes `/FMSInfo/ControlWord` instead, a
+/// `struct:ControlWord`: one little-endian uint64 whose schema (read off a Systemcore on image 13) is
+/// "uint64 opModeHash:56; robotMode:2 (0 unknown, 1 autonomous, 2 teleoperated, 3 utility); bool
+/// enabled:1; bool eStop:1; bool fmsAttached:1; bool dsAttached:1", with the masks HAL's ControlWord.java
+/// uses: robot mode at bits 56-57, then enabled 58, e-stop 59, FMS 60, DS 61. A console that did not
+/// read it saw every 2027 robot as disabled and left Park over the board while the robot drove.
+///
+/// Mapped onto the old word - enabled 1, autonomous 2, test 4, e-stop 8, FMS 16, DS 32 - with utility,
+/// 2027's name for test, on the test bit. The op mode's hash is dropped: its name is published beside
+/// it as /FMSInfo/OpMode.
+fn control_word(bytes: &[u8]) -> Option<f64> {
+    let raw: [u8; 8] = bytes.try_into().ok()?;
+    let word = u64::from_le_bytes(raw);
+    let mode = (word >> 56) & 0b11;
+    let bit = |shift: u32| (word >> shift) & 1 == 1;
+    let mut legacy = 0u32;
+    if bit(58) {
+        legacy |= 1;
+    }
+    if mode == 1 {
+        legacy |= 2;
+    }
+    if mode == 3 {
+        legacy |= 4;
+    }
+    if bit(59) {
+        legacy |= 8;
+    }
+    if bit(60) {
+        legacy |= 16;
+    }
+    if bit(61) {
+        legacy |= 32;
+    }
+    Some(f64::from(legacy))
+}
+
 #[cfg(test)]
 mod struct_tests {
     use super::*;
@@ -569,6 +611,31 @@ mod struct_tests {
             Some(NtValue::Nums(n)) => n,
             other => panic!("expected numbers, got {other:?}"),
         }
+    }
+
+    fn word(value: Option<NtValue>) -> f64 {
+        match value {
+            Some(NtValue::Num(n)) => n,
+            other => panic!("expected a number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_2027_control_word_reads_as_the_2026_bits() {
+        /* Captured from X1 (Systemcore, image 13): teleop, e-stopped, DS attached, op mode "X1 Drive". */
+        let captured = vec![0x63, 0x81, 0x07, 0x10, 0x00, 0x00, 0x00, 0x2a];
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(captured), "struct:ControlWord")), 8.0 + 32.0);
+        /* Enabled in autonomous with the FMS: 1 + 2 + 16 + 32. */
+        let auto: u64 = (1 << 56) | (1 << 58) | (1 << 60) | (1 << 61) | 0x1234;
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(auto.to_le_bytes().to_vec()), "struct:ControlWord")), 51.0);
+        /* Enabled in utility, which 2026 called test: 1 + 4 + 32. */
+        let utility: u64 = (3 << 56) | (1 << 58) | (1 << 61);
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(utility.to_le_bytes().to_vec()), "struct:ControlWord")), 37.0);
+        /* Teleop enabled: just the enabled and DS bits. */
+        let teleop: u64 = (2 << 56) | (1 << 58) | (1 << 61);
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(teleop.to_le_bytes().to_vec()), "struct:ControlWord")), 33.0);
+        /* A word of the wrong width is nothing rather than a guess. */
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 7]), "struct:ControlWord").is_none());
     }
 
     #[test]

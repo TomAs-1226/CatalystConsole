@@ -436,6 +436,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
     fragmentShader: `
       varying vec2 vXy;
       uniform float uOpacity;
+      uniform float uRadius;
       void main() {
         float r = length(vXy) / uRadius;
         float fade = smoothstep(1.0, 0.25, r);
@@ -458,15 +459,19 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
      Nothing about it is animated: a robot with its wheels turning behind a person standing still reads
      as a video playing, and this is a photograph of two things waiting for a match. */
   let robot = null;
+  /* What the robot on the link is: its spec sheet, and whether the team's CAD is that robot. Held until
+     the model exists, and passed on whenever they change. */
+  let robotSpec = {};
+  let robotCad = true;
   (async () => {
     try {
       const mod = await import("./robot3d.js");
       if (disposed) return;
       robot = mod.createRobotModel({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
-      /* A model builds nothing until it is told what shape the robot is. There is no robot connected to
-         this panel, so it gets the defaults - which is the team's own CAD where that has been baked, and
-         a robot of the usual size where it has not. */
-      robot.setSpec(mod.normalizeRobot({}));
+      /* A model builds nothing until it is told what shape the robot is: the robot on the link, or with
+         none the team's own CAD where that has been baked and a robot of the usual size where not. */
+      robot.setCad(robotCad);
+      robot.setSpec(robotSpec);
       robot.root.position.set(0.1, 0, -1.25);
       robot.root.rotation.y = 0.5;
       scene.add(robot.lights, robot.root);
@@ -576,6 +581,15 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
       if (next) wanted = next;
       rig.setColour(next);
       wake();
+    },
+    /** The robot the driver stands beside: its spec sheet (see robot3d.js normalizeRobot) and whether the
+     *  team's CAD is that robot. */
+    setRobot(spec, cad = true) {
+      robotSpec = spec ?? {};
+      robotCad = cad !== false;
+      if (!robot) return;
+      const changed = robot.setCad(robotCad);
+      if (robot.setSpec(robotSpec) || changed) wake();
     },
     setActive(next) {
       active = Boolean(next);

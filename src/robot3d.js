@@ -1069,6 +1069,9 @@ export function createRobotModel(opts = {}) {
   };
   let fuelMaterial = null;
   let cad = null;
+  /* Whether the loaded CAD is drawn: it depicts one particular robot, and the caller says whether the
+     robot on the other end is that one (see setCad). */
+  let cadWanted = opts.cad !== false;
   let requested = {};
   const motion = { vx: 0, vy: 0, omega: 0 };
 
@@ -1140,10 +1143,11 @@ export function createRobotModel(opts = {}) {
      rebuilding for nothing would be the most expensive thing either view does. */
   function applySpec(next) {
     requested = next;
-    const normal = cad
+    const drawCad = Boolean(cad) && cadWanted;
+    const normal = drawCad
       ? { ...normalizeRobot(cadSpec(cad.manifest)), bumperBottom: cad.manifest.bumpers.bottom, bumperHeight: cad.manifest.bumpers.height }
       : normalizeRobot(next);
-    const sig = (cad ? "cad:" : "") + JSON.stringify(normal);
+    const sig = (drawCad ? "cad:" : "") + JSON.stringify(normal);
     if (sig === signature) return false;
     signature = sig;
     if (built) {
@@ -1153,7 +1157,7 @@ export function createRobotModel(opts = {}) {
       for (const geometry of geometries) geometry.dispose();
       geometries = new Set();
     }
-    if (cad) {
+    if (drawCad) {
       fuelMaterial ??= reflecting(standard(token("--draw-fuel", "#a8913e"), 0, 0.9, 0.3));
       built = buildCadRobot(cad, normal, mat, keep, restyle, fuelMaterial);
     } else {
@@ -1214,6 +1218,22 @@ export function createRobotModel(opts = {}) {
     setSpec(next) {
       if (disposed) return false;
       return applySpec(next);
+    },
+
+    /**
+     * Whether to draw the team's CAD, when there is one. It depicts one robot, so the caller turns it off
+     * for any other (see cadFits in app.js) and the model is built from the spec sheet alone. Returns true
+     * when that changed what is drawn; the change is announced to onChange listeners too.
+     */
+    setCad(on) {
+      if (disposed) return false;
+      const next = on !== false;
+      if (next === cadWanted) return false;
+      cadWanted = next;
+      if (spec === null) return false;
+      const changed = applySpec(requested);
+      if (changed) notify();
+      return changed;
     },
 
     /** How the robot is moving, in its own frame (WPILib: x forward, y left; metres and radians a second),
