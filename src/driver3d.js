@@ -587,8 +587,20 @@ export function loadDriverModel() {
     const manifest = await response.json();
     if (!(manifest?.version >= 3)) return null;
     const { GLTFLoader } = await import("./vendor/loaders/GLTFLoader.js");
-    const gltf = await new GLTFLoader().loadAsync(`./vendor/${manifest.model?.file ?? "driver.glb"}`);
-    return { manifest, scene: gltf.scene, animations: gltf.animations ?? [] };
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(`./vendor/${manifest.model?.file ?? "driver.glb"}`);
+    /* Files that carry a clip and no figure - a stand this console did not ship with, dropped in beside
+       the character. They are loaded whole and only their animations are kept. */
+    const animations = (gltf.animations ?? []).map((clip) => ({ clip, file: manifest.model?.file ?? "driver.glb" }));
+    for (const entry of manifest.extra ?? []) {
+      try {
+        const other = await loader.loadAsync(`./vendor/${entry.file}`);
+        for (const clip of other.animations ?? []) animations.push({ clip, file: entry.file });
+      } catch (err) {
+        console.warn(`the driver's extra clips in ${entry.file} would not load`, err);
+      }
+    }
+    return { manifest, scene: gltf.scene, animations };
   })().catch((err) => {
     console.warn("no driver model baked; drawing the built-in figure", err);
     return null;
@@ -786,12 +798,34 @@ export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
   if (!skeleton) throw new Error("the baked driver has no skeleton");
 
   const mixer = new THREE.AnimationMixer(model);
-  const clips = new Map(asset.animations.map((clip) => [clip.name, clip]));
-  const named = asset.manifest?.clips ?? {};
-  const walkClip = clips.get(named.walk);
-  const standClip = clips.get(named.stand);
-
   const bones = new Map(skeleton.bones.map((b) => [plainBone(b.name), b]));
+
+  /* A clip from another file names bones the way its own rig did. Matching on what is left after the rig
+     prefix - "mixamorig:Hips" against "Hips" - is what lets one animation library drive another rig, and
+     a track for a bone this skeleton does not have is dropped rather than left to throw. */
+  const fitted = (clip) => {
+    const tracks = [];
+    for (const track of clip.tracks) {
+      const [node, ...rest] = track.name.split(".");
+      const bone = bones.get(plainBone(node));
+      if (!bone) continue;
+      const copy = track.clone();
+      copy.name = `${bone.name}.${rest.join(".")}`;
+      tracks.push(copy);
+    }
+    return tracks.length ? new THREE.AnimationClip(clip.name, clip.duration, tracks) : null;
+  };
+  const named = asset.manifest?.clips ?? {};
+  const pick = (want) => {
+    if (!want) return null;
+    const hit = asset.animations.find((a) => a.clip.name === want.clip && (!want.file || a.file === want.file))
+      ?? asset.animations.find((a) => a.clip.name === (want.clip ?? want));
+    if (!hit) return null;
+    /* A clip out of the figure's own file already names these bones; one from elsewhere does not. */
+    return hit.file === (asset.manifest?.model?.file ?? "driver.glb") ? hit.clip : fitted(hit.clip);
+  };
+  const walkClip = pick(named.walk);
+  const standClip = pick(named.stand);
   const of = (name) => bones.get(name) ?? null;
   const crown = of("HeadTop_End") ?? of("Head");
   const feet = [of("LeftFoot"), of("RightFoot")];

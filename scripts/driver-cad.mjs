@@ -1,6 +1,11 @@
 /* Put the driver figure where the console can load it.
  *
- *   npm run driver-cad -- "path/to/character.glb"
+ *   npm run driver-cad -- "path/to/character.glb" ["another-clip.glb" ...]
+ *
+ * Extra files contribute their clips to the same figure, which is how a pose this console does not have
+ * gets in: download the stand you want from wherever animations come from, put the file next to the
+ * character and name it something the chooser below recognises. Nothing is merged here - each file is
+ * copied through and the clips are matched onto the skeleton at load, by bone name.
  *
  * The figure is a rigged humanoid with its animation already on it: a walk to come on with and a stand to
  * hold. The console does not animate a person - walking is not something to derive from first principles,
@@ -59,6 +64,7 @@ function contents(file) {
 
 function main() {
   const source = process.argv[2] || DEFAULT_SOURCE;
+  const extra = process.argv.slice(3);
   if (extname(source).toLowerCase() !== ".glb") {
     throw new Error("the source has to be a GLB: it is passed through to the browser as it is");
   }
@@ -67,21 +73,36 @@ function main() {
   log(`  ${triangles} triangles, ${bones.length} bones, ${clips.length} clip(s): ${clips.join(", ")}`);
   if (!bones.length) throw new Error("the source has no skeleton - the figure has to be rigged");
 
+  const out = resolve(root, "src/vendor");
+  mkdirSync(out, { recursive: true });
+
+  /* Every clip there is, and which file it is in. A file named for the pose it holds is how a clip whose
+     own name is unhelpful - plenty of them are called "mixamo.com" - still gets chosen. */
+  const pool = clips.map((name) => ({ name, file: "driver.glb" }));
+  const files = [];
+  extra.forEach((path, i) => {
+    if (extname(path).toLowerCase() !== ".glb") throw new Error(`${basename(path)} is not a GLB`);
+    const name = `driver-clip-${i + 1}.glb`;
+    copyFileSync(path, resolve(out, name));
+    const inside = contents(path);
+    log(`  ${basename(path)}: ${inside.clips.length} clip(s): ${inside.clips.join(", ")}`);
+    files.push({ file: name, from: basename(path), clips: inside.clips });
+    for (const clip of inside.clips) pool.push({ name: clip, file: name, label: basename(path, ".glb") });
+  });
+
   const chosen = {};
   for (const [role, patterns] of Object.entries(WANTED)) {
     for (const pattern of patterns) {
-      const hit = clips.find((name) => pattern.test(name));
+      const hit = pool.find((p) => pattern.test(p.name) || (p.label && pattern.test(p.label)));
       if (hit) {
-        chosen[role] = hit;
-        log(`  ${role}: "${hit}"`);
+        chosen[role] = { clip: hit.name, file: hit.file };
+        log(`  ${role}: "${hit.name}" from ${hit.file}`);
         break;
       }
     }
     if (!chosen[role]) log(`  ${role}: nothing matched - the console will hold the rest pose`);
   }
 
-  const out = resolve(root, "src/vendor");
-  mkdirSync(out, { recursive: true });
   copyFileSync(source, resolve(out, "driver.glb"));
   const bytes = readFileSync(resolve(out, "driver.glb")).length;
 
@@ -90,9 +111,11 @@ function main() {
     generatedAt: new Date().toISOString(),
     source: basename(source),
     model: { file: "driver.glb", bytes, triangles, bones: bones.length },
-    /* Which of the file's clips the console plays for each part of the walk-on. */
+    /* Which clip the console plays for each part of the walk-on, and which file it is in. */
     clips: chosen,
-    available: clips,
+    available: pool.map((p) => `${p.name} (${p.file})`),
+    /* Files beside driver.glb that carry nothing but clips. */
+    extra: files,
     /* A mannequin is built over this skeleton at load, so the console needs the bone names. Everything
        else about the rig - its units, which way it faces, how long its stride is - is measured at load
        rather than written down here, because measuring it is reliable and reading it is not. */
