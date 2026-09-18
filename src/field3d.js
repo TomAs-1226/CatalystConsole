@@ -1166,6 +1166,9 @@ export function createField(canvas, opts) {
   const AIM_PULSE_S = 1.3;
   const AIM_GREY = new THREE.Color(T("--cat-body"));
   const AIM_BLUE = new THREE.Color(SIGNAL);
+  /* A shot's readiness flipping - would land, then wouldn't, or back - has to hold this long before the
+     SOTF chevrons follow it, so the controller's own on-target-in-0.25-s flicker doesn't flash the band. */
+  const AIM_READY_HOLD_MS = 150;
   /* What is lit is drawn in its own grey times these, in the working (linear) space: lifted a little while
      aligning, so the lock is the stronger of the two, and a quiet steel blue once locked. On top of that it
      glows in the aim's own grey or blue, this strongly: enough to read at the far end of the field, not so
@@ -1290,6 +1293,11 @@ export function createField(canvas, opts) {
   let lockedAt = -Infinity;
   let lastAimState = "IDLE";
   const aimColour = new THREE.Color();
+  const chevronColour = new THREE.Color();
+  let chevronGrey = 0;          // the SOTF chevrons' own blue-to-grey, 0 to 1, eased so a flip fades not snaps
+  let chevronReadyGoal = null;  // SOTF's ready as the robot says it this frame, or null off the band
+  let chevronReadySince = 0;    // when chevronReadyGoal last changed
+  let chevronReadyShown = null; // chevronReadyGoal, held for AIM_READY_HOLD_MS before the colour follows it
 
   function placeAim(dt, now) {
     const want = aimInfo && robot.visible && !unplaced && model.root.visible ? 1 : 0;
@@ -1322,6 +1330,9 @@ export function createField(canvas, opts) {
       lastAimState = "IDLE";
       aimReach = 0;
       aimLock = 0;
+      chevronGrey = 0;
+      chevronReadyGoal = null;
+      chevronReadyShown = null;
       return false;
     }
     const [tx, tz] = info.target;
@@ -1489,14 +1500,27 @@ export function createField(canvas, opts) {
     /* A route runs right up to where it ends, and is plain from the start; a band to a target fades out
        before it, and is faint until the robot is on it. */
     uniforms.uReach.value = approach ? 0.96 : 0.84;
-    uniforms.uColor.value.copy(aimColour);
+    const sotf = info.state === "SOTF";
+    /* Shooting on the move, the chevrons read the shot's own readiness once a flip has held for
+       AIM_READY_HOLD_MS: automation blue - today's look, the same blue the lock already draws - while a
+       fed shot would land, grey the instant it would not. An older robot that publishes no ready keeps
+       today's look outright. This never shows outside SOTF, so nothing else has to know about it. */
+    const readyNow = sotf ? info.ready ?? null : null;
+    if (readyNow !== chevronReadyGoal) {
+      chevronReadyGoal = readyNow;
+      chevronReadySince = now;
+    }
+    if (now - chevronReadySince >= AIM_READY_HOLD_MS) chevronReadyShown = chevronReadyGoal;
+    chevronGrey = ease(chevronGrey, chevronReadyShown === false ? 1 : 0, 0.12);
+    chevronColour.copy(aimColour).lerp(AIM_GREY, chevronGrey);
+    uniforms.uColor.value.copy(sotf ? chevronColour : aimColour);
     const faint = approach ? 0.5 : 0.32;
     uniforms.uOpacity.value = aimFade * (faint + (0.9 - faint) * aimLock);
-    uniforms.uChevrons.value = info.state === "SOTF" ? 1 : 0;
-    if (info.state === "SOTF" && !reduced) uniforms.uTime.value = (uniforms.uTime.value + dt) % 1200;
+    uniforms.uChevrons.value = sotf ? 1 : 0;
+    if (sotf && !reduced) uniforms.uTime.value = (uniforms.uTime.value + dt) % 1200;
     uniforms.uPulse.value = pulsing && since < BEAD_S ? since / BEAD_S : -1;
 
-    return aimFade !== want || pulsing || aimLock !== (locked ? 1 : 0) || aimReach !== reachGoal || glowing || info.state === "SOTF";
+    return aimFade !== want || pulsing || aimLock !== (locked ? 1 : 0) || aimReach !== reachGoal || glowing || sotf;
   }
 
   const PLANNED_OPACITY = 0.9;

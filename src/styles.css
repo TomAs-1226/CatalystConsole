@@ -1067,6 +1067,16 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .car-limit[hidden] { display: none; }
 .car-limit small { font-size: 8px; font-weight: var(--cat-w-semi); letter-spacing: 0.08em; text-transform: uppercase; }
 .car-limit b { margin-top: 2px; font-size: 16px; font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; }
+/* The speed governor's own sign: the speed-limit sign's shape, but filled with the one blue, because
+   this one is automation acting on the drive rather than information about it (app.js holds its two
+   edges so it reads as a state, not a flicker). */
+.car-cap {
+  display: flex; flex-direction: column; align-items: center; min-width: 34px; padding: 4px 6px 5px;
+  border-radius: 6px; background: var(--cat-signal); color: #ffffff; line-height: 1;
+}
+.car-cap[hidden] { display: none; }
+.car-cap small { font-size: 8px; font-weight: var(--cat-w-semi); letter-spacing: 0.08em; text-transform: uppercase; }
+.car-cap b { margin-top: 2px; font-size: 16px; font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; }
 .car-ap { display: grid; place-items: center; width: 30px; height: 30px; color: var(--cat-faint); transition: color var(--cat-dur-effect) var(--cat-ease-effect); }
 .car-ap[hidden] { display: none; }
 .car-ap svg { width: 26px; height: 26px; }

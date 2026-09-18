@@ -370,6 +370,11 @@ function demoTick() {
   set("/Catalyst/Aim/HeadingErrorDeg", "num", aim.headingErrorDeg);
   set("/Catalyst/Aim/DistanceMeters", "num", aim.distanceMeters);
   set("/Catalyst/Aim/TimeOfFlightSeconds", "num", aim.timeOfFlightSeconds);
+  /* Turret mode's own three (see demo-match.js): only real while enabled, the same as the rest of the aim
+     above - a disabled robot has nothing to be shooting on the move about. */
+  set("/Catalyst/Aim/Ready", "bool", enabled && aim.ready);
+  set("/Catalyst/Aim/SpeedCapMps", "num", enabled ? aim.speedCap : Number.NaN);
+  set("/Catalyst/Aim/Mode", "str", enabled ? aim.mode : "");
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
@@ -2082,6 +2087,12 @@ define("note", {
 
 /* --- 3D field ---------------------------------------------------------------- */
 
+/* The speed governor's sign, beside the speed like Tesla's set-speed marker: shown only once a cap has
+   held this long, so the aim settling for a frame does not flash it on, and kept this long after the cap
+   lifts, so a governor riding a boundary does not flicker it off and on. */
+const CAP_SHOW_MS = 200;
+const CAP_HIDE_MS = 500;
+
 define("field", {
   name: "Field view",
   group: "Catalyst",
@@ -2109,6 +2120,7 @@ define("field", {
           <div class="car-power" title="Speed against the drivetrain's top speed"><i data-x="power"></i></div>
           <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
           <div class="car-signs">
+            <div class="car-cap" data-x="cap" hidden title="Automation capping the drive speed to keep the aim up"><small>Max</small><b data-x="capN">—</b></div>
             <div class="car-limit" data-x="limit" hidden title="The drivetrain's top speed"><small>Top</small><b data-x="limitN">—</b></div>
             <div class="car-ap" data-x="ap" data-on="false" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2.2"/><path d="M3.6 10.6c2.6-.9 5.4-1.2 8.4-1.2s5.8.3 8.4 1.2M10.2 13.8 7 19.6M13.8 13.8 17 19.6"/></svg>
@@ -2251,6 +2263,28 @@ define("field", {
     if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
     if (x.aim.dataset.state !== aimState) x.aim.dataset.state = aimState;
     if (x.aimText.textContent !== aimText) x.aimText.textContent = aimText;
+    /* The governor's own sign (see CAP_SHOW_MS, CAP_HIDE_MS above): a finite speed cap is automation
+       limiting the driver's translation to keep the aim up, and NaN - null, once readAim is done with it
+       - is it not limiting. Held on both edges so it reads as a steady state, not a flicker. */
+    const capNow = Number.isFinite(aim?.speedCap) ? aim.speedCap : null;
+    state.capOn ??= false;
+    if (capNow !== null) {
+      state.capSince ??= now;
+      state.capHideAt = null;
+      state.capValue = capNow;
+      if (!state.capOn && now - state.capSince >= CAP_SHOW_MS) state.capOn = true;
+    } else {
+      state.capSince = null;
+      if (state.capOn) {
+        state.capHideAt ??= now;
+        if (now - state.capHideAt >= CAP_HIDE_MS) state.capOn = false;
+      }
+    }
+    if (x.cap.hidden !== !state.capOn) x.cap.hidden = !state.capOn;
+    if (state.capOn) {
+      const capText = state.capValue.toFixed(1);
+      if (x.capN.textContent !== capText) x.capN.textContent = capText;
+    }
     /* The auto's start, while the robot is disabled and its auto says where it starts: how far off and which
        way to turn, or that it is there. */
     const guide = linked && !ds.enabled ? startGuide(ntView) : null;
@@ -4052,6 +4086,31 @@ const NOTICE_ICONS = {
 
 const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : "Robot");
 
+/* Turret mode's own status, beside the alerts proper: Tesla says when Autosteer can't help right now
+ * instead of staying quiet, and grey because nothing is a fault - the driver's stick already has the
+ * shot. Steadied the way the field view steadies the aim it draws (see createAimDebounce), so a frame
+ * the aim flickers through does not toggle this, and held a further AIM_STICK_HOLD_MS once the mode
+ * reads "stick", so a controller swap that only touches it for an instant does not either. It clears the
+ * instant the mode is anything else: unlike the alerts below, this says what is true right now, not an
+ * event worth a place in their history, so it never joins noticeSeen, the triangle's count, or either's
+ * hold time. */
+const aimStickSteady = createAimDebounce();
+const AIM_STICK_HOLD_MS = 300;
+let aimStickSince = null;
+function aimStickNotice(now) {
+  const aiming = (nt.status.connected || demo.on) && ds.enabled;
+  if (!aiming) aimStickSteady.reset();
+  const aim = aiming ? aimStickSteady.next(readAim(ntView), now) : null;
+  const stick = aim?.state === "SOTF" && aim.mode === "stick";
+  if (!stick) {
+    aimStickSince = null;
+    return null;
+  }
+  aimStickSince ??= now;
+  if (now - aimStickSince < AIM_STICK_HOLD_MS) return null;
+  return { key: "aim:stick", level: "info", text: "Aim unavailable", detail: "steer with the stick" };
+}
+
 /* Alerts, the way Tesla shows them. A notice that is new - or has just become more serious - comes up
  * as a pop-up capsule over the board for a few seconds, then goes away on its own and waits in the
  * triangle at the top right, which opens the list of everything active and everything that cleared
@@ -4089,6 +4148,10 @@ function paintNotices() {
       toasts.push(n);
     }
   }
+  // Rides along as a pop-up too, but after every real alert: it is only an info-level note, and it is
+  // not in noticeSeen for the rank sort above to have already placed it.
+  const stickToast = aimStickNotice(now);
+  if (stickToast) toasts.push(stickToast);
   paintToasts(bar, toasts.slice(0, 3));
   paintAlertIndicator(active);
   if (!$("#alertPop").hidden) paintAlertPop(active);

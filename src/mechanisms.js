@@ -70,12 +70,21 @@ export function readMechanisms(read) {
 
 /**
  * What the robot is aiming at, when it says: `{ state, target, aimPoint, headingErrorDeg, distance,
- * timeOfFlight }` from /Catalyst/Aim, or null while it publishes nothing or is not aiming.
+ * timeOfFlight, ready, speedCap, mode }` from /Catalyst/Aim, or null while it publishes nothing or is not
+ * aiming.
  *
  * `state` is ALIGNING while the robot turns its shooter onto the target, ALIGNED once it is on it, and SOTF
  * while it shoots on the move. `target` is the HUB, [x, y] in field metres; `aimPoint` is where the shot is
  * actually aimed - the virtual goal a moving robot leads, target minus its velocity times the ball's time
  * of flight - and the target itself when the robot is still.
+ *
+ * The last three are shooting-on-the-move only. `ready` is true once the shot would land if fed this
+ * instant (the controller's on-target-in-0.25-s), or null off a robot that doesn't say. `speedCap` is the
+ * speed governor's cap on the driver's translation while it limits to keep the aim up, in m/s, and null
+ * both when the robot doesn't say and while it isn't limiting (it publishes NaN then, and NaN is not a
+ * finite number). `mode` is which controller has the turret - "V8", the older "8f9c640", or "stick" once
+ * turret mode has no usable aim and the driver's own stick is steering it - or null unpublished. A robot
+ * that predates all three publishes none of them, so each reads null and nothing downstream changes.
  */
 export function readAim(read) {
   const state = String(read.str("/Catalyst/Aim/State", "") || "").toUpperCase();
@@ -97,6 +106,9 @@ export function readAim(read) {
     headingErrorDeg: num("/Catalyst/Aim/HeadingErrorDeg"),
     distance: num("/Catalyst/Aim/DistanceMeters"),
     timeOfFlight: num("/Catalyst/Aim/TimeOfFlightSeconds"),
+    ready: read.bool("/Catalyst/Aim/Ready", null),
+    speedCap: num("/Catalyst/Aim/SpeedCapMps"),
+    mode: read.str("/Catalyst/Aim/Mode", null),
   };
 }
 

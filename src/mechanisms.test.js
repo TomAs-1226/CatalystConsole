@@ -188,6 +188,36 @@ test("what the robot is aiming at is read only while it aims, with the lead poin
   assert.equal(still.headingErrorDeg, null);
 });
 
+test("a robot that predates SOTF's ready, speed cap and mode leaves all three null", () => {
+  const aim = readAim(view({ "/Catalyst/Aim/State": "SOTF", "/Catalyst/Aim/Target": [11.93, 4.03] }));
+  assert.equal(aim.ready, null);
+  assert.equal(aim.speedCap, null);
+  assert.equal(aim.mode, null);
+});
+
+test("SOTF's ready, speed cap and mode read as the robot says, and a speed cap of NaN means not limiting", () => {
+  const limiting = readAim(view({
+    "/Catalyst/Aim/State": "SOTF",
+    "/Catalyst/Aim/Target": [11.93, 4.03],
+    "/Catalyst/Aim/Ready": true,
+    "/Catalyst/Aim/SpeedCapMps": 2.4,
+    "/Catalyst/Aim/Mode": "V8",
+  }));
+  assert.equal(limiting.ready, true);
+  assert.equal(limiting.speedCap, 2.4);
+  assert.equal(limiting.mode, "V8");
+  const notLimiting = readAim(view({
+    "/Catalyst/Aim/State": "SOTF",
+    "/Catalyst/Aim/Target": [11.93, 4.03],
+    "/Catalyst/Aim/Ready": false,
+    "/Catalyst/Aim/SpeedCapMps": Number.NaN,
+    "/Catalyst/Aim/Mode": "stick",
+  }));
+  assert.equal(notLimiting.ready, false);
+  assert.equal(notLimiting.speedCap, null, "NaN means the governor isn't limiting");
+  assert.equal(notLimiting.mode, "stick");
+});
+
 test("an align's tag and standoff are the robot's own, and each is null when it publishes none", () => {
   assert.deepEqual(readAlign(view({})), { tagId: null, standoff: null });
   assert.deepEqual(readAlign(view({ "/Catalyst/X1/Align/SeeingTagId": 10, "/Catalyst/X1/Align/StandoffM": 1.0 })),

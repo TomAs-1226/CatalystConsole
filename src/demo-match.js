@@ -1130,7 +1130,9 @@ function hermite(p0, v0, p1, v1, f) {
  *   aim             { state: "IDLE" | "ALIGNING" | "ALIGNED" | "SOTF", target: [x, y] (the red HUB, or the
  *                   feed point while feeding), aimPoint: [x, y] (the target less the robot's velocity
  *                   over the time of flight), headingErrorDeg (the shooter's pointing error, signed),
- *                   distanceMeters (to the aim point), timeOfFlightSeconds }
+ *                   distanceMeters (to the aim point), timeOfFlightSeconds, and turret mode's own three,
+ *                   plausible only while state is SOTF: ready (boolean), speedCap (m/s, or NaN off the
+ *                   governor), mode ("V8" | "8f9c640" | "stick") }
  *   path            { points: [x, y, heading, ...], source: "pathplanner" | "autopilot", phase } while
  *                   PathPlanner or an Autopilot has the robot, from the robot to the end of the leg;
  *                   null while the driver has it or it is standing still
@@ -1194,13 +1196,27 @@ export function demoMatch(t) {
   const target = feeding ? feedTargets[R.feedTarget[k]] : RED_HUB;
   const lead = R.aimMode[k] === 3 ? 0 : 1;
   const solution = aimSolution(x, y, vx * lead, vy * lead, target, feeding ? feedTimeOfFlightAt : scoreTimeOfFlightAt);
+  const aimState = AIM_STATES[R.aimState[k]];
+  const headingErrorDeg = (wrap(heading - solution.heading) * 180) / Math.PI;
+  /* Turret mode's own three, demo data the same way the rest of this match is: plausible, not measured,
+     and only while shooting on the move - a robot that is not in turret mode would not publish them
+     either. Ready rides the same heading error the lock band already draws, on a tighter band, so it
+     flips within a stretch rather than sitting on one value; the governor caps the translation only once
+     the robot is going fast enough on the move to need it (1.2 m/s, the speed this file's own test already
+     calls fast); and mode spends most of a stretch on the current controller, some on the one before it,
+     and a few seconds of every 30 on "stick", so a demo left running shows the console's own fallback too. */
+  const onTheMove = aimState === "SOTF";
+  const modeBucket = Math.floor(at / 6) % 5;
   const aim = {
-    state: AIM_STATES[R.aimState[k]],
+    state: aimState,
     target: [target[0], target[1]],
     aimPoint: solution.aimPoint,
-    headingErrorDeg: (wrap(heading - solution.heading) * 180) / Math.PI,
+    headingErrorDeg,
     distanceMeters: solution.distance,
     timeOfFlightSeconds: solution.tof,
+    ready: onTheMove ? Math.abs(headingErrorDeg) <= 2 : false,
+    speedCap: onTheMove && Math.hypot(vx, vy) >= 1.2 ? 2.4 : Number.NaN,
+    mode: !onTheMove ? "" : modeBucket === 4 ? "stick" : modeBucket % 2 === 0 ? "V8" : "8f9c640",
   };
 
   const source = SOURCES[R.source[k]];
