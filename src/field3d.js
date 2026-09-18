@@ -28,6 +28,7 @@ import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
 import { FEED_RATE, FEED_TRAVEL_S, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
 import { createMotionFilter } from "./motion-filter.js";
+import { enterSquare, faceNormal, faceToward, HUBS, hubContaining, nearestTag, TAG_SIZE } from "./aim-target.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -140,7 +141,10 @@ const CARVE_VERTEX = /* glsl */ `
     vec2 aimRun = uAimTo - uAimFrom;
     float aimAlong = clamp(dot(carveCentre.xz - uAimFrom, aimRun) / max(dot(aimRun, aimRun), 1e-4), 0.0, 1.0);
     float aimNear = 1.0 - smoothstep(0.2, 0.34, length(carveCentre.xz - (uAimFrom + aimRun * aimAlong)));
-    transformed *= 1.0 - vCarvePiece * max(carveNear * uCarveAmount, aimNear * uAimAmount);
+    /* Nothing is carved out of the HUB being aimed at (see the held HUB in the fragment shader). */
+    vec2 carveHeld = abs(carveCentre.xz - uHold.xy);
+    float carveKeep = 1.0 - uHold.w * step(max(carveHeld.x, carveHeld.y), uHold.z);
+    transformed *= 1.0 - vCarvePiece * max(carveNear * uCarveAmount, aimNear * uAimAmount) * carveKeep;
     vCarveWorld = (carvePlace * vec4(transformed, 1.0)).xyz;
   }
   #include <project_vertex>
@@ -168,11 +172,16 @@ const CARVE_FRAGMENT = /* glsl */ `
     float window = smoothstep(0.02, 0.12, along) * (1.0 - smoothstep(0.82, 0.94, along));
     float onLine = mix(1.0, smoothstep(radius * 0.85, radius, offLine), window);
 
-    float keep = mix(1.0, min(nearRobot, onLine), uCarveAmount * (1.0 - onCarpet));
+    // The HUB the robot is aiming at is held whole: it stands beyond the robot from a camera looking over
+    // the robot at it, so it hides nothing, and a robot shooting from close in would otherwise cut a
+    // dithered hole in the very face that is lit to show the aim.
+    vec2 heldOffset = abs(vCarveWorld.xz - uHold.xy);
+    float held = uHold.w * step(max(heldOffset.x, heldOffset.y), uHold.z);
+    float keep = mix(1.0, min(nearRobot, onLine), uCarveAmount * (1.0 - onCarpet) * (1.0 - held));
     float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     if (keep < 0.999 && keep <= grain) discard;
 
-    // The target the robot is aiming at, lit (see aiming in the scene): whatever stands inside its
+    // A target that is neither a HUB nor a tag, lit (see aiming in the scene): whatever stands inside its
     // footprint, off the carpet and no higher than a HUB, drawn in its own colour times the tint.
     vec3 litOffset = abs(vCarveWorld - uLitCentre);
     float lit = step(litOffset.x, uLitHalf) * step(litOffset.z, uLitHalf) * step(0.03, vCarveWorld.y) * step(vCarveWorld.y, 2.0);
@@ -235,6 +244,32 @@ const PATH_FRAGMENT = /* glsl */ `
     // A soft bead of light running along the band, for the moment something engages. Off below zero.
     float glow = uPulse < 0.0 ? 0.0 : exp(-pow((vAlong - uPulse * uLength) / 0.35, 2.0)) * core * emerge;
     gl_FragColor = vec4(mix(uColor, vec3(1.0), glow * 0.35), min(1.0, alpha * uOpacity + glow * 0.25 * uOpacity));
+    #include <colorspace_fragment>
+  }
+`;
+
+/* A soft light on a face (see aiming in the scene): a rectangle `uSize` metres across whose edges fade over
+   `uFeather` metres, strongest along its foot and easing to `uRise` of that at its top. */
+const GLOW_VERTEX = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const GLOW_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  uniform vec2 uSize;
+  uniform float uFeather;
+  uniform float uRise;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * uSize;
+    vec2 edge = min(p, uSize - p);
+    float inside = smoothstep(0.0, uFeather, edge.x) * smoothstep(0.0, uFeather, edge.y);
+    gl_FragColor = vec4(uColor, uOpacity * inside * mix(1.0, uRise, vUv.y));
     #include <colorspace_fragment>
   }
 `;
@@ -331,11 +366,12 @@ function carve(material, uniforms) {
     shader.uniforms.uLitCentre = uniforms.uLitCentre;
     shader.uniforms.uLitHalf = uniforms.uLitHalf;
     shader.uniforms.uLitTint = uniforms.uLitTint;
+    shader.uniforms.uHold = uniforms.uHold;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform float uCarveAmount;\nuniform vec2 uAimFrom;\nuniform vec2 uAimTo;\nuniform float uAimAmount;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform float uCarveAmount;\nuniform vec2 uAimFrom;\nuniform vec2 uAimTo;\nuniform float uAimAmount;\nuniform vec4 uHold;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
       .replace("#include <project_vertex>", CARVE_VERTEX);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform vec3 uCarveEye;\nuniform float uCarveAmount;\nuniform vec3 uLitCentre;\nuniform float uLitHalf;\nuniform vec3 uLitTint;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uCarveRobot;\nuniform vec3 uCarveEye;\nuniform float uCarveAmount;\nuniform vec3 uLitCentre;\nuniform float uLitHalf;\nuniform vec3 uLitTint;\nuniform vec4 uHold;\nvarying vec3 vCarveWorld;\nvarying float vCarvePiece;")
       .replace("#include <clipping_planes_fragment>", CARVE_FRAGMENT);
   };
   material.customProgramCacheKey = () => "field-carve";
@@ -460,6 +496,9 @@ export function createField(canvas, opts) {
     uLitCentre: { value: new THREE.Vector3(0, -100, 0) },
     uLitHalf: { value: 0 },
     uLitTint: { value: new THREE.Color(1, 1, 1) },
+    /* The HUB being aimed at, which the clearing leaves whole: its centre's x and z, its half-width, and how
+       far that is switched on. */
+    uHold: { value: new THREE.Vector4(0, 0, 0, 0) },
   };
 
   const field = new THREE.Group();
@@ -1044,12 +1083,18 @@ export function createField(canvas, opts) {
      Drawn the way Tesla draws what Autopilot is doing: in the scene, grey while it is getting ready and
      blue once it has engaged, and nothing that blinks.
 
-     What the robot aims at is picked out as Tesla picks out the car it is following: the HUB itself is
-     lit - everything standing in its footprint, in the field's own shader (see the clearing) - a lighter
-     grey than the field round it while the shooter swings onto it, and blue from the moment the robot
-     locks on. A band lies on the carpet from the robot to it, like the path ahead of the car:
-     grey, reaching further toward the HUB as the heading error closes, then blue, with a bead of light
-     running down it into the HUB, which brightens once as the bead arrives.
+     What the robot aims at is picked out as Tesla picks out the car it is following, with light rather
+     than by seeing into it. A band lies on the carpet from the robot to it, like the path ahead of the car:
+     grey, reaching further toward the target as the heading error closes, then blue, with a bead of light
+     running down it, which brightens the target once as the bead arrives.
+
+     A turret, or a robot shooting on the move, aims at the HUB's centre, and the centre is inside the HUB.
+     So the band ends where the line to the centre meets the HUB's face (see aim-target.js), and that face
+     is lit: a soft light on it, grey while the shooter swings onto the HUB and blue once it is locked on.
+     The face lit only changes once the robot is clearly round the HUB's corner, so a robot sitting on its
+     diagonal does not flick the light between two faces. Aligning to an AprilTag, the tag itself is lit, a
+     small square of light on the face it is on. Anything else standing at a target is lit where it stands,
+     in the field's own shader (see the clearing).
 
      Shooting on the move, the band is broken into chevrons drifting toward the target. It still runs
      straight to the target, not to the point the shooter leads: that line is the FUEL's own track over
@@ -1062,10 +1107,18 @@ export function createField(canvas, opts) {
      pulls up and swings round to look over the robot at the target (see placeCamera). */
   const OPENING_HEIGHT = 1.83;
   const OPENING_RADIUS = 0.56;
-  /* Where the band stops short of the target's centre: just off the face of a HUB, which is 0.6 m out. */
+  /* Where the band stops short of the centre of a structure that is neither a HUB nor a tag, and half the
+     width of what is lit round it: sized as a HUB is, 1.21 m square. */
   const TARGET_FACE = 0.72;
-  /* Half the width of what is lit round the target's centre: a HUB is 1.19 m square. */
   const TARGET_HALF = 0.605;
+  /* Where the band stops short of a face it runs up to, so its soft end meets the face rather than going in. */
+  const FACE_GAP = 0.03;
+  /* The light on a face: drawn this far off it, so the two never fight over depth; up to the HUB's opening;
+     with edges this soft. A lit tag is the tag's own square and a soft margin of light round it. */
+  const GLOW_OUT = 0.015;
+  const HUB_GLOW_HEIGHT = OPENING_HEIGHT;
+  const HUB_GLOW_FEATHER = 0.16;
+  const TAG_HALO = 0.045;
   const AIM_PULSE_S = 0.7;
   const AIM_GREY = new THREE.Color(T("--cat-body"));
   const AIM_BLUE = new THREE.Color(SIGNAL);
@@ -1131,6 +1184,47 @@ export function createField(canvas, opts) {
     mesh.renderOrder = 3;
   }
 
+  /* The lights on a HUB's faces, one per face so the light can cross-fade from one face to the next as the
+     robot goes round, and the light on a tag. Built once and moved; hidden by whatever stands in front. */
+  const glowPlane = new THREE.PlaneGeometry(1, 1);
+  const makeGlow = (across, up, feather, rise) => {
+    const mesh = new THREE.Mesh(glowPlane, new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(TRIM) },
+        uOpacity: { value: 0 },
+        uSize: { value: new THREE.Vector2(across, up) },
+        uFeather: { value: feather },
+        uRise: { value: rise },
+      },
+      vertexShader: GLOW_VERTEX,
+      fragmentShader: GLOW_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+    }));
+    mesh.scale.set(across, up, 1);
+    mesh.renderOrder = 3;
+    mesh.visible = false;
+    scene.add(mesh);
+    return mesh;
+  };
+  const HUB_SIDE = HUBS[0].half * 2;
+  const faceGlows = Object.fromEntries(["-x", "+x", "-y", "+y"].map((face) =>
+    [face, { mesh: makeGlow(HUB_SIDE, HUB_GLOW_HEIGHT, HUB_GLOW_FEATHER, 0.35), strength: 0 }]));
+  const tagGlow = makeGlow(TAG_SIZE + TAG_HALO * 2, TAG_SIZE + TAG_HALO * 2, TAG_HALO, 1);
+  let tagStrength = 0;
+  let litHub = null;        // the HUB the robot aims into, and which of its faces is lit (see faceToward)
+  let litFace = null;
+  /* Field metres to the scene and back, through the frame poses are drawn in. */
+  const toField = (x, z) => [x + poseLength / 2, -z + poseWidth / 2];
+  const toSceneXZ = (fx, fy) => [fx - poseLength / 2, -(fy - poseWidth / 2)];
+  /* Stand `mesh` on the field at [fx, fy], `y` up, facing field direction [nx, ny], GLOW_OUT off the face. */
+  const faceOut = (mesh, fx, fy, y, nx, ny) => {
+    const [sx, sz] = toSceneXZ(fx + nx * GLOW_OUT, fy + ny * GLOW_OUT);
+    mesh.position.set(sx, y, sz);
+    mesh.rotation.y = Math.atan2(nx, -ny);
+  };
+
   let aimInfo = null;       // { state, target: [x, z], aimPoint: [x, z], headingErrorDeg } in the scene
   let aimShown = null;      // the last aim drawn, kept while it fades out
   let aimFade = 0;
@@ -1156,9 +1250,18 @@ export function createField(canvas, opts) {
       openingRim.visible = false;
       spotFill.visible = false;
       spotRim.visible = false;
+      for (const glow of Object.values(faceGlows)) {
+        glow.mesh.visible = false;
+        glow.strength = 0;
+      }
+      tagGlow.visible = false;
+      tagStrength = 0;
+      litHub = null;
+      litFace = null;
       carveUniforms.uLitTint.value.copy(WHITE);
       carveUniforms.uLitHalf.value = 0;
       carveUniforms.uAimAmount.value = 0;
+      carveUniforms.uHold.value.w = 0;
       lastAimState = "IDLE";
       aimReach = 0;
       aimLock = 0;
@@ -1181,16 +1284,64 @@ export function createField(canvas, opts) {
     const late = since / AIM_PULSE_S - 0.85;
     const arrival = pulsing ? Math.exp(-(late * late) / 0.015) : 0;
 
-    /* The target: a structure lit where it stands - or with no field model to light, its opening outlined -
-       or a place on the carpet ringed. */
-    const structure = standsAt(tx, tz);
+    /* What the target is, in field metres: an AprilTag, a HUB (its centre, which is inside it), anything
+       else standing there, or a place on the carpet. */
+    const from = toField(robot.position.x, robot.position.z);
+    const aimed = toField(tx, tz);
+    const tag = nearestTag(aimed, from);
+    const hub = hubContaining(aimed);
+    const entry = hub ? enterSquare(from, aimed, hub) : null;
+    if (hub !== litHub) litFace = null;
+    litHub = hub;
+    litFace = hub && !tag ? faceToward(from, aimed, hub, litFace) : null;
+    const structure = !tag && !hub && standsAt(tx, tz);
     const modelled = cad.children.length > 0;
+
+    /* A HUB being aimed at is left whole by the clearing (see the clearing), a little past its faces so
+       their outer skin is kept too. */
+    if (hub) {
+      const [hx, hz] = toSceneXZ(hub.centre[0], hub.centre[1]);
+      carveUniforms.uHold.value.set(hx, hz, hub.half + 0.08, aimFade);
+    } else {
+      carveUniforms.uHold.value.w = 0;
+    }
+
+    /* The HUB face the band runs up to, lit; cross-fading when the face changes. The light follows the
+       steadied aim (see createAimDebounce) and its fade, so it does not blink with the robot's own. */
+    let glowing = false;
+    for (const [face, glow] of Object.entries(faceGlows)) {
+      const goal = modelled && litFace === face ? 1 : 0;
+      glow.strength = ease(glow.strength, goal, 0.18);
+      if (glow.strength !== goal) glowing = true;
+      if (goal && hub) {
+        const [nx, ny] = faceNormal(face);
+        faceOut(glow.mesh, hub.centre[0] + nx * hub.half, hub.centre[1] + ny * hub.half, HUB_GLOW_HEIGHT / 2, nx, ny);
+      }
+      glow.mesh.visible = glow.strength > 0;
+      if (glow.mesh.visible) {
+        glow.mesh.material.uniforms.uColor.value.copy(aimColour);
+        glow.mesh.material.uniforms.uOpacity.value = aimFade * glow.strength * (0.16 + 0.2 * aimLock + 0.14 * arrival);
+      }
+    }
+    /* The tag being aligned to, lit on the face it is on. */
+    tagStrength = ease(tagStrength, tag ? 1 : 0, 0.18);
+    if (tagStrength !== (tag ? 1 : 0)) glowing = true;
+    if (tag) faceOut(tagGlow, tag.x, tag.y, tag.z, Math.cos(tag.yaw), Math.sin(tag.yaw));
+    tagGlow.visible = tagStrength > 0;
+    if (tagGlow.visible) {
+      tagGlow.material.uniforms.uColor.value.copy(aimColour);
+      tagGlow.material.uniforms.uOpacity.value = aimFade * tagStrength * (0.5 + 0.35 * aimLock + 0.15 * arrival);
+    }
+
+    /* Anything else: a structure lit where it stands - or with no field model to light, a HUB's opening
+       outlined - or a place on the carpet ringed. */
     carveUniforms.uLitCentre.value.set(tx, 0, tz);
     carveUniforms.uLitHalf.value = structure && modelled ? TARGET_HALF : 0;
     carveUniforms.uLitTint.value.copy(LIT_ALIGNING).lerp(LIT_LOCKED, aimLock).multiplyScalar(1 + 0.3 * arrival).lerp(WHITE, 1 - aimFade);
-    spotRim.visible = !structure;
-    spotFill.visible = !structure;
-    if (!structure) {
+    const place = !tag && !hub && !structure;
+    spotRim.visible = place;
+    spotFill.visible = place;
+    if (place) {
       spotRim.position.set(tx, 0.016, tz);
       spotRim.material.color.copy(aimColour);
       spotRim.material.opacity = aimFade * (0.45 + 0.5 * aimLock);
@@ -1198,9 +1349,10 @@ export function createField(canvas, opts) {
       spotFill.material.color.copy(aimColour);
       spotFill.material.opacity = aimFade * aimLock * (0.16 + 0.22 * arrival);
     }
-    openingRim.visible = structure && !modelled;
-    openingFill.visible = structure && !modelled;
-    if (structure && !modelled) {
+    const opening = !modelled && (structure || (hub && !tag));
+    openingRim.visible = opening;
+    openingFill.visible = opening;
+    if (opening) {
       openingRim.position.set(tx, OPENING_HEIGHT + 0.02, tz);
       openingRim.material.color.copy(aimColour);
       openingRim.material.opacity = aimFade * (0.5 + 0.45 * aimLock);
@@ -1209,11 +1361,16 @@ export function createField(canvas, opts) {
       openingFill.material.opacity = aimFade * aimLock * (0.2 + 0.25 * arrival);
     }
 
-    /* The band, from the robot to just off the target's face. */
+    /* The band, from the robot up to the face the line to the target meets: a HUB's where the line enters
+       it, a tag's, which the target is on - or just off the face of anything else, or short of its ring. */
     const dx = tx - robot.position.x;
     const dz = tz - robot.position.z;
     const span = Math.hypot(dx, dz) || 1;
-    const length = Math.max(0.3, span - (structure ? TARGET_FACE : SPOT_RADIUS + 0.06)) * aimReach;
+    const toFace = entry ? Math.hypot(entry.point[0] - from[0], entry.point[1] - from[1]) - FACE_GAP
+      : tag ? span - FACE_GAP
+      : hub || structure ? span - TARGET_FACE
+      : span - (SPOT_RADIUS + 0.06);
+    const length = Math.max(0.3, toFace) * aimReach;
     const endX = robot.position.x + (dx / span) * length;
     const endZ = robot.position.z + (dz / span) * length;
     layRibbon(aimBand, [[robot.position.x, robot.position.z], [endX, endZ]], 0.24, 0.018);
@@ -1227,7 +1384,7 @@ export function createField(canvas, opts) {
     if (info.state === "SOTF" && !reduced) uniforms.uTime.value = (uniforms.uTime.value + dt) % 1200;
     uniforms.uPulse.value = pulsing ? Math.min(1, since / (AIM_PULSE_S * 0.85)) : -1;
 
-    return aimFade !== want || pulsing || aimLock !== (locked ? 1 : 0) || aimReach !== reachGoal || info.state === "SOTF";
+    return aimFade !== want || pulsing || aimLock !== (locked ? 1 : 0) || aimReach !== reachGoal || glowing || info.state === "SOTF";
   }
 
   const PLANNED_OPACITY = 0.9;
