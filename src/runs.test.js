@@ -25,6 +25,7 @@ import {
   runFileName,
   runWhen,
   SAMPLE_CAPACITY,
+  SPEED_BANDS,
   storeRuns,
   traceSegments,
   tunableChanges,
@@ -547,4 +548,63 @@ test("a run's time reads as the time today, yesterday, or the date", () => {
   assert.equal(runWhen(new Date(2026, 8, 16, 9, 5).getTime(), now), "Yesterday 09:05");
   assert.equal(runWhen(new Date(2026, 8, 12, 18, 0).getTime(), now), "Sep 12 18:00");
   assert.equal(runWhen(null, now), "—");
+});
+
+/* ---- the aim's error by speed ---- */
+
+/**
+ * The aim held at three speeds, each with its own steady error: standing with 1 degree, strafing at 1 m/s
+ * with 2, at 2.5 m/s with 4. Each error changes 0.3 s after the speed does, once the recorder's quarter-second
+ * speed has caught up, so every band's answer is known.
+ */
+function aimAtSpeeds() {
+  const s = store(capture.values);
+  let x = X0;
+  let last = -1;
+  const speedAt = (t) => (t < 4 ? 0 : t < 8 ? 1.0 : 2.5);
+  const script = (t) => {
+    const enabled = t >= 0 && t < 14;
+    if (enabled) x -= speedAt(t) * (t - last);
+    last = t;
+    s.set("/Catalyst/Physics/PoseArray", "nums", [x, Y0, H0]);
+    const aiming = enabled && t < 12;
+    s.set("/Catalyst/Aim/State", "str", !aiming ? "IDLE" : t < 4.3 ? "ALIGNED" : "SOTF");
+    s.set("/Catalyst/Aim/HeadingErrorDeg", "num", t < 4.3 ? 1.0 : t < 8.3 ? 2.0 : 4.0);
+    return word({ enabled });
+  };
+  const [run] = play(createRunRecorder(), s, script, { to: 15 });
+  return run;
+}
+
+test("the aim's error is also kept by the speed the robot held it at, and a band it barely touched says nothing", () => {
+  const { aim } = aimAtSpeeds();
+  assert.equal(aim.bySpeed.length, SPEED_BANDS.length);
+  near(aim.bySpeed[0], 1.0, 0.03, "standing");
+  assert.equal(aim.bySpeed[1], null, "0.3-0.8 m/s was only passed through");
+  near(aim.bySpeed[2], 2.0, 0.05, "at 1 m/s");
+  assert.equal(aim.bySpeed[3], null, "1.3-2 m/s was only passed through");
+  near(aim.bySpeed[4], 4.0, 0.1, "at 2.5 m/s");
+});
+
+test("the review gives the error at the fastest speed held, beside the slowest, and every band in its help", () => {
+  const run = aimAtSpeeds();
+  const row = runFigures(run).aim.find(([label]) => label === "At speed");
+  assert.ok(row, "an At speed row");
+  assert.match(row[1], /^[34]\.\d° RMS$/);
+  assert.equal(row[2], "above 2 m/s · 1.0° below 0.3 m/s");
+  assert.match(row[3], /1\.0° below 0\.3 m\/s, 2\.0° 0\.8–1\.3 m\/s, [34]\.\d° above 2 m\/s\.$/);
+});
+
+test("errors by speed are stored and read back, and a stored set of the wrong shape is dropped, not trusted", () => {
+  const run = aimAtSpeeds();
+  const [back] = loadRuns(storeRuns([run]));
+  assert.deepEqual(back.aim.bySpeed.map((v) => (v === null ? null : Math.round(v * 100) / 100)),
+    run.aim.bySpeed.map((v) => (v === null ? null : Math.round(v * 100) / 100)));
+  const stored = JSON.parse(storeRuns([run]));
+  stored[0].aim.bySpeed = [1, 2];
+  assert.equal(loadRuns(JSON.stringify(stored))[0].aim.bySpeed, null, "wrong length");
+  delete stored[0].aim.bySpeed;
+  assert.equal(loadRuns(JSON.stringify(stored))[0].aim.bySpeed, null, "a run stored before this existed");
+  const row = runFigures(loadRuns(JSON.stringify(stored))[0]).aim.find(([label]) => label === "At speed");
+  assert.equal(row[1], "—");
 });

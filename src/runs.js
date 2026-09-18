@@ -86,6 +86,11 @@ const NEW_TARGET_M = 0.5;
 /* The heading error is binned for its percentile: 0.05 degree bins from 0 to 180 degrees. */
 const ERROR_BIN_DEG = 0.05;
 const ERROR_BINS = 3600;
+/* The aim's error by how fast the robot was going: a shot on the move gets harder with speed, and this is
+   where a run shows by how much. Bands in m/s, the same as X1's tools/run-report.py. A band says nothing
+   until it has half a second of held aim in it. */
+export const SPEED_BANDS = Object.freeze([[0, 0.3], [0.3, 0.8], [0.8, 1.3], [1.3, 2.0], [2.0, Infinity]]);
+const BAND_MIN_S = 0.5;
 const MAX_MODULES = 8;
 const MAX_CAMERAS = 8;
 const MAX_LOCKS = 512;
@@ -219,6 +224,21 @@ function median(values) {
 }
 
 /* One frame's worth of what is held until the next: what the time between two frames is credited to. */
+/** Which of SPEED_BANDS a speed in m/s falls in. */
+function speedBand(speed) {
+  let b = 0;
+  while (b < SPEED_BANDS.length - 1 && speed >= SPEED_BANDS[b][1]) b++;
+  return b;
+}
+
+/** A speed band in words: "below 0.3 m/s", "0.3–0.8 m/s", "above 2 m/s". */
+export function speedBandText(i) {
+  const [lo, hi] = SPEED_BANDS[i];
+  if (lo === 0) return `below ${hi} m/s`;
+  if (!Number.isFinite(hi)) return `above ${lo} m/s`;
+  return `${lo}–${hi} m/s`;
+}
+
 function frameState() {
   return {
     mode: 1,            // 0 auto, 1 teleop, 2 test
@@ -298,6 +318,7 @@ export function createRunRecorder({ sampleS = SAMPLE_S, capacity = SAMPLE_CAPACI
       aimSeen: false, aimedS: 0, lockedS: 0, sotfS: 0,
       attempt: null, idleSince: null, attempts: 0, locks: 0, lockTimes: [],
       errorW: 0, errorSq: 0, steerDeg: 0, steerS: 0,
+      bandW: new Float64Array(SPEED_BANDS.length), bandSq: new Float64Array(SPEED_BANDS.length),
       // vision
       visionS: 0, seeingS: 0, tagsW: 0, tagsSum: 0,
       confW: 0, confSum: 0, confMin: null,
@@ -328,6 +349,11 @@ export function createRunRecorder({ sampleS = SAMPLE_S, capacity = SAMPLE_CAPACI
       run.errorW += w;
       run.errorSq += e * e * w;
       bins[Math.min(ERROR_BINS - 1, Math.floor(e / ERROR_BIN_DEG))] += w;
+      if (Number.isFinite(run.speed)) {
+        const b = speedBand(run.speed);
+        run.bandW[b] += w;
+        run.bandSq[b] += e * e * w;
+      }
     }
     if (state.seeing >= 0) {
       run.visionS += dt;
@@ -589,6 +615,7 @@ export function createRunRecorder({ sampleS = SAMPLE_S, capacity = SAMPLE_CAPACI
       locks: r.locks,
       toLockS: median(r.lockTimes),
       steerDegS: r.steerS > 0 ? r.steerDeg / r.steerS : null,
+      bySpeed: SPEED_BANDS.map((_, i) => (r.bandW[i] >= BAND_MIN_S ? Math.sqrt(r.bandSq[i] / r.bandW[i]) : null)),
     } : null;
 
     const vision = {
@@ -691,6 +718,15 @@ const fields = (o, names) => (o && typeof o === "object" && !Array.isArray(o)
   ? Object.fromEntries(names.map((k) => [k, numberOrNull(o[k])]))
   : null);
 
+/* The stored aim, with its errors by speed only when they are one number or null per band. */
+function reviveAim(a) {
+  const aim = fields(a, AIM_FIELDS);
+  if (!aim) return null;
+  const bands = a.bySpeed;
+  aim.bySpeed = Array.isArray(bands) && bands.length === SPEED_BANDS.length ? bands.map(numberOrNull) : null;
+  return aim;
+}
+
 /* One stored run, checked field by field. Storage can hold anything - an older build wrote it, a quota
    error cut it short, someone edited it - and a bad value out of here would be printed as a measurement. */
 function reviveRun(x) {
@@ -720,7 +756,7 @@ function reviveRun(x) {
     voltsStart: numberOrNull(x.voltsStart),
     voltsMin: numberOrNull(x.voltsMin),
     shots: numberOrNull(x.shots),
-    aim: fields(x.aim, AIM_FIELDS),
+    aim: reviveAim(x.aim),
     vision: fields(x.vision, VISION_FIELDS),
     tunables: tunables && tunables.length ? tunables : null,
     samples: null,
@@ -928,6 +964,19 @@ const metres = (v) => (finite(v) ? `${v < 100 ? v.toFixed(1) : v.toFixed(0)} m` 
  * under it that puts it in context, and a note saying what the number is when its label cannot. An
  * unpublished number is a dash, and a sub with nothing to say is empty.
  */
+/* The aim's error at the fastest speed the run held it, beside the slowest, so a run says how much speed
+   cost it; every band is in the explanation. A dash when no band has half a second of held aim. */
+function atSpeed(bySpeed) {
+  const held = (bySpeed ?? []).map((v, i) => [v, i]).filter(([v]) => finite(v));
+  const help = "Heading error RMS by how fast the robot was moving while it held the aim"
+    + (held.length ? ": " + held.map(([v, i]) => `${v.toFixed(1)}° ${speedBandText(i)}`).join(", ") + "." : ".");
+  if (!held.length) return ["At speed", DASH, "", help];
+  const [fast, fi] = held[held.length - 1];
+  const [slow, si] = held[0];
+  const sub = held.length > 1 ? `${speedBandText(fi)} · ${slow.toFixed(1)}° ${speedBandText(si)}` : speedBandText(fi);
+  return ["At speed", fixed(fast, 1, "° RMS"), sub, help];
+}
+
 export function runFigures(run) {
   const drive = [
     ["Time", runClock(run.seconds), run.partial ? "joined partway" : "",
@@ -945,6 +994,7 @@ export function runFigures(run) {
     ["Heading error", fixed(a.rmsDeg, 1, "° RMS"), "",
       "Root mean square, from each attempt's first lock until the aim ended, dropouts included."],
     ["95th percentile", fixed(a.p95Deg, 1, "°"), "", "The error was inside this 95% of the time, over the same stretch."],
+    atSpeed(a.bySpeed),
     ["Time to lock", fixed(a.toLockS, 2, " s"), finite(a.attempts) && a.attempts > 0 ? `${a.locks ?? 0} of ${a.attempts} locked` : "",
       "From starting to aim to the first lock: the median over the run's attempts."],
     ["Wheel steering", fixed(a.steerDegS, 0, "°/s"), "",
