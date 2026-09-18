@@ -1404,6 +1404,20 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .arow .nt { font-size: var(--fs-15); font-weight: var(--cat-w-medium); color: var(--cat-white); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arow .nd { font-size: var(--fs-13); color: var(--cat-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arow .awhen { flex: none; font-size: var(--fs-12); color: var(--cat-faint); font-variant-numeric: tabular-nums; }
+/* A calibration result's extra detail (calibration.js's snippet/metresText/hint): the paste-in constant
+   it computed, the metres behind the inches shown above, and past SUSPECT_PERCENT a line pointing at the
+   gear ratio rather than tread wear. The row switches to top alignment so the icon does not centre
+   against a block this much taller than a plain alert's one line. */
+.arow:has(.arow-extra) { align-items: flex-start; }
+.arow-extra { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; white-space: normal; }
+.calsnip {
+  display: block; font-family: var(--mono); font-size: var(--fs-12); line-height: 1.5; color: var(--cat-body);
+  background: var(--cat-surface-2); padding: 8px 10px; border-radius: 8px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  user-select: text; /* a constant nobody can retype correctly by eye is worth copying */
+}
+.calm { display: block; margin-top: 4px; font-family: var(--mono); font-size: var(--fs-12); color: var(--cat-dim); }
+.calhint { margin: 0; font-size: var(--fs-13); line-height: 1.5; color: var(--cat-dim); }
 @keyframes popIn { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
 
 /* The autonomous routine in the dock, set like Tesla's temperature: chevrons either side of a small
@@ -1943,7 +1957,8 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    right, its title large, and under it tall rows split by a hairline with the control at the right edge.
 
    Everything else is restraint: grey on black, no outlines, no gradients on rows. Text is selectable
-   here and nowhere else, because a version string and a link are worth copying. */
+   here, because a version string and a link are worth copying - and, by the same reasoning, in a
+   calibration capsule's paste-in constant (.calsnip, near .arow above): nowhere else. */
 .settings {
   position: fixed; inset: 0; z-index: 80; display: none;
   /* 256 px at the least, so the search field beside the close button still has room for the whole of

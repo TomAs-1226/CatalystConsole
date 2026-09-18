@@ -18,6 +18,9 @@
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
 import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide, systemChecks } from "./devices.js";
+/* What a calibration routine (WheelRadius, X1's slip current, ...) is saying about itself right now,
+   as the same grey capsule the alerts use. Its own module so the parsing is tested without a robot. */
+import { calibrationNotices } from "./calibration.js";
 /* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
@@ -4084,7 +4087,7 @@ const NOTICE_ICONS = {
   info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
 };
 
-const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : "Robot");
+const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : key.startsWith("cal:") ? "Calibration" : "Robot");
 
 /* Turret mode's own status, beside the alerts proper: Tesla says when Autosteer can't help right now
  * instead of staying quiet, and grey because nothing is a fault - the driver's stick already has the
@@ -4117,12 +4120,20 @@ function aimStickNotice(now) {
  * this session. Fed by devices.js from the robot's vision health rows, its error alerts and the auto
  * start check, and held for the same alertHoldMs the alerts tile uses, so a notice that flaps is one
  * steady alert rather than a pop-up every second. It never blocks anything - rule two. */
+/* Calibration capsules skip the few-second hold above: a run in progress has to stay up however long
+ * it takes, and a finished result is something a team walks over to read, not a line to catch in
+ * passing. So they stay until the ×, or until the rising edge of ds.enabled acknowledges whatever
+ * calibration capsule is up right then, as surely as a tap on it would - the robot is about to move
+ * on the reading, so a stale one should not still be floating over the board. */
+const CAL_TOAST_HOLD_MS = 10 * 60 * 1000;
+let calWasEnabled = false;
+
 function paintNotices() {
   const bar = $("#notices");
   const linked = nt.status.connected || demo.on;
   const now = performance.now();
   if (linked) {
-    for (const n of computeNotices(ntView, { enabled: ds.enabled })) {
+    for (const n of [...computeNotices(ntView, { enabled: ds.enabled }), ...calibrationNotices(ntView)]) {
       const prev = noticeSeen.get(n.key);
       noticeSeen.set(n.key, { ...n, at: now, since: prev?.since ?? Date.now() });
     }
@@ -4137,14 +4148,20 @@ function paintNotices() {
   }
   const active = [...noticeSeen.values()].sort((a, b) => NOTICE_RANK[a.level] - NOTICE_RANK[b.level]);
 
+  if (ds.enabled && !calWasEnabled) {
+    for (const [key, shown] of toastShown) if (key.startsWith("cal:")) shown.dismissed = true;
+  }
+  calWasEnabled = ds.enabled;
+
   // Which are pop-ups right now: new ones, ones that got worse, and ones still inside their time.
   const toasts = [];
   for (const n of active) {
     const shown = toastShown.get(n.key);
+    const holdMs = n.key.startsWith("cal:") ? CAL_TOAST_HOLD_MS : (TOAST_MS[n.level] ?? 6000);
     if (!shown || NOTICE_RANK[n.level] < NOTICE_RANK[shown.level]) {
       toastShown.set(n.key, { at: now, level: n.level, dismissed: false });
       toasts.push(n);
-    } else if (!shown.dismissed && now - shown.at < (TOAST_MS[n.level] ?? 6000)) {
+    } else if (!shown.dismissed && now - shown.at < holdMs) {
       toasts.push(n);
     }
   }
@@ -4270,10 +4287,21 @@ function ago(ms) {
 
 function paintAlertPop(active) {
   const body = $("#alertPopBody");
+  // A calibration result (see calibration.js) carries more than text/detail: the paste-in constant it
+  // computed, the metres behind the inches shown up top, and - past SUSPECT_PERCENT - a line pointing
+  // at the gear ratio rather than tread wear. Selectable, because a constant nobody can retype correctly
+  // by eye is worth copying (the same exception Settings' own text makes, in styles.css).
+  const extra = (n) =>
+    !n.snippet && !n.hint ? "" :
+    `<div class="arow-extra">` +
+    (n.snippet ? `<code class="calsnip">${escapeHtml(n.snippet)}</code>${n.metresText ? `<span class="calm">${escapeHtml(n.metresText)}</span>` : ""}` : "") +
+    (n.hint ? `<p class="calhint">${escapeHtml(n.hint)}</p>` : "") +
+    `</div>`;
   const row = (n, when) =>
     `<div class="arow ${n.level}"><span class="nicon">${NOTICE_ICONS[n.level] || NOTICE_ICONS.info}</span>` +
     `<span class="ntext"><span class="nt">${escapeHtml(n.text)}</span>` +
-    `<span class="nd">${escapeHtml(n.detail ? `${noticeKind(n.key)} · ${n.detail}` : noticeKind(n.key))}</span></span>` +
+    `<span class="nd">${escapeHtml(n.detail ? `${noticeKind(n.key)} · ${n.detail}` : noticeKind(n.key))}</span>` +
+    extra(n) + `</span>` +
     `<span class="awhen">${when}</span></div>`;
   const html =
     (active.length
