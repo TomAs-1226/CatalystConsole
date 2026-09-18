@@ -756,7 +756,7 @@ async function buildMannequin(skeleton, unit, material, reference) {
  * exactly the rate its feet are already moving, which is measured off the clip itself. Any other speed is
  * a moon-walk.
  */
-export function walkOn(t, { speed = 0.9, from = -2.6, settle = 0.4 } = {}) {
+export function walkOn(t, { speed = 0.9, from = -1.6, settle = 0.35 } = {}) {
   const time = Number.isFinite(t) ? Math.max(0, t) : 0;
   const seconds = speed > 0 ? Math.abs(from) / speed : 0;
   if (time < seconds) return { x: from + speed * time, walking: true, standing: 0 };
@@ -912,11 +912,11 @@ export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
     measured: { unit, yaw, stride, speed },
     /** How long the walk-on takes. */
     get seconds() {
-      return (speed > 0 ? 2.6 / speed : 0) + 1.5;
+      return (speed > 0 ? 1.6 / speed : 0) + 1.3;
     },
     /** Put the figure where it is at `t` seconds into the walk-on, and advance its clips. */
     step(t, now) {
-      const at = walkOn(t, { speed: speed || 1, from: speed > 0 ? -2.6 : 0 });
+      const at = walkOn(t, { speed: speed || 1, from: speed > 0 ? -1.6 : 0 });
       root.position.x = at.x;
       const want = at.walking ? "walk" : "stand";
       if (want !== phase) {

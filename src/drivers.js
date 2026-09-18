@@ -277,18 +277,31 @@ export function robotPlan(driver, declared = []) {
   for (const entry of declared) {
     if (entry && typeof entry.key === "string" && entry.key) byKey.set(entry.key, entry);
   }
-  const rows = Object.entries(driver?.robot ?? {}).map(([key, value]) => {
-    const entry = byKey.get(key) ?? null;
-    /* A switch's true written to a number, or a number written to a switch, is the robot having changed
-     * what that topic is since the profile was filled in. It is not writable and it is not a mistake
-     * worth a dialog - it is one row saying this robot does not have that setting. */
+  /* A row for everything the robot declares, whether or not this profile has an opinion about it. The
+   * robot is what says which settings exist - a driver should not have to know the name of a tunable to
+   * find it, and a console that made them add each one by hand would be asking them to keep a list the
+   * robot is already broadcasting.
+   *
+   * `value` is the profile's own answer, or null for "this profile does not set this one", which is a
+   * real state and not a missing one: that setting simply stays wherever the robot has it.
+   */
+  const held = driver?.robot ?? {};
+  const rows = [];
+  for (const entry of byKey.values()) {
+    const value = entry.key in held ? held[entry.key] : null;
     const wants = typeof value === "boolean" ? "bool" : "num";
-    const fits = !!entry && (entry.kind == null || entry.kind === wants);
-    return { key, value, entry, writable: fits };
-  });
+    const fits = value === null || entry.kind == null || entry.kind === wants;
+    rows.push({ key: entry.key, value, entry, writable: fits && value !== null, set: value !== null });
+  }
+  /* Anything the profile kept that this robot no longer declares. It cannot be written and it is not a
+   * mistake worth a dialog - it is one row saying this robot does not have that setting. */
+  for (const [key, value] of Object.entries(held)) {
+    if (byKey.has(key)) continue;
+    rows.push({ key, value, entry: null, writable: false, set: true });
+  }
   return {
     rows,
     ready: rows.filter((r) => r.writable).map(({ key, value }) => ({ key, value })),
-    missing: rows.filter((r) => !r.writable).length,
+    missing: rows.filter((r) => r.set && !r.writable).length,
   };
 }

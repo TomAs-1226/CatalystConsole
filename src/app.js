@@ -5748,57 +5748,23 @@ function robotBlock(driver, declared) {
   }
 
   if (!plan.rows.length && linked && declared.length) {
-    block.append(el("div", "dempty", "Nothing yet. Adding a setting takes the value the robot is set to now."));
+    block.append(el("div", "dempty", "This robot declares nothing this console can set."));
   }
 
   const foot = el("div", "drobotfoot");
-  /* Only what the robot is publishing a value for. Adding a setting takes that value, so a key with
-   * nothing behind it could only be added at a number the console made up. */
-  const spare = declared.filter((t) => !(t.key in (driver.robot ?? {})) && liveTunable(t.key) !== null);
-  if (spare.length && plan.rows.length < ROBOT_MAX) {
-    const add = el("select", "dadd");
-    add.setAttribute("aria-label", `Add a robot setting to ${driver.name}`);
-    const hint = new Option("Add a setting…", "");
-    hint.disabled = true;
-    hint.selected = true;
-    add.append(hint);
-    const byGroup = new Map();
-    for (const t of spare) {
-      const group = t.group || "General";
-      if (!byGroup.has(group)) byGroup.set(group, []);
-      byGroup.get(group).push(t);
-    }
-    for (const [group, entries] of byGroup) {
-      const holder = el("optgroup");
-      holder.label = group;
-      for (const t of entries) holder.append(new Option(t.name || leaf(t.key), t.key));
-      add.append(holder);
-    }
-    add.disabled = !linked;
-    add.onchange = () => {
-      const value = liveTunable(add.value);
-      if (add.value && value !== null) {
-        drivers = setRobotSetting(drivers, driver.id, add.value, value);
-        saveDrivers();
-      }
-      paintDrivers();
-    };
-    foot.append(add);
-  }
-
+  /* There is no "add a setting" any more, because there is nothing to add: the robot says which settings
+     exist and every one of them is already a row. Taking the robot's values is what is left - one press
+     to make a profile out of a robot somebody has already tuned by hand. */
+  const takeable = declared.filter((t) => liveTunable(t.key) !== null);
   const take = el("button", "sbtn", "Take from robot");
   take.type = "button";
-  /* Only when there is something to take. A robot that publishes none of this profile's settings gives
-   * this button nothing to copy, and a button that can be pressed and does nothing is worse than one
-   * that is plainly unavailable. */
-  take.disabled = !linked || !plan.rows.some((r) => liveTunable(r.key) !== null);
-  take.title = "Copy what the robot is set to now into this profile";
+  take.disabled = !linked || !takeable.length;
+  take.title = linked && takeable.length
+    ? `Put what the robot is set to now into ${driver.name}`
+    : "Nothing to take: no robot is publishing a value for any of these";
   take.onclick = () => {
     const values = {};
-    for (const row of plan.rows) {
-      const value = liveTunable(row.key);
-      if (value !== null) values[row.key] = value;
-    }
+    for (const t of takeable) values[t.key] = liveTunable(t.key);
     drivers = captureRobot(drivers, driver.id, values);
     saveDrivers();
     paintDrivers();
@@ -5810,30 +5776,38 @@ function robotBlock(driver, declared) {
 
 /** One setting: what this profile holds for it, the control that changes it, and what the robot holds. */
 function robotRow(driver, row, { inUse, linked }) {
-  const { key, value, entry, writable } = row;
+  const { key, entry, writable, set } = row;
   const label = entry?.name || leaf(key);
   const unit = entry?.unit ? ` ${entry.unit}` : "";
   const { min, max, step, places } = tunableRange(entry);
   const line = el("div", "drow");
   line.dataset.robotKey = key;
+  line.dataset.set = String(Boolean(set));
+
+  /* A setting this profile has no opinion about shows what the robot is set to, and moving its control
+   * is what gives the profile one. The alternative - making somebody name a tunable before they can see
+   * it - asks a driver to keep a list the robot is already broadcasting. */
+  const live = liveTunable(key);
+  const value = set ? row.value : live;
 
   const name = el("div", "nm");
   name.append(el("span", null, label));
   name.append(el("small", null, key));
   line.append(name);
 
-  const isSwitch = typeof value === "boolean";
-  /* The profile's own value, which it has whether or not anything is connected - printed to the decimals
-   * the robot's step resolves when there is a robot to say, and exactly as stored when there is not,
-   * because the number of decimals is a fact about the robot rather than about the setting. */
-  const stored = isSwitch ? (value ? "On" : "Off") : entry ? `${value.toFixed(places)}${unit}` : String(value);
-  const readout = el("div", "v", linked && !writable ? "—" : stored);
+  const isSwitch = typeof (set ? row.value : live) === "boolean" || entry?.kind === "bool";
+  const shown = value === null ? "—"
+    : isSwitch ? (value ? "On" : "Off")
+      : entry ? `${Number(value).toFixed(places)}${unit}` : String(value);
+  const readout = el("div", "v", linked && set && !writable ? "—" : shown);
   line.append(readout);
 
+  /* Only a setting the profile actually holds can be taken out of it. */
   const forget = el("button", "dforget");
   forget.type = "button";
-  forget.title = "Take this setting out of the profile";
-  forget.setAttribute("aria-label", `Take ${label} out of ${driver.name}`);
+  forget.hidden = !set;
+  forget.title = "Let this one follow the robot again";
+  forget.setAttribute("aria-label", `Let ${label} follow the robot instead of ${driver.name}`);
   forget.innerHTML = TILE_TOOL_ICONS.remove;
   forget.onclick = () => {
     drivers = setRobotSetting(drivers, driver.id, key, null);
@@ -5850,11 +5824,18 @@ function robotRow(driver, row, { inUse, linked }) {
     return line;
   }
 
-  if (!writable) {
+  if (set && !writable) {
     /* A profile filled in on the practice bot, used on the competition bot. The setting is kept and
      * shown as a dash rather than hidden or guessed at: it says this robot has no such thing, which is
      * a fact, where a number in that space would be a fiction about a robot that never declared it. */
     line.append(el("div", "dmiss", "This robot does not publish it."));
+    return line;
+  }
+
+  if (value === null) {
+    /* Declared, but the robot has not published a value for it yet. There is nothing to put on a control
+       and nothing this console could put there that would not be made up. */
+    line.append(el("div", "dmiss", "The robot has not published a value for this yet."));
     return line;
   }
 

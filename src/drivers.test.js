@@ -159,11 +159,33 @@ test("only what this robot declared is written, and what it did not is counted, 
   const plan = robotPlan(driver, DECLARED);
   assert.deepEqual(plan.ready, [{ key: DEADBAND, value: 0.07 }]);
   assert.equal(plan.missing, 1);
-  /* The row stays: a profile carrying a setting this robot has no idea about is worth seeing as a dash,
-     because the alternative is the setting quietly disappearing on the one robot that lacks it. */
-  assert.equal(plan.rows.length, 2);
-  assert.equal(plan.rows[1].entry, null);
+  /* Three rows for two settings and one leftover: everything the robot declares is a row whether or not
+     this profile has an opinion about it - the robot is what says which settings exist, and a driver
+     should not have to name a tunable to find it - and the profile's own leftover is a row as well. */
+  assert.equal(plan.rows.length, 3);
+  /* Declared and held. */
+  assert.equal(plan.rows[0].key, DEADBAND);
+  assert.equal(plan.rows[0].set, true);
+  assert.equal(plan.rows[0].writable, true);
+  /* Declared and not held: shown, following whatever the robot has, and not written on a switch. */
+  assert.equal(plan.rows[1].key, ASSIST);
+  assert.equal(plan.rows[1].set, false);
+  assert.equal(plan.rows[1].value, null);
   assert.equal(plan.rows[1].writable, false);
+  /* Held and no longer declared. The row stays: a profile carrying a setting this robot has no idea
+     about is worth seeing as a dash, because the alternative is it quietly disappearing on the one
+     robot that lacks it. */
+  assert.equal(plan.rows[2].key, SLEW);
+  assert.equal(plan.rows[2].entry, null);
+  assert.equal(plan.rows[2].writable, false);
+  assert.equal(plan.rows[2].set, true);
+});
+
+test("a profile that has set nothing still sees every setting the robot has", () => {
+  const plan = robotPlan(makeDriver({ name: "New" }), DECLARED);
+  assert.equal(plan.rows.length, 2);
+  assert.deepEqual(plan.ready, [], "and writes none of them, because it has no opinion about any");
+  assert.equal(plan.missing, 0, "nothing is missing: it is simply following the robot");
 });
 
 test("a setting whose topic has changed type on the robot is not written", () => {
