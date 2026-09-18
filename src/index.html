@@ -120,6 +120,10 @@
           <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
           <div class="pcard"><small>Health</small><b id="parkHealth">—</b><span id="parkHealthSub"></span></div>
           <div class="pcard"><small>Last drive</small><b id="parkDrive">—</b><span id="parkDriveSub"></span></div>
+          <!-- The robot's own pre-match check, when it has one: the result, and a page with every test. -->
+          <button type="button" class="pcard pcheck" id="parkCheck" data-part="check" hidden aria-expanded="false">
+            <small>Pre-match check</small><b id="parkCheckState">—</b><span id="parkCheckSub"></span>
+          </button>
         </div>
         <button class="park-dash" id="parkDash" title="Show the dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1.6"/><rect x="13" y="4" width="7" height="5" rx="1.6"/><rect x="13" y="11" width="7" height="9" rx="1.6"/><rect x="4" y="15" width="7" height="5" rx="1.6"/></svg>
@@ -313,7 +317,7 @@
           Dashboard
         </button>
         <button class="snav" role="tab" id="snav-drivers" aria-controls="ssec-drivers" data-sec="drivers" aria-selected="false" tabindex="-1">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4 0-7 2-7 4.5V21h14v-2.5C19 16 16 14 12 14Z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.8 20.5c.6-3.7 3.5-6 7.2-6s6.6 2.3 7.2 6"/></svg>
           Drivers
         </button>
         <button class="snav" role="tab" id="snav-data" aria-controls="ssec-data" data-sec="data" aria-selected="false" tabindex="-1">
@@ -354,6 +358,13 @@
         <section class="ssec" role="tabpanel" id="ssec-core" aria-labelledby="snav-core" data-sec="core">
           <h2 class="stitle">Systemcore</h2>
           <p class="slead">What the computer running your robot says about itself.</p>
+
+          <!-- The machine itself: the model its own web interface draws, read out of the OS image at
+               build time (npm run device-cad). Hidden when the build had no image to read. -->
+          <figure class="corehero" id="coreHero" hidden>
+            <canvas id="coreCanvas" aria-hidden="true"></canvas>
+            <figcaption class="gpartwho"><b>Systemcore</b><span id="coreHeroNote"></span></figcaption>
+          </figure>
 
           <div class="core" id="core" data-live="false">
 
@@ -544,7 +555,7 @@
                the empty state, and a group whose keys are absent does not appear at all. -->
           <div class="garage" id="garage" data-known="false">
             <figure class="gplan">
-              <canvas id="garagePlan" width="600" height="420" aria-labelledby="gName"></canvas>
+              <canvas id="garagePlan" aria-labelledby="gName"></canvas>
               <figcaption id="gPlanNote"></figcaption>
             </figure>
 

@@ -17,7 +17,7 @@
 
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
-import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide } from "./devices.js";
+import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide, systemChecks } from "./devices.js";
 /* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
    every transition in this program; this is the one thing it cannot do — answer a press at the point
    it was pressed. */
@@ -28,7 +28,8 @@ import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
-import { loadDevices } from "./device3d.js";
+import { createDeviceStage, deviceById, loadDevices } from "./device3d.js";
+import { createRobotModel, normalizeRobot } from "./robot3d.js";
 import {
   addDriver, activeDriver, capture, captureRobot, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
   makeDriver, readDrivers, removeDriver, robotPlan, ROBOT_MAX, setRobotSetting, switchDriver,
@@ -513,6 +514,14 @@ function demoTick() {
       { control: "X", action: "Home the hood and the intake", controller: "Operator" },
       { control: "Left bumper + Start", action: "Re-home everything", controller: "Operator", combo: true },
     ]));
+
+    /* The demo robot's pre-match check, as Catalyst's SystemCheck publishes a finished run. */
+    const checks = ["Front left drive on bus", "Front right drive on bus", "Back left drive on bus",
+      "Back right drive on bus", "Pigeon on bus", "Battery above 12.0 V", "limelight-shooter on NetworkTables",
+      "PathPlanner configured", "All four wheels drive forward"];
+    for (const test of checks) set(`/Catalyst/SystemCheck/PreMatch/${test}`, "str", "PASS");
+    set("/Catalyst/SystemCheck/PreMatch/Ready", "bool", true);
+    set("/Catalyst/SystemCheck/PreMatch/Report", "str", `READY ✓\n${checks.map((t) => `  PASS  ${t}`).join("\n")}\n`);
   }
 
   set("/Auto Selector/options", "strs",
@@ -825,23 +834,6 @@ const TOK = readTokens({
   // neutral, because painting data in --cat-ok spends the colour that is supposed to mean healthy.
   data: "--cat-data",
 });
-
-/* The robot plan's materials: the machine Park draws, seen from above, so its shell, deck and tyres
-   are named under the garage in styles.css (`--plan-*`) rather than taken from the drawn marks the
-   field scene lights its own robot with. `light` and `shade` arrive as bare channels so a ramp can set
-   its own alpha without a token per stop. */
-const PLAN = readTokens({
-  shell: "--plan-shell",
-  shellLit: "--plan-shell-lit",
-  deck: "--plan-deck",
-  deckDark: "--plan-deck-dark",
-  tyre: "--draw-tyre",
-  tyreLit: "--draw-tyre-lit",
-  light: "--draw-light",
-  shade: "--draw-shade",
-});
-const lightAt = (alpha) => `rgb(${PLAN.light} / ${alpha})`;
-const shadeAt = (alpha) => `rgb(${PLAN.shade} / ${alpha})`;
 
 /* A rolling trace, drawn the way Tesla draws its energy graph: a thin line, a wash under it that is
  * gone well before the floor, and a light on the newest sample so the eye lands where the reading is.
@@ -5008,6 +5000,26 @@ const PART_PAGES = {
       ["Size", ctx.size ? `${ctx.size[0].toFixed(2)} × ${ctx.size[1].toFixed(2)} m` : "—"],
     ],
   },
+  check: {
+    kind: "Pre-match",
+    title: "Pre-match check",
+    lede: "The robot's own checklist, written into its code: every device answering, the battery, and whatever "
+      + "else its team decided a robot must pass before it plays. Some checks move a mechanism to prove it "
+      + "works, so it runs only with the robot enabled - choose its utility mode in the Driver Station, "
+      + "\"System check\" on most robots, and enable. The console only reads the results; it cannot start the "
+      + "check, because starting it means enabling the robot.",
+    rows: (ctx) => {
+      const check = ctx.check;
+      if (!check) return [["Result", "not published"]];
+      const result = check.running ? "Running…" : check.ready === true ? "Ready" : check.ready === false
+        ? `${check.tests.filter((t) => !t.pass).length} failing` : "No result yet";
+      return [
+        ["Check", check.name],
+        ["Result", result, check.running ? "" : check.ready === false ? "fail" : ""],
+        ...check.tests.map((t) => [t.test, t.pass ? "Passed" : t.detail ? `Failed · ${t.detail}` : "Failed", t.pass ? "pass" : "fail"]),
+      ];
+    },
+  },
   controller: {
     kind: "Control system",
     title: "Robot controller",
@@ -5048,7 +5060,15 @@ function partContext() {
     /* Demo data has no round trip, and a zero there would be the console inventing a number about
        itself. */
     rtt: nt.status.connected && nt.status.rtt_ms ? nt.status.rtt_ms : null,
+    check: linked ? latestSystemCheck() : null,
   };
+}
+
+/** The robot's pre-match check to show: the one with a result, or the first published. Robots with more
+ *  than one are rare, and the one somebody ran last is the one they want to read. */
+function latestSystemCheck() {
+  const checks = systemChecks(ntView);
+  return checks.find((c) => c.running) ?? checks.find((c) => c.tests.length) ?? checks[0] ?? null;
 }
 
 function paintPart() {
@@ -5065,15 +5085,17 @@ function paintPart() {
   $("#parkPartLede").textContent = page.lede;
   const rows = $("#parkPartRows");
   rows.textContent = "";
-  for (const [label, value] of page.rows(partContext())) {
+  for (const [label, value, state] of page.rows(partContext())) {
     const row = document.createElement("div");
     const dt = document.createElement("dt");
     dt.textContent = label;
     const dd = document.createElement("dd");
     dd.textContent = value;
+    if (state) dd.dataset.state = state;
     row.append(dt, dd);
     rows.append(row);
   }
+  $("#parkCheck")?.setAttribute("aria-expanded", String(openPart === "check"));
 }
 
 /** Open a part's page, or close the one that is open when it is pressed again. */
@@ -5087,6 +5109,8 @@ function wireParts() {
     button.onclick = () => showPart(button.dataset.part);
   }
   $("#parkPartClose").onclick = () => showPart(null);
+  const check = $("#parkCheck");
+  if (check) check.onclick = () => showPart("check");
 }
 
 /* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
@@ -5133,6 +5157,7 @@ function paintParkInfo() {
   }
 
   const summary = linked ? deviceSummary(ntView) : null;
+  const systemCheck = linked ? latestSystemCheck() : null;
   /* Ready for the match: a green word when every check passes, otherwise the ones that do not, in the
      order a drive team would see to them. */
   const readiness = linked
@@ -5142,8 +5167,27 @@ function paintParkInfo() {
         guide: startGuide(ntView),
         auto: has("/Auto Selector/options") ? (str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", "")) : null,
         errors: (arr("/Catalyst/Alerts/Errors") || []).length,
+        systemCheck,
       })
     : null;
+
+  /* The pre-match check's card, only for a robot that has one. */
+  const checkCard = $("#parkCheck");
+  if (checkCard.hidden !== !systemCheck) {
+    checkCard.hidden = !systemCheck;
+    changed = true;
+  }
+  if (systemCheck) {
+    const failing = systemCheck.tests.filter((t) => !t.pass);
+    const state = systemCheck.running ? "running" : systemCheck.ready === true ? "pass"
+      : systemCheck.ready === false || failing.length ? "fail" : "none";
+    if (checkCard.dataset.state !== state) checkCard.dataset.state = state;
+    setText("#parkCheckState", state === "running" ? "Running…" : state === "pass" ? "Passed"
+      : state === "fail" ? `${failing.length} failing` : "Not run yet");
+    setText("#parkCheckSub", state === "fail" && failing[0] ? failing[0].test
+      : systemCheck.tests.length ? `${systemCheck.tests.length - failing.length} of ${systemCheck.tests.length} passed`
+      : "Utility mode · System check");
+  }
   const readyEl = $("#parkReady");
   if (readyEl.hidden !== !readiness) {
     readyEl.hidden = !readiness;
@@ -5338,6 +5382,8 @@ function candidateAddresses(team) {
     ["127.0.0.1", "this machine, for simulation"],
     ["robot.local", "Systemcore's mDNS name"],
     ["172.26.0.1", "Systemcore over USB"],
+    ["172.30.0.1", "Systemcore's own Wi-Fi"],
+    ["172.27.0.1", "Systemcore over USB, from a Mac or Linux"],
     [known ? `10.${Math.floor(team / 100)}.${team % 100}.2` : "10.TE.AM.2", "the pit's static IP"],
     [`roborio-${known ? team : "TEAM"}-frc.local`, "a roboRIO's mDNS name"],
     ["172.22.11.2", "a roboRIO over USB"],
@@ -6413,12 +6459,22 @@ function showSection(name) {
   $("#spane").scrollTop = 0;
   driverSection(name === "drivers");
   devicePart?.setActive(name === "devices");
+  garageStage?.setActive(name === "robot");
+  coreStage?.setActive(name === "core");
   paintSettings();
 }
 
 function setSettings(open, section) {
   const root = $("#settings");
-  if (!open) { root.dataset.open = "false"; return; }
+  if (!open) {
+    root.dataset.open = "false";
+    /* A closed panel draws nothing: every stage in it stops where it is. */
+    driverSection(false);
+    devicePart?.setActive(false);
+    garageStage?.setActive(false);
+    coreStage?.setActive(false);
+    return;
+  }
 
   if (!settingsRefs) buildSettings();
   /* A filter left up from last time would have the panel open on a search nobody is running. */
@@ -6578,145 +6634,82 @@ const SPEC_GROUPS = [
   ]],
 ];
 
-/* A plan of this robot, to scale, from the figures on the wire. Bumpers, frame and module positions
- * are each drawn only if the robot published them, so a partial sheet gives a partial drawing rather
- * than a confident wrong one. Nose points up, which is +x in WPILib's frame.
+/* ---- the robot on its spec sheet ----
  *
- * Rendered rather than diagrammed: this is the one place in the program that is allowed to be a
- * picture of your robot, and a hairline outline does not read as one. Everything it draws is still
- * a published measurement — what is invented here is the lighting, not the geometry. */
-function drawPlan(canvas) {
-  const frameL = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`);
-  const frameW = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
-  const bumpL = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`);
-  const bumpW = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
-  const mods = arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`);
+ * The sheet used to draw a plan of the robot: a rectangle for the bumpers, another for the frame, four
+ * marks for the modules. It was drawn from the figures on the wire rather than from a stock picture,
+ * which was the right idea, and a top-down rectangle is still the least the console can say about a
+ * machine it has a model of. So it shows the robot - the same model the Park view draws, from the same
+ * published dimensions, standing on Park's floor under Park's studio.
+ *
+ * It is the stage the Devices section stands a Limelight on, because a part on a stage and a robot on a
+ * stage are the same thing at different sizes. It comes to rest off the front-left corner, the angle
+ * Park photographs it from, turns when it is dragged, and draws nothing while it is still.
+ *
+ * Deliberately not the alliance colour: alliance is match state and flips between matches, and this card
+ * describes the machine. It does carry the team number, which is the machine's.
+ */
+let garageStage = null;
+let garageRobot = null;
+let garageSpec = "";
+let garageTeam = undefined;
 
-  /* The module ring alone is enough to draw something true, so a team that declared no frame size
-   * still gets their own wheel layout rather than nothing. */
-  const span = mods && mods.length >= 2
-    ? [Math.max(...mods.filter((_, i) => i % 2 === 0).map(Math.abs)) * 2,
-       Math.max(...mods.filter((_, i) => i % 2 === 1).map(Math.abs)) * 2]
-    : null;
-  const outerL = bumpL || frameL || (span && span[0]);
-  const outerW = bumpW || frameW || (span && span[1]);
-  if (!outerL || !outerW) return false;
+/* Park's resting angle (YAW_DEFAULT in park3d.js): the stage turned so the front-left corner faces the
+   lens, 38 degrees round from the nose. */
+const GARAGE_REST = -(Math.PI / 2 + 0.66);
 
-  const dpr = Math.min(devicePixelRatio || 1, 3);
-  const cw = canvas.clientWidth || 300, ch = canvas.clientHeight || 210;
-  canvas.width = Math.round(cw * dpr);
-  canvas.height = Math.round(ch * dpr);
-  const g = canvas.getContext("2d");
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, cw, ch);
+function garageShow() {
+  garageStage?.showModel(garageRobot.root, {
+    lights: garageRobot.lights,
+    step: (now) => garageRobot.step(now),
+    rest: GARAGE_REST,
+    grid: true,
+    margin: 0.9,
+  });
+}
 
-  const pad = 44;
-  const scale = Math.min((cw - pad * 2) / outerW, (ch - pad * 2) / outerL);
-  const cx = cw / 2, cy = ch / 2;
-  /* Robot +x is forward and +y is to the left; screen y grows downward. */
-  const px = (x, y) => [cx - y * scale, cy - x * scale];
-  const box = (lengthM, widthM) => [cx - (widthM * scale) / 2, cy - (lengthM * scale) / 2,
-                                     widthM * scale, lengthM * scale];
-
-  /* Deliberately not the alliance colour. Alliance is match state — it flips between matches and a
-   * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
-   * colour depending on when you happened to open it. This card describes the machine, and the
-   * machine is the same robot on either side: the dark shell Park draws it in before it knows. */
-  const bumper = PLAN.shell;
-  const bumperLit = PLAN.shellLit;
-
-  const outer = box(outerL, outerW);
-  const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
-
-  g.save();
-  g.shadowColor = shadeAt(0.6);
-  g.shadowBlur = 24;
-  g.shadowOffsetY = 10;
-
-  if (bumpL && bumpW) {
-    /* Bumpers first and filled, because on a real robot they are the outline anyone recognises. */
-    const grad = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
-    grad.addColorStop(0, bumperLit);
-    grad.addColorStop(1, bumper);
-    g.fillStyle = grad;
-    g.beginPath(); g.roundRect(...outer, radius); g.fill();
-  } else {
-    /* No bumper figures, so nothing is drawn as though there were: the frame carries the silhouette
-     * and the dashed edge says the outer dimension is not known. */
-    g.strokeStyle = lightAt(0.2); g.lineWidth = 1.5; g.setLineDash([6, 5]);
-    g.beginPath(); g.roundRect(...outer, radius); g.stroke();
-    g.setLineDash([]);
+function paintGarageModel() {
+  const canvas = $("#garagePlan");
+  if (!canvas) return false;
+  const spec = robotSpecFromWire();
+  if (!spec) return false;
+  if (!garageStage) {
+    /* Made the first time there is a robot to draw, not when the panel opens. */
+    garageStage = createDeviceStage(canvas, {
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+    garageRobot = createRobotModel({ maxAnisotropy: garageStage.maxAnisotropy });
+    garageRobot.setEnvironment(garageStage.environment);
+    /* The team's CAD arrives after the first build and the numbers print once their font loads, so the
+       robot is measured and framed again whenever the model changes on its own. */
+    garageRobot.onChange(garageShow);
   }
-  g.restore();
-
-  if (bumpL && bumpW) {
-    /* A dark shell on a dark card is found by its edge, the way Park's is: a hairline of light round
-     * the rim, brightest along the top where the light lands and all but gone at the bottom. */
-    const rim = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
-    rim.addColorStop(0, lightAt(0.26));
-    rim.addColorStop(0.5, lightAt(0.08));
-    rim.addColorStop(1, lightAt(0.04));
-    g.strokeStyle = rim; g.lineWidth = 1;
-    g.beginPath(); g.roundRect(outer[0] + 0.5, outer[1] + 0.5, outer[2] - 1, outer[3] - 1, radius); g.stroke();
+  const signature = JSON.stringify(spec);
+  if (signature !== garageSpec) {
+    garageSpec = signature;
+    garageRobot.setSpec(normalizeRobot(spec));
+    garageShow();
   }
-
-  if (frameL && frameW) {
-    const inner = box(frameL, frameW);
-    const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
-    /* The frame deck, as brushed plate: lit from the top left and falling to a darker grey, sitting a
-     * little into the shell rather than on top of it. */
-    g.save();
-    g.shadowColor = shadeAt(0.55); g.shadowBlur = 8;
-    const deck = g.createLinearGradient(inner[0], inner[1], inner[0] + inner[2], inner[1] + inner[3]);
-    deck.addColorStop(0, PLAN.deck);
-    deck.addColorStop(1, PLAN.deckDark);
-    g.fillStyle = deck;
-    g.beginPath(); g.roundRect(...inner, ir); g.fill();
-    g.restore();
-    /* The grain runs along the robot's length. Fixed, not random: this repaints ten times a second
-     * while the page is open, and a random grain would crawl. */
-    g.save();
-    g.beginPath(); g.roundRect(...inner, ir); g.clip();
-    for (let i = 0, x = inner[0]; x < inner[0] + inner[2]; i++, x += 1.5) {
-      const n = (Math.imul(i + 1, 2654435761) >>> 0) / 4294967296;
-      g.fillStyle = n > 0.5 ? lightAt(0.035 * (n - 0.5)) : shadeAt(0.07 * (0.5 - n));
-      g.fillRect(x, inner[1], 1, inner[3]);
-    }
-    g.restore();
-    g.strokeStyle = lightAt(0.14); g.lineWidth = 1;
-    g.beginPath(); g.roundRect(inner[0] + 0.5, inner[1] + 0.5, inner[2] - 1, inner[3] - 1, ir); g.stroke();
+  const team = num(`${SPEC_ROOT}Identity/TeamNumber`, null);
+  if (team !== garageTeam) {
+    garageTeam = team;
+    garageRobot.setTeamNumber(team);
   }
-
-  if (mods && mods.length >= 2) {
-    /* Wheels, oriented fore-aft, sized off the published radius when there is one. */
-    const wr = num(`${SPEC_ROOT}Drivetrain/WheelRadiusMeters`);
-    const wl = (wr ? wr * 2 * scale : 22), ww = Math.max(7, wl * 0.34);
-    for (let i = 0; i + 1 < mods.length; i += 2) {
-      const [sx, sy] = px(mods[i], mods[i + 1]);
-      g.save();
-      g.shadowColor = shadeAt(0.5); g.shadowBlur = 7;
-      const tyre = g.createLinearGradient(sx - ww / 2, 0, sx + ww / 2, 0);
-      tyre.addColorStop(0, PLAN.tyre);
-      tyre.addColorStop(0.45, PLAN.tyreLit);
-      tyre.addColorStop(1, PLAN.tyre);
-      g.fillStyle = tyre;
-      g.beginPath(); g.roundRect(sx - ww / 2, sy - wl / 2, ww, wl, ww / 2.4); g.fill();
-      g.restore();
-    }
-  }
-
-  /* Which way is forward. A brighter band across the front bumper rather than a floating arrow —
-   * it reads at a glance and it is where a team paints their number. Soft, on a dark shell. */
-  g.save();
-  g.beginPath(); g.roundRect(...outer, radius); g.clip();
-  const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
-  nose.addColorStop(0, lightAt(0.16));
-  nose.addColorStop(1, lightAt(0));
-  g.fillStyle = nose;
-  g.fillRect(outer[0], outer[1], outer[2], 16);
-  g.restore();
-
+  garageStage.setActive(currentSection === "robot" && $("#settings").dataset.open === "true");
   return true;
+}
+
+/** What the robot says its own size is, or null when it has not said. */
+function robotSpecFromWire() {
+  const spec = {
+    bumperLength: num(`${SPEC_ROOT}Chassis/BumperLengthMeters`, null),
+    bumperWidth: num(`${SPEC_ROOT}Chassis/BumperWidthMeters`, null),
+    frameLength: num(`${SPEC_ROOT}Chassis/FrameLengthMeters`, null),
+    frameWidth: num(`${SPEC_ROOT}Chassis/FrameWidthMeters`, null),
+    modules: arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`) || null,
+  };
+  const known = Object.values(spec).some((v) => v !== null && !(Array.isArray(v) && v.length < 2));
+  return known ? spec : null;
 }
 
 function paintGarage() {
@@ -6732,7 +6725,7 @@ function paintGarage() {
   $("#gSub").textContent = [team && `Team ${team}`, season && String(season), rio].filter(Boolean).join("  ·  ") || "";
 
   const plan = $("#garagePlan");
-  const drew = drawPlan(plan);
+  const drew = paintGarageModel();
   plan.parentElement.style.display = drew ? "" : "none";
   /* The card is lit for a picture. A robot that published a name and no geometry is the ordinary
    * case, not a broken one, so the lighting goes with the drawing rather than hanging over a gap. */
@@ -7054,6 +7047,40 @@ async function pollAgent() {
 setInterval(() => {
   if ($("#settings").dataset.open === "true" && currentSection === "core") pollAgent();
 }, AGENT_POLL_MS);
+
+/* ---- the Systemcore itself ----
+ *
+ * The page opens on the machine it describes, the way Tesla's screens open on the car. Limelight
+ * publishes no CAD for it, so the model is the one the board's own web interface turns on its IMU page,
+ * read out of the OS image when the console is built (see device3d.js). A console built without the
+ * image shows the page without the picture. It is the same for every Systemcore, so it is drawn whether
+ * or not one is connected: it answers "which part is this", not "how is it doing".
+ */
+let coreStage = null;
+let coreHero = null;
+
+function paintCoreHero() {
+  const wanted = currentSection === "core" && $("#settings").dataset.open === "true";
+  if (coreHero) {
+    coreStage?.setActive(wanted);
+    return;
+  }
+  coreHero = (async () => {
+    deviceManifest ??= await loadDevices();
+    const device = deviceById(deviceManifest, "systemcore");
+    const holder = $("#coreHero");
+    if (!device || !holder) return;
+    coreStage = createDeviceStage($("#coreCanvas"), {
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+    holder.hidden = false;
+    const ok = await coreStage.show(device);
+    holder.hidden = !ok;
+    if (!ok) return;
+    $("#coreHeroNote").textContent = partSize(device);
+    coreStage.setActive(currentSection === "core" && $("#settings").dataset.open === "true");
+  })();
+}
 
 function paintCore() {
   /* buildSettings already collected every [data-x] in the settings tree, and this section is
@@ -7514,10 +7541,14 @@ async function paintCameraPart(names) {
   if (!ok) return;
   devicePart.setActive(currentSection === "devices" && $("#settings").dataset.open === "true");
   $("#gCamPartName").textContent = name;
-  /* Its real size, because the point of drawing the part is that somebody can match it to the one in
-     their hand. */
-  const mm = device.sizeMm ? `${device.sizeMm.map((v) => Math.round(v)).join(" × ")} mm` : "";
-  $("#gCamPartNote").textContent = [device.name, mm].filter(Boolean).join(" · ");
+  $("#gCamPartNote").textContent = [device.name, partSize(device)].filter(Boolean).join(" · ");
+}
+
+/** A part's real size, longest side first, because the point of drawing the part is that somebody can
+ *  match it to the one in their hand - and nobody measures a box in the order its CAD was drawn. */
+function partSize(device) {
+  if (!Array.isArray(device?.sizeMm) || device.sizeMm.length !== 3) return "";
+  return `${[...device.sizeMm].sort((a, b) => b - a).map((v) => Math.round(v)).join(" × ")} mm`;
 }
 
 function paintDevices() {
@@ -7644,7 +7675,10 @@ function paintSettings() {
 
   if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
   if (currentSection === "drivers") syncDrivers();
-  if (currentSection === "core") paintCore();
+  if (currentSection === "core") {
+    paintCoreHero();
+    paintCore();
+  }
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
 

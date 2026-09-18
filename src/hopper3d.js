@@ -3,8 +3,11 @@
  * The hopper shows as many balls as the hopper estimate says it holds (see mechanisms.js createHopper), in
  * the places the robot's CAD analysis packed. A ball the robot takes in rolls off the carpet in front of
  * the intake, under its front roller and up into the pile; a ball fed to the shooter leaves from the place
- * nearest the feeder, and the rest of the pile moves up behind it the way a conveyor advances a queue. Like
- * the shots, it is a picture of what the estimate says, not a simulation of how the balls move.
+ * nearest the feeder, goes over the feeder roller and up the hood to where it leaves the robot, and the
+ * rest of the pile moves up behind it the way a conveyor advances a queue. The field view launches the shot
+ * from that exit as the ball arrives there, so it is one ball the whole way rather than one that vanishes
+ * into the feeder and another that appears at the hood. Like the shots, it is a picture of what the
+ * estimate says, not a simulation of how the balls move.
  *
  * Where a ball settles depends on where the intake is, so the CAD analysis measured the packing twice -
  * with the intake in and with it out - and a place is drawn between its two answers as the intake slides.
@@ -16,13 +19,16 @@
  */
 
 import * as THREE from "./vendor/three.module.min.js";
-import { FUEL_DIAMETER_M } from "./mechanisms.js";
+import { FEED_TRAVEL_S, FUEL_DIAMETER_M } from "./mechanisms.js";
 
 const RADIUS = FUEL_DIAMETER_M / 2;
 /* A pickup: rolled in under the front roller, then carried up into its place. */
 const ARRIVE_S = 0.55;
 const ROLL_IN = 0.3;
-/* Into the feeder. */
+/* A ball fed to the shooter: carried to the feeder roller, then pulled up the hood to where it leaves.
+   The share of the trip spent reaching the feeder; the flywheel does the rest far faster. */
+const TO_FEEDER = 0.62;
+/* With no shooter exit to go to, the old trip: into the feeder, shrinking as it goes in. */
 const LEAVE_S = 0.2;
 /* The pile moving up a place behind a ball that has gone. */
 const ADVANCE_S = 0.22;
@@ -100,7 +106,7 @@ const smooth = (u) => {
  * `places` are where balls settle, by rank, from `pairPlaces`: `{ at, out }` in the robot frame, either
  * of them [x, y, z] or null. `mouth` is where balls come in from - the front of the intake's lowest
  * roller at ball height - and `feeder` where they leave to. Returns
- * { root, setCount, setIntake, step, count, capacity, setColour, dispose }.
+ * { root, setCount, setIntake, setExit, step, count, capacity, setColour, dispose }.
  */
 export function createHopperBalls({ places: given, mouth, feeder, colour = "#a8913e", material: givenMaterial = null }) {
   const places = given.filter((p) => p && (p.at || p.out));
@@ -137,9 +143,31 @@ export function createHopperBalls({ places: given, mouth, feeder, colour = "#a89
   root.add(mesh);
 
   /* The balls in the pile, nearest the feeder first: { rank, since, lane, from, moved }. Balls on their way
-     into the feeder are kept apart: { at, since }. */
+     to the shooter are kept apart: { at, since }. */
   let pile = [];
   let leaving = [];
+  /* Where a fed ball leaves the robot, from the hood as it is posed now, and how wide the exit is. Null
+     for a robot whose shooter this model does not know, which feeds the old way. */
+  let exit = null;
+  let exitHalfWidth = 0;
+  const travelS = () => (exit ? FEED_TRAVEL_S : LEAVE_S);
+
+  /* A fed ball's trip. It keeps its place across the robot - the shooter takes four abreast - but no wider
+     than the exit, eases over to the feeder roller and is then pulled up the hood, quicker as it goes. */
+  function fedAt(ball, u) {
+    if (!exit) {
+      const k = smooth(u);
+      return { at: [ball.at[0] + (feeder[0] - ball.at[0]) * k, ball.at[1] + (feeder[1] - ball.at[1]) * k, ball.at[2] + (feeder[2] - ball.at[2]) * k], scale: 1 - k * 0.6 };
+    }
+    const across = Math.min(exitHalfWidth, Math.max(-exitHalfWidth, ball.at[2]));
+    const over = [feeder[0], feeder[1], across];
+    if (u < TO_FEEDER) {
+      const k = smooth(u / TO_FEEDER);
+      return { at: [ball.at[0] + (over[0] - ball.at[0]) * k, ball.at[1] + (over[1] - ball.at[1]) * k, ball.at[2] + (over[2] - ball.at[2]) * k], scale: 1 };
+    }
+    const k = ((u - TO_FEEDER) / (1 - TO_FEEDER)) ** 1.4;
+    return { at: [over[0] + (exit[0] - over[0]) * k, over[1] + (exit[1] - over[1]) * k, across], scale: 1 };
+  }
   let lastArrival = -Infinity;
   let arrivals = 0;
   const matrix = new THREE.Matrix4();
@@ -224,7 +252,7 @@ export function createHopperBalls({ places: given, mouth, feeder, colour = "#a89
 
   function step(now) {
     let moving = false;
-    leaving = leaving.filter((ball) => (now - ball.since) / 1000 < LEAVE_S);
+    leaving = leaving.filter((ball) => (now - ball.since) / 1000 < travelS());
     let i = 0;
     for (const ball of pile) {
       const shown = drawn(ball, now);
@@ -234,9 +262,9 @@ export function createHopperBalls({ places: given, mouth, feeder, colour = "#a89
       mesh.setMatrixAt(i++, matrix.compose(place, still, size));
     }
     for (const ball of leaving) {
-      const u = smooth((now - ball.since) / 1000 / LEAVE_S);
-      place.set(ball.at[0] + (feeder[0] - ball.at[0]) * u, ball.at[1] + (feeder[1] - ball.at[1]) * u, ball.at[2] + (feeder[2] - ball.at[2]) * u);
-      size.setScalar(1 - u * 0.6);
+      const fed = fedAt(ball, Math.min(1, (now - ball.since) / 1000 / travelS()));
+      place.set(fed.at[0], fed.at[1], fed.at[2]);
+      size.setScalar(fed.scale);
       mesh.setMatrixAt(i++, matrix.compose(place, still, size));
       moving = true;
     }
@@ -254,6 +282,12 @@ export function createHopperBalls({ places: given, mouth, feeder, colour = "#a89
     setIntake(nextExtension, nextMouth) {
       extension = Math.min(1, Math.max(0, Number(nextExtension) || 0));
       if (nextMouth) entry = [nextMouth[0], nextMouth[1], nextMouth[2]];
+    },
+    /** Where a fed ball leaves the robot - `point` [x, y, z] and the exit's `width` - from the hood as it
+     *  is posed now; null to feed into the feeder and no further. */
+    setExit(next) {
+      exit = next?.point ? [next.point[0], next.point[1], next.point[2]] : null;
+      exitHalfWidth = Math.max(0, (Number(next?.width) || 0.4) / 2 - RADIUS);
     },
     /** How many balls the hopper can show, and how many of those it has room for right now. */
     get capacity() {

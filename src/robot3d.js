@@ -674,6 +674,8 @@ function buildCadRobot(asset, spec, mat, keep, restyle, fuel) {
       /* How far out the intake is, as a share of the travel the deployed packing was measured at. */
       const travel = carriedFrom || m.intake.travel || 0.3;
       hopperBalls.setIntake(state.deploy / travel, intakeMouth(m, state.deploy));
+      /* Fed balls go up the hood to where the shot leaves, which moves with the hood. */
+      if (m.shooter?.exit) hopperBalls.setExit(shooterExit(m, state.hood));
       const share = Number.isFinite(hopperShare) ? Math.min(1, Math.max(0, hopperShare)) : 0;
       hopperBalls.setCount(Math.round(share * hopperBalls.capacity), now);
       if (hopperBalls.step(now)) moving = true;
@@ -864,6 +866,25 @@ export function studioEnvironment(renderer) {
   return target;
 }
 
+/**
+ * The studio's lights, for a camera on the scene's +z side: a low ambient, so the side away from the
+ * lights falls toward black the way a car's does on a stage; a key from above the camera's left
+ * shoulder; a cool rim from behind that draws the outline. Most of what lights metal is the studio
+ * reflections, not these. Every stage in the console lights with this one rig, so a Limelight on its
+ * turntable is lit like the robot it is bolted to.
+ */
+export function studioLights() {
+  const lights = new THREE.Group();
+  lights.name = "studio";
+  lights.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.15));
+  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  key.position.set(-2.2, 5, 3.4);
+  const rim = new THREE.DirectionalLight(0xdae3f4, 2.2);
+  rim.position.set(2.4, 3.2, -5);
+  lights.add(key, rim);
+  return lights;
+}
+
 /* ---- the model ---- */
 
 /* How long the bumpers take to change colour when the alliance does. */
@@ -981,17 +1002,8 @@ export function createRobotModel(opts = {}) {
      the robot with this one rig and turn it with their camera's heading (see aim), so the robot is lit
      the same way however it is seen, and the frame the field view takes it over from the Park stage is
      the same picture in both. Two rigs - a showroom's on the stage, a field's on the tile - made the
-     robot change colour at the handover. A low ambient, so the side away from the lights falls toward
-     black the way a car's does on a stage; a key from above the camera's left shoulder; a cool rim from
-     behind that draws the outline. Most of the metal's light is the studio reflections. */
-  const lights = new THREE.Group();
-  lights.name = "studio";
-  lights.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.15));
-  const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
-  keyLight.position.set(-2.2, 5, 3.4);
-  const rimLight = new THREE.DirectionalLight(0xdae3f4, 2.2);
-  rimLight.position.set(2.4, 3.2, -5);
-  lights.add(keyLight, rimLight);
+     robot change colour at the handover. See studioLights for the rig itself. */
+  const lights = studioLights();
   let aimed = 0;
 
   /* The CAD's materials, restyled once each for this model: the same classes the pipeline names, with the

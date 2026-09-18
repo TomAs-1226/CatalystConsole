@@ -26,7 +26,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
-import { FEED_RATE, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
+import { FEED_RATE, FEED_TRAVEL_S, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
 import { createMotionFilter } from "./motion-filter.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
@@ -724,7 +724,9 @@ export function createField(canvas, opts) {
     }
     for (const lane of order.slice(0, count)) {
       launches.push({
-        at: now + Math.random() * 70,
+        /* Launched when the ball the hopper just fed reaches the exit (see hopper3d.js), not before it
+           gets there. */
+        at: now + FEED_TRAVEL_S * 1000 + Math.random() * 70,
         lane,
         lanes,
         speed: 1 + wobble() * 0.03,

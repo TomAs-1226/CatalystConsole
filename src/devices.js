@@ -412,8 +412,19 @@ export function startGuide(read, { enabled = false } = {}) {
  * publishes no chooser, "" when nothing is chosen), `errors` how many errors are active. Returns
  * `{ ready, checks: [{ key, ok, text }] }`, the checks in the order a drive team would see to them.
  */
-export function matchReadiness({ volts = null, summary = null, guide = null, auto = null, errors = 0 } = {}) {
+export function matchReadiness({ volts = null, summary = null, guide = null, auto = null, errors = 0, systemCheck = null } = {}) {
   const checks = [];
+  /* The robot's own pre-match check, first: it is the one a team ran on purpose, and it names what is
+     wrong more precisely than any count here can. Only once it has a result - a check never run says
+     nothing either way, and one still running is not a failure yet. */
+  if (systemCheck && systemCheck.tests.length && !systemCheck.running) {
+    const failing = systemCheck.tests.filter((t) => !t.pass).length;
+    checks.push({
+      key: "systemCheck",
+      ok: failing === 0,
+      text: failing === 0 ? "System check passed" : `System check: ${failing} failing`,
+    });
+  }
   if (Number.isFinite(volts)) {
     const ok = volts >= 12.5;
     checks.push({ key: "battery", ok, text: ok ? "Battery charged" : `Battery at ${volts.toFixed(1)} V` });
@@ -475,5 +486,63 @@ export function notices(read, { enabled = false } = {}) {
 
   const rank = { error: 0, warn: 1, info: 2 };
   out.sort((a, b) => rank[a.level] - rank[b.level]);
+  return out;
+}
+
+/* ---- the robot's pre-match check ----
+ *
+ * Catalyst's SystemCheck publishes each run under /Catalyst/SystemCheck/<name>/: one string per test,
+ * "PASS" or "FAIL: <why>", a Ready boolean, and a Report - the whole run as text, one line a test in the
+ * order the robot declared them, "(running…)" while it runs. NetworkTables keeps no order, so the Report
+ * is where the order comes from; a test the Report does not mention goes after, alphabetically.
+ */
+export const SYSTEM_CHECK = "/Catalyst/SystemCheck/";
+
+/**
+ * Every check the robot has published, from a NetworkTables view with `keys()`, `str` and `bool`:
+ * `[{ name, running, ready, tests: [{ test, pass, detail }] }]`, newest-declared order within each.
+ * `ready` is the robot's own verdict, null before a run has finished.
+ */
+export function systemChecks(read) {
+  const names = new Map();
+  for (const key of read.keys?.() ?? []) {
+    if (!key.startsWith(SYSTEM_CHECK)) continue;
+    const rest = key.slice(SYSTEM_CHECK.length);
+    const slash = rest.indexOf("/");
+    if (slash <= 0) continue;
+    const name = rest.slice(0, slash);
+    const leaf = rest.slice(slash + 1);
+    if (!leaf || leaf.includes("/")) continue;
+    if (!names.has(name)) names.set(name, []);
+    if (leaf !== "Ready" && leaf !== "Report") names.get(name).push(leaf);
+  }
+  const out = [];
+  for (const [name, leaves] of names) {
+    const base = `${SYSTEM_CHECK}${name}/`;
+    const report = read.str(`${base}Report`, "") || "";
+    const running = /running/i.test(report) && !/\b(PASS|FAIL)\b/.test(report);
+    const order = [];
+    for (const line of report.split(/\r?\n/)) {
+      const hit = /^\s*(?:PASS|FAIL)\s{2}(.+?)(?:\s{2}—\s.*)?$/.exec(line);
+      if (hit) order.push(hit[1].trim());
+    }
+    const rank = (test) => {
+      const at = order.indexOf(test);
+      return at < 0 ? order.length : at;
+    };
+    const tests = leaves
+      .map((test) => {
+        const value = read.str(`${base}${test}`, null);
+        if (typeof value !== "string") return null;
+        const pass = value.trim().toUpperCase() === "PASS";
+        const detail = pass ? "" : value.replace(/^\s*FAIL:?\s*/i, "").trim();
+        return { test, pass, detail: detail === "—" ? "" : detail };
+      })
+      .filter(Boolean)
+      .sort((a, b) => rank(a.test) - rank(b.test) || a.test.localeCompare(b.test));
+    const readyKey = `${base}Ready`;
+    const ready = running || !(read.has ? read.has(readyKey) : true) ? null : read.bool(readyKey, null);
+    out.push({ name, running, ready: typeof ready === "boolean" ? ready : null, tests });
+  }
   return out;
 }

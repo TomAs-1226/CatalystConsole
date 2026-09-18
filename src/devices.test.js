@@ -409,3 +409,62 @@ test("checks with nothing to judge by are left out rather than failed", () => {
   assert.deepEqual(bare.checks.map((c) => c.key), ["errors"]);
   assert.equal(bare.ready, true);
 });
+
+test("a system check reads in the order the robot declared it, with each failure's reason", async () => {
+  const { systemChecks } = await import("./devices.js");
+  const v = {
+    "/Catalyst/SystemCheck/X1 pre-drive/Pigeon on bus": "PASS",
+    "/Catalyst/SystemCheck/X1 pre-drive/Battery above 12.0 V": "FAIL: —",
+    "/Catalyst/SystemCheck/X1 pre-drive/All four wheels drive forward": "FAIL: condition not met after 1.0s",
+    "/Catalyst/SystemCheck/X1 pre-drive/Ready": false,
+    "/Catalyst/SystemCheck/X1 pre-drive/Report":
+      "NOT READY ✗\n  PASS  Pigeon on bus\n  FAIL  Battery above 12.0 V\n  FAIL  All four wheels drive forward  — condition not met after 1.0s\n",
+  };
+  const read = {
+    keys: () => Object.keys(v),
+    has: (k) => k in v,
+    str: (k, d) => (typeof v[k] === "string" ? v[k] : d),
+    bool: (k, d) => (typeof v[k] === "boolean" ? v[k] : d),
+  };
+  const [check] = systemChecks(read);
+  assert.equal(check.name, "X1 pre-drive");
+  assert.equal(check.running, false);
+  assert.equal(check.ready, false);
+  assert.deepEqual(check.tests.map((t) => t.test), ["Pigeon on bus", "Battery above 12.0 V", "All four wheels drive forward"]);
+  assert.deepEqual(check.tests.map((t) => t.pass), [true, false, false]);
+  /* "FAIL: —" is the library saying it has no reason, which is not a reason to print. */
+  assert.equal(check.tests[1].detail, "");
+  assert.equal(check.tests[2].detail, "condition not met after 1.0s");
+});
+
+test("a check still running has no verdict yet, and readiness does not count it as failed", async () => {
+  const { systemChecks, matchReadiness } = await import("./devices.js");
+  const v = {
+    "/Catalyst/SystemCheck/PreMatch/Pigeon on bus": "PASS",
+    "/Catalyst/SystemCheck/PreMatch/Ready": false,
+    "/Catalyst/SystemCheck/PreMatch/Report": "(running…)",
+  };
+  const read = { keys: () => Object.keys(v), has: (k) => k in v, str: (k, d) => v[k] ?? d, bool: (k, d) => v[k] ?? d };
+  const [check] = systemChecks(read);
+  assert.equal(check.running, true);
+  assert.equal(check.ready, null);
+  const readiness = matchReadiness({ systemCheck: check });
+  assert.equal(readiness.checks.some((c) => c.key === "systemCheck"), false);
+});
+
+test("a failed system check is the first thing readiness names", async () => {
+  const { matchReadiness } = await import("./devices.js");
+  const readiness = matchReadiness({
+    volts: 12.8,
+    systemCheck: { name: "PreMatch", running: false, ready: false, tests: [{ test: "a", pass: true }, { test: "b", pass: false, detail: "" }] },
+  });
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.checks[0].key, "systemCheck");
+  assert.equal(readiness.checks[0].text, "System check: 1 failing");
+});
+
+test("no system check published is no line at all, not a failure", async () => {
+  const { systemChecks, matchReadiness } = await import("./devices.js");
+  assert.deepEqual(systemChecks({ keys: () => ["/Catalyst/Other/Thing"], str: () => null, bool: () => null }), []);
+  assert.equal(matchReadiness({ volts: 12.8 }).checks.some((c) => c.key === "systemCheck"), false);
+});

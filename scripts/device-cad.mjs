@@ -1,19 +1,30 @@
 /* Bake the devices the console draws in 3D.
  *
- *   npm run device-cad                       fetches what DEVICES lists and bakes each
- *   npm run device-cad -- path/to/thing.stl  bakes one file
+ *   npm run device-cad                               fetches what DEVICES lists, and reads the
+ *                                                    Systemcore out of an OS image if one is found
+ *   npm run device-cad -- --image path/to/x.llupdate names the Systemcore OS image to read
+ *   npm run device-cad -- path/to/thing.stl          bakes one file
  *
  * A device on a robot is a real object with published CAD, and drawing the real one is both easier and
- * more honest than drawing a box with a lens on it. The vendors publish STL; this turns each into a GLB
+ * more honest than drawing a box with a lens on it. Limelight publishes STL; this turns each into a GLB
  * the console can load, in metres, centred, with its faces smoothed only where the part is round.
+ *
+ * The Systemcore has no published CAD. It does draw itself: the IMU page of its own web interface turns
+ * a model of the board, and that model ships inside the OS image every team downloads to flash it. So the
+ * Systemcore - and a Limelight 4 in its real finishes, which the same interface carries - is read out of
+ * that file, the same bytes the board serves, and nowhere else. With no image on this machine the bake
+ * says so and the console draws the Limelights alone.
  *
  * Out: src/vendor/devices/<id>.glb and src/vendor/devices.json. Baked rather than checked in, like the
  * robot's model and the driver's, so the repository carries no third-party mesh.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { basename, dirname, extname, resolve } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, openSync, readSync, closeSync, createReadStream, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createZstdDecompress } from "node:zlib";
 
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
@@ -34,6 +45,25 @@ globalThis.FileReader ??= class {
       },
     );
   }
+};
+
+/* three's FBX loader asks the DOM for an <img> for every texture a file names. The models baked here are
+   drawn in their materials' colours and none of them embeds its textures, so an image that never loads
+   is exactly what they need. */
+globalThis.document ??= {
+  createElementNS() {
+    const listeners = {};
+    return {
+      style: {},
+      addEventListener(type, fn) {
+        (listeners[type] ??= []).push(fn);
+      },
+      removeEventListener() {},
+      set src(_) {
+        setTimeout(() => (listeners.error ?? []).forEach((fn) => fn({})), 0);
+      },
+    };
+  },
 };
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -79,6 +109,34 @@ const DEVICES = [
     match: ["limelight3g", "limelight 3g", "ll3g"],
     url: "https://downloads.limelightvision.io/cad/LIMELIGHT3GCAD_STL.stl",
     creaseDeg: 32,
+  },
+];
+
+/**
+ * What to read out of a Systemcore OS image. `sizeMm` is how each is recognised among the models the image
+ * carries: its three extents, largest first, within 3%, in whatever unit the file was drawn in. The
+ * Limelight's are its published STL's. The Systemcore's are the model's own - there is no drawing to take
+ * them from - and they are what tells it apart from the Limelights beside it.
+ */
+const FROM_IMAGE = [
+  {
+    id: "systemcore",
+    name: "Systemcore",
+    kind: "controller",
+    match: ["systemcore"],
+    sizeMm: [135.5, 71.5, 28.1],
+    /* Radians about the vertical the stage comes to rest at: the long side with its ports toward the
+       lens. */
+    rest: 0.6,
+  },
+  {
+    id: "limelight4",
+    name: "Limelight 4",
+    kind: "camera",
+    match: ["limelight4", "limelight 4", "ll4", "limelight"],
+    sizeMm: [80.1, 48.1, 32.6],
+    /* The lenses face +x in this model; this turns them to the lens, a little off square. */
+    rest: -1.05,
   },
 ];
 
@@ -157,8 +215,213 @@ async function bake(device, file) {
   };
 }
 
+/* ---- the Systemcore OS image ----
+ *
+ * An .llupdate is a tar holding the root filesystem as a zstd-compressed ext4 image. Rather than mount
+ * ext4, the image is streamed and every binary FBX in it is found by its own header and walked to its own
+ * end through its node records: a small file in ext4 is stored in one run of blocks, and a file that was
+ * not fails the walk and is passed over rather than read wrong.
+ */
+
+const FBX_MAGIC = Buffer.from("Kaydara FBX Binary  \x00\x1a\x00", "latin1");
+const FBX_FOOTER = Buffer.from("f85a8c6adef5d97eece90ce3758f290b", "hex");
+
+/** The byte length of the FBX that starts at buf[at], -1 when its records do not chain, or null when
+ *  more of the stream is needed to tell. */
+function fbxLength(buf, at) {
+  if (at + 27 > buf.length) return null;
+  const version = buf.readUInt32LE(at + 23);
+  const wide = version >= 7500;
+  const nullRecord = wide ? 25 : 13;
+  let pos = 27;
+  for (;;) {
+    if (at + pos + nullRecord > buf.length) return null;
+    const end = wide ? Number(buf.readBigUInt64LE(at + pos)) : buf.readUInt32LE(at + pos);
+    if (end === 0) {
+      pos += nullRecord;
+      break;
+    }
+    if (end <= pos || end > 16 << 20) return -1;
+    pos = end;
+  }
+  if (at + pos + 400 > buf.length) return null;
+  const footer = buf.indexOf(FBX_FOOTER, at + pos);
+  return footer >= 0 && footer - (at + pos) < 400 ? footer + 16 - at : pos + 176;
+}
+
+function tarEntries(path) {
+  const fd = openSync(path, "r");
+  const header = Buffer.alloc(512);
+  const entries = [];
+  try {
+    for (let at = 0; readSync(fd, header, 0, 512, at) === 512; ) {
+      if (header.every((b) => b === 0)) break;
+      const name = header.toString("utf8", 0, 100).replace(/\0.*$/s, "");
+      const size = parseInt(header.toString("latin1", 124, 136).replace(/\0.*$/s, "").trim(), 8);
+      if (!Number.isFinite(size)) break;
+      entries.push({ name, size, start: at + 512 });
+      at += 512 + Math.ceil(size / 512) * 512;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return entries;
+}
+
+/** Every distinct binary FBX in the image's root filesystem. */
+async function fbxInImage(path) {
+  const rootfs = tarEntries(path).find((entry) => basename(entry.name) === "rootfs.img.zst");
+  if (!rootfs) throw new Error(`${basename(path)} holds no rootfs.img.zst - is it a Systemcore OS image?`);
+  const stream = createReadStream(path, { start: rootfs.start, end: rootfs.start + rootfs.size - 1 }).pipe(createZstdDecompress());
+  const found = new Map();
+  let buf = Buffer.alloc(0);
+  for await (const chunk of stream) {
+    buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+    let keepFrom = Math.max(0, buf.length - (FBX_MAGIC.length - 1));
+    for (let from = 0; ; ) {
+      const at = buf.indexOf(FBX_MAGIC, from);
+      if (at < 0) break;
+      const length = fbxLength(buf, at);
+      if (length === null) {
+        keepFrom = Math.min(keepFrom, at);
+        break;
+      }
+      if (length > 0) {
+        const bytes = Buffer.from(buf.subarray(at, at + length));
+        found.set(createHash("sha1").update(bytes).digest("hex"), bytes);
+      }
+      from = at + 1;
+    }
+    buf = buf.subarray(keepFrom);
+  }
+  return [...found.values()];
+}
+
+/** The newest Systemcore OS image in Downloads, or null. */
+function findImage() {
+  const folder = join(homedir(), "Downloads");
+  if (!existsSync(folder)) return null;
+  const images = readdirSync(folder)
+    .filter((name) => /systemcore.*\.llupdate$/i.test(name))
+    .map((name) => join(folder, name))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  return images[0] ?? null;
+}
+
+/* A modeller names a material for how it looks. The console keeps its colour and gives it the finish the
+   name says, under the same ceiling the robot's CAD gets (robot3d.js), so nothing is brighter than paper. */
+function finish(source) {
+  const name = source.name ?? "";
+  const colour = source.color ? source.color.clone() : new THREE.Color(0.5, 0.5, 0.5);
+  /* A material named black that is not black took its colour from a texture that is not in the file.
+     And black is drawn as the darkest grey that still shows its shape: these are black parts on a black
+     stage, and a true black reads as a hole with a highlight round it. */
+  if (/black/i.test(name) || colour.getHSL({}).l < 0.03) colour.setRGB(0.05, 0.05, 0.053);
+  const lum = 0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b;
+  if (lum > 0.62) colour.multiplyScalar(0.62 / lum);
+  let metalness = 0.05;
+  let roughness = 0.5;
+  if (/gunmetal|iron|steel|chrome|alumin|metal/i.test(name)) {
+    metalness = 0.85;
+    roughness = 0.35;
+  } else if (/glossy/i.test(name)) roughness = 0.22;
+  else if (/smooth/i.test(name)) roughness = 0.35;
+  else if (/velvet|textured|matte|rough/i.test(name)) roughness = 0.62;
+  const made = new THREE.MeshStandardMaterial({ color: colour, metalness, roughness });
+  made.name = name.replace(/\.\d+$/, "");
+  return made;
+}
+
+async function bakeFromImage(image) {
+  const { FBXLoader } = await import("three/examples/jsm/loaders/FBXLoader.js");
+  log(`reading ${basename(image)}`);
+  const models = await fbxInImage(image);
+  log(`  ${models.length} model(s) in the image`);
+  const baked = [];
+  for (const bytes of models) {
+    let group;
+    try {
+      group = new FBXLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), "");
+    } catch (err) {
+      log(`  a model that would not parse: ${err.message}`);
+      continue;
+    }
+    group.updateMatrixWorld(true);
+    const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3());
+    const extents = size.toArray().sort((a, b) => b - a);
+    let device = null;
+    let mmPerUnit = 0;
+    for (const want of FROM_IMAGE) {
+      for (const unit of [1, 10, 1000, 25.4]) {
+        if (extents.every((e, i) => Math.abs(e * unit - want.sizeMm[i]) / want.sizeMm[i] < 0.03)) {
+          device = want;
+          mmPerUnit = unit;
+        }
+      }
+    }
+    if (!device) continue;
+
+    /* One mesh per mesh in the file, each in metres with the file's transforms baked in, so the GLB is
+       plain geometry at its real size with nothing to undo. */
+    const meshes = [];
+    const materials = new Map();
+    const look = (source) => {
+      if (!materials.has(source)) materials.set(source, finish(source));
+      return materials.get(source);
+    };
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      const geometry = o.geometry.clone();
+      geometry.applyMatrix4(o.matrixWorld);
+      for (const name of Object.keys(geometry.attributes)) {
+        if (name !== "position" && name !== "normal") geometry.deleteAttribute(name);
+      }
+      meshes.push(new THREE.Mesh(geometry, Array.isArray(o.material) ? o.material.map(look) : look(o.material)));
+    });
+    const scene = new THREE.Group();
+    scene.name = device.id;
+    for (const mesh of meshes) scene.add(mesh);
+    const box = new THREE.Box3().setFromObject(scene);
+    const scale = mmPerUnit / 1000;
+    for (const mesh of meshes) {
+      mesh.geometry.translate(-(box.max.x + box.min.x) / 2, -box.min.y, -(box.max.z + box.min.z) / 2);
+      mesh.geometry.scale(scale, scale, scale);
+    }
+
+    const exported = await new GLTFExporter().parseAsync(scene, { binary: true });
+    const out = resolve(root, "src/vendor/devices");
+    mkdirSync(out, { recursive: true });
+    const glb = Buffer.from(exported);
+    writeFileSync(resolve(out, `${device.id}.glb`), glb);
+    const mm = size.clone().multiplyScalar(mmPerUnit);
+    let triangles = 0;
+    for (const mesh of meshes) {
+      const g = mesh.geometry;
+      triangles += (g.index ? g.index.count : g.getAttribute("position").count) / 3;
+    }
+    log(`  ${device.id}: ${Math.round(triangles)} triangles, ${mm.x.toFixed(0)} x ${mm.y.toFixed(0)} x ${mm.z.toFixed(0)} mm, ${materials.size} finishes, ${(glb.length / 1024).toFixed(0)} KB`);
+    baked.push({
+      id: device.id,
+      name: device.name,
+      kind: device.kind,
+      match: device.match,
+      file: `devices/${device.id}.glb`,
+      finish: "cad",
+      source: "systemcore-image",
+      rest: device.rest,
+      sizeMm: [mm.x, mm.y, mm.z].map((v) => Math.round(v * 10) / 10),
+      triangles: Math.round(triangles),
+      bytes: glb.length,
+    });
+  }
+  return baked;
+}
+
 async function main() {
-  const given = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const flag = args.indexOf("--image");
+  const image = flag >= 0 ? args[flag + 1] : findImage();
+  const given = args.filter((_, i) => flag < 0 || (i !== flag && i !== flag + 1));
   const scratch = resolve(root, "src/vendor/.device-src");
   mkdirSync(scratch, { recursive: true });
   const baked = [];
@@ -188,12 +451,27 @@ async function main() {
     }
   }
 
+  /* The image's models replace the STL of the same device: the same part, in its real finishes. */
+  if (image && !given.length) {
+    try {
+      for (const entry of await bakeFromImage(image)) {
+        const at = baked.findIndex((b) => b.id === entry.id);
+        if (at >= 0) baked[at] = entry;
+        else baked.push(entry);
+      }
+    } catch (err) {
+      log(`  ${basename(image)}: ${err.message} - skipped`);
+    }
+  } else if (!given.length) {
+    log("no Systemcore OS image found in Downloads - pass --image <file.llupdate> to draw the Systemcore");
+  }
+
   if (!baked.length) throw new Error("nothing was baked");
   writeFileSync(resolve(root, "src/vendor/devices.json"), `${JSON.stringify({
     version: 1,
     generatedAt: new Date().toISOString(),
     devices: baked,
-    how: "Vendor-published STL, welded, smoothed at a crease angle, converted to millimetres-to-metres and centred on its own footprint. Fetched at build time and gitignored: nothing third-party is checked in.",
+    how: "Limelight's published STL, welded, smoothed at a crease angle, millimetres to metres, centred on its own footprint; the Systemcore, and a Limelight 4 in its finishes, read out of the Systemcore OS image the board's own web interface draws them from. Made at build time and gitignored: nothing third-party is checked in.",
   }, null, 1)}\n`);
   log(`wrote src/vendor/devices.json: ${baked.length} device(s)`);
 }

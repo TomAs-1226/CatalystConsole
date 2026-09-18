@@ -22,6 +22,10 @@ export const LAUNCH_KEEP = 0.81;
 /* How many FUEL the shooter takes abreast, and how many it gets through a second while it feeds. */
 export const SHOOTER_LANES = 4;
 export const FEED_RATE = 16;
+/* How long a ball fed to the shooter takes to get from its place in the hopper to where it leaves the
+   hood: the hopper draws it along that path (hopper3d.js) and the field view launches it from the exit
+   this much later (field3d.js), so the ball it launches is the one that just arrived there. */
+export const FEED_TRAVEL_S = 0.3;
 
 const INCH = 0.0254;
 

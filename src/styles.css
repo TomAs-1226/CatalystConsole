@@ -2126,23 +2126,13 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
    only how the console goes looking. Card rather than rows: everything in it arrived together, from
    one source, and none of it is editable here. */
 .garage {
-  margin-top: 28px; border-radius: 18px; padding: 8px 32px 28px;
+  margin-top: 28px; border-radius: 18px; padding: 0 32px 28px;
   display: grid; justify-items: center;
   border: 0;
   /* A flat card, as every card is. It used to be lit from above to seat a white robot on it; the robot
      is drawn dark now, found by the light along its own edge, and a pool of light behind it only
      greyed the ground it is read against. */
   background: var(--cat-surface-1);
-}
-/* The plan's materials: the machine Park draws, seen from above - a dark shell with light along its
-   edge, a brushed grey deck inside it. Aliases of colours the sheet already holds, read once by
-   app.js (PLAN), and named here rather than in the drawn marks, which the 3-D scenes light their own
-   robots with. The tyres are the drawn marks' own. */
-:root {
-  --plan-shell: var(--cat-surface-2);
-  --plan-shell-lit: var(--cat-surface-3);
-  --plan-deck: var(--draw-line);
-  --plan-deck-dark: var(--draw-tower);
 }
 /* No drawing, so no hero spacing — it becomes an ordinary card of facts. */
 .garage[data-plan="false"] { padding-top: 28px; }
@@ -2157,10 +2147,24 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 .gempty b { font-size: 16px; font-weight: var(--cat-w-medium); color: var(--cat-white); }
 .gempty span { font-size: 14px; line-height: 1.6; color: var(--cat-dim); }
 
-/* Drawn, not photographed. The canvas is sized in CSS and scaled for the device ratio in script,
-   so the hairlines stay hairlines on a high-density panel. */
-.gplan { margin: 0; display: grid; justify-items: center; gap: 12px; }
-.gplan canvas { width: 380px; height: 320px; max-width: 100%; display: block; }
+/* The robot on Park's floor, across the whole card: the stage runs edge to edge, as a car does across
+   the top of Tesla's screens, and the floor fades into the card rather than stopping at a frame. */
+.gplan { margin: 0 -32px; width: calc(100% + 64px); display: grid; justify-items: center; gap: 4px; }
+/* Park's black under Park's floor: the floor's light falls away to nothing, and on the card's grey that
+   nothing would read as a dark ring round the robot. The black gives way to the card below it. */
+.gplan canvas {
+  width: 100%; aspect-ratio: 16 / 7; max-height: 360px; display: block;
+  background: linear-gradient(to bottom, #000000 78%, var(--cat-surface-1));
+  border-radius: 18px 18px 0 0;
+}
+/* A stage turns under a sideways drag and lets a vertical one scroll the page. */
+.gplan canvas, .gpart canvas, .corehero canvas { cursor: grab; touch-action: pan-y; }
+.gplan canvas[data-dragging], .gpart canvas[data-dragging], .corehero canvas[data-dragging] { cursor: grabbing; }
+
+/* The Systemcore at the head of its own page, on the same floor as everything else in the console. */
+.corehero { position: relative; margin: 0 0 16px; border-radius: var(--cat-r-card); background: #000000; overflow: hidden; }
+.corehero[hidden] { display: none; }
+.corehero canvas { display: block; width: 100%; aspect-ratio: 16 / 6; max-height: 300px; }
 .gplan figcaption { font-family: var(--sans); font-size: var(--fs-13); font-weight: 400; color: var(--cat-dim); }
 
 .ghead { text-align: center; margin-top: 20px; }
@@ -2593,7 +2597,8 @@ kbd {
   .srow { grid-template-columns: 1fr; align-items: stretch; gap: 12px; }
   .sctl { justify-content: flex-start; }
   .rulelist li { grid-template-columns: 1fr; gap: 8px; }
-  .garage { padding: 24px 16px 20px; }
+  .garage { padding: 0 16px 20px; }
+  .gplan { margin: 0 -16px; width: calc(100% + 32px); }
   .gspecs { grid-template-columns: 1fr; gap: 20px; }
   .cfgrow { grid-template-columns: minmax(0, 1fr); }
   .lq { grid-template-columns: minmax(0, 1fr); }
@@ -2695,6 +2700,18 @@ kbd {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pcard span { margin-top: 2px; font-size: var(--fs-13); color: var(--cat-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The pre-match check is a card you press: it opens the page with every test on it. */
+button.pcard { border: 0; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+button.pcard[hidden] { display: none; }
+button.pcard:hover, button.pcard[aria-expanded="true"] { background: rgba(44, 44, 46, 0.92); }
+button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offset: 2px; }
+.pcheck b { display: flex; align-items: center; gap: 8px; }
+.pcheck b::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--cat-faint); flex: none; }
+.pcheck[data-state="pass"] b::before { background: var(--cat-ok); }
+.pcheck[data-state="fail"] b::before { background: var(--cat-bad); }
+.pcheck[data-state="running"] b::before { background: var(--cat-warn); }
+/* A test's result on its page: the word, and a telltale only where a test failed. */
+.park-part dd[data-state="fail"] { color: var(--cat-bad); }
 
 .park-dash {
   position: absolute; top: 24px; right: 28px;
@@ -2909,7 +2926,7 @@ kbd {
 
    The device itself, turning slowly beside the list that names it. Its own canvas, made the first time
    the section is looked at and asleep whenever it is not. */
-.gpart { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-2); overflow: hidden; margin-bottom: 12px; }
+.gpart { position: relative; border-radius: var(--cat-r-card); background: #000000; overflow: hidden; margin-bottom: 12px; }
 .gpart[hidden] { display: none; }
 .gpart canvas { display: block; width: 100%; height: 190px; }
 .gpartwho { position: absolute; left: 14px; bottom: 12px; display: grid; gap: 1px; }

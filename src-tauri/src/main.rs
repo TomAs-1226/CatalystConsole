@@ -51,7 +51,11 @@ fn candidate_addresses(team: u16) -> Vec<String> {
     //     and resolves to nothing on a Systemcore, so a console that only tried it would sit at
     //     "no robot" next to a robot that was answering.
     //   * `172.26.0.1` is the USB tether. The roboRIO used 172.22.11.2; a laptop plugged into a
-    //     Systemcore gets 172.26.0.x and the board is .1.
+    //     Systemcore gets 172.26.0.x and the board is .1. A Mac or Linux laptop is handed the other
+    //     USB gadget and lands on 172.27.0.x instead.
+    //   * `172.30.0.1` is the Systemcore's own Wi-Fi. A laptop driving over it gets 172.30.0.x, and
+    //     mDNS across a Windows Wi-Fi link is the least reliable of these, so the address is tried
+    //     directly rather than left to `robot.local`.
     //
     // The team static IP is unchanged - that addressing is a field convention, not a roboRIO one -
     // and the roboRIO names stay at the end. They cost one failed connection attempt each and mean a
@@ -60,6 +64,8 @@ fn candidate_addresses(team: u16) -> Vec<String> {
         "127.0.0.1".to_string(),
         "robot.local".to_string(),
         "172.26.0.1".to_string(),
+        "172.30.0.1".to_string(),
+        "172.27.0.1".to_string(),
         format!("10.{}.{}.2", team / 100, team % 100),
         format!("roborio-{team}-frc.local"),
         "172.22.11.2".to_string(),
