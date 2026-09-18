@@ -113,13 +113,13 @@ const BIT = { enabled: 1, auto: 2, test: 4, estop: 8, fms: 16, ds: 32 };
 
 /** The robot's control word, from whichever topic its WPILib publishes it on; null when neither. */
 function controlWord() {
-  return num("/FMSInfo/FMSControlData", null) ?? num("/FMSInfo/ControlWord", null);
+  return num("/FMSInfo/ControlWord", null) ?? num("/FMSInfo/FMSControlData", null);
 }
 
 /** What the FMS says about the match - the hub schedule's first inactive alliance - from 2026's topic
  *  or 2027's. */
 function gameMessage() {
-  return str("/FMSInfo/GameSpecificMessage", null) ?? str("/FMSInfo/GameData", "");
+  return str("/FMSInfo/GameData", null) ?? str("/FMSInfo/GameSpecificMessage", "");
 }
 
 const ds = {
@@ -5074,13 +5074,14 @@ function partContext() {
     summary: linked ? deviceSummary(ntView) : null,
     volts: linked ? batteryVolts() : null,
     charge: linked ? batteryReadiness(batteryVolts()) : null,
-    brownout: linked ? num("/Catalyst/Brownout/Threshold", null) : null,
+    brownout: linked ? (num(`${SPEC_ROOT}Power/BrownoutVolts`, null) ?? num("/Catalyst/Brownout/Threshold", null)) : null,
     pose: Array.isArray(pose) && pose.length >= 2 ? pose : null,
-    confidence: linked ? num("/Catalyst/Physics/Confidence", null) : null,
+    confidence: linked ? (num("/Catalyst/Physics/Quality/Confidence", null) ?? num("/Catalyst/Physics/Confidence", null)) : null,
     modules: Array.isArray(modules) && modules.length >= 2 ? modules.length / 2 : null,
+    /* Outside the bumpers where the robot has published them, otherwise its frame. */
     size: linked ? (() => {
-      const l = num(`${SPEC_ROOT}Dimensions/LengthMeters`, null);
-      const w = num(`${SPEC_ROOT}Dimensions/WidthMeters`, null);
+      const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`, null) ?? num(`${SPEC_ROOT}Chassis/FrameLengthMeters`, null);
+      const w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`, null) ?? num(`${SPEC_ROOT}Chassis/FrameWidthMeters`, null);
       return l !== null && w !== null ? [l, w] : null;
     })() : null,
     loop: linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null,
@@ -6723,7 +6724,8 @@ function paintGarageModel() {
   } else if (cadChanged) {
     garageShow();
   }
-  const team = num(`${SPEC_ROOT}Identity/TeamNumber`, null);
+  /* Where Park reads it: the Systemcore's own team number first, then the spec sheet's. */
+  const team = parkTeam(nt.status.connected || demo.on);
   if (team !== garageTeam) {
     garageTeam = team;
     garageRobot.setTeamNumber(team);
@@ -6732,16 +6734,12 @@ function paintGarageModel() {
   return true;
 }
 
-/** What the robot says its own size is, or null when it has not said. */
+/** What the robot says its own size is, or null when it has not said: Park's spec, so the module
+ *  positions arrive as pairs - the wire carries them flat, and a flat list drew default modules. */
 function robotSpecFromWire() {
-  const spec = {
-    bumperLength: num(`${SPEC_ROOT}Chassis/BumperLengthMeters`, null),
-    bumperWidth: num(`${SPEC_ROOT}Chassis/BumperWidthMeters`, null),
-    frameLength: num(`${SPEC_ROOT}Chassis/FrameLengthMeters`, null),
-    frameWidth: num(`${SPEC_ROOT}Chassis/FrameWidthMeters`, null),
-    modules: arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`) || null,
-  };
-  const known = Object.values(spec).some((v) => v !== null && !(Array.isArray(v) && v.length < 2));
+  const spec = parkRobotSpec();
+  const known = [spec.bumperLength, spec.bumperWidth, spec.frameLength, spec.frameWidth].some((v) => v !== undefined)
+    || Boolean(spec.modules);
   return known ? spec : null;
 }
 
