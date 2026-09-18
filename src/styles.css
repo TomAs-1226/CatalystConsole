@@ -2840,6 +2840,90 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 .park-part dt { font-size: var(--fs-13); color: var(--cat-dim); }
 .park-part dd { margin: 0; font-size: var(--fs-15); color: var(--cat-white); font-variant-numeric: tabular-nums; text-align: right; }
 
+/* ---------------------------------------------------------------- the run review
+
+   What the Last drive card opens: the part page's panel as Tesla opens an app beside the car - a tall card
+   down the right of the stage, the robot and its name still showing to the left of it. The run's figures
+   and traces fill it, and the runs before it run down its side. Nothing in it is coloured: it is a record,
+   and a record has no telltales. The numbers are white, the words grey, the traces the board's own. */
+.park-runs {
+  top: 20px; bottom: 20px; right: 20px; width: min(820px, calc(100% - 380px));
+  grid-template-rows: auto minmax(0, 1fr); gap: 18px;
+}
+.park-runs header > div:first-child { min-width: 0; }
+.run-sub { display: block; margin-top: 4px; font-size: var(--fs-13); color: var(--cat-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.run-export {
+  height: 32px; padding: 0 14px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--cat-surface-2); color: var(--cat-white);
+  font-family: var(--sans); font-size: var(--fs-13); font-weight: var(--cat-w-medium);
+  transition: background-color var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.run-export:hover { background: var(--cat-surface-3); }
+.run-export[hidden] { display: none; }
+.run-export:focus-visible, .run-row:focus-visible { outline: 2px solid var(--cat-signal); outline-offset: 2px; }
+
+.run-body { display: grid; grid-template-columns: minmax(0, 1fr) 248px; gap: 24px; min-height: 0; }
+.run-main { min-height: 0; overflow-y: auto; display: grid; gap: 20px; align-content: start; }
+.run-group { display: grid; gap: 10px; }
+.run-group-name { font-size: var(--fs-12); color: var(--cat-faint); text-transform: uppercase; letter-spacing: var(--track-label); }
+/* Five across where the panel is wide enough, so the aim's five figures read as one line. */
+.run-figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 14px 12px; }
+.run-fig { min-width: 0; line-height: 1.3; }
+.run-fig small, .run-fig span { display: block; font-size: var(--fs-12); color: var(--cat-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-fig b { display: block; margin: 2px 0 1px; font-size: var(--fs-18); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-fig b[data-empty="true"] { color: var(--cat-faint); }
+.park-runs .run-note { margin: 0; font-size: var(--fs-13); line-height: 1.5; color: var(--cat-dim); }
+/* What was changed between this run and the one before: the reason the two are being compared. */
+.run-changes { display: grid; gap: 2px; padding: 10px 14px; border-radius: 10px; background: var(--cat-surface-2);
+  font-size: var(--fs-13); color: var(--cat-white); }
+.run-changes small { font-size: var(--fs-12); color: var(--cat-dim); }
+
+.run-traces { gap: 8px; }
+.run-trace { display: grid; gap: 4px; }
+.run-trace-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-size: var(--fs-13); color: var(--cat-dim); }
+.run-trace-head b { font-weight: var(--cat-w-medium); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+/* The trace, and its scale in the margin to its right, faint, the way Tesla labels the energy graph. */
+.run-plot { display: grid; grid-template-columns: minmax(0, 1fr) 56px; gap: 10px; }
+.run-plot canvas { display: block; width: 100%; height: 36px; }
+.run-scale { display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0;
+  font-size: var(--fs-12); line-height: 1; color: var(--cat-faint); font-variant-numeric: tabular-nums; }
+.run-scale i { font-style: normal; }
+.run-axis { display: flex; justify-content: space-between; margin-right: 66px;
+  font-size: var(--fs-12); color: var(--cat-faint); font-variant-numeric: tabular-nums; }
+
+/* The runs down the side, newest first: when and what, how long, and the one figure they are compared
+   by, with a bar for it against the largest in the list. */
+.run-side { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-height: 0;
+  padding-left: 20px; border-left: 1px solid var(--cat-line); }
+.run-side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 10px;
+  font-size: var(--fs-12); color: var(--cat-faint); text-transform: uppercase; letter-spacing: var(--track-label); white-space: nowrap; }
+.run-side-head small { font-size: var(--fs-12); text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.run-list { list-style: none; margin: 0; padding: 0; min-height: 0; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
+.run-list > .run-note { padding: 0 10px; }
+.run-row {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px 12px;
+  padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: inherit; cursor: pointer;
+  font: inherit; text-align: left;
+}
+.run-row:hover { background: rgba(255, 255, 255, 0.04); }
+.run-row[aria-pressed="true"] { background: var(--cat-surface-2); }
+.run-row-when { min-width: 0; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.run-row-when span { font-weight: var(--cat-w-normal); color: var(--cat-dim); }
+.run-row-len { font-size: var(--fs-13); color: var(--cat-dim); font-variant-numeric: tabular-nums; }
+.run-row-bar { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.run-row-bar i { display: block; height: 100%; border-radius: inherit; background: var(--cat-data); }
+.run-row-key { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-row-key span { margin-right: 8px; font-weight: var(--cat-w-normal); color: var(--cat-dim); }
+.run-row-change { grid-column: 1 / -1; font-size: var(--fs-12); color: var(--cat-body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* A callout is a button so it can open its part's page, but it is drawn as the words on the stage it
    always was: no face, no border, no padding - the browser's grey button box made every label a pale
    tile with white text on it. The hairline and the text are the whole of it. */

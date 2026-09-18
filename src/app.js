@@ -29,6 +29,12 @@ import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hu
 import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { aimCaption } from "./aim-target.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
+/* Every enabled stretch, written up for the run review on Park. Its own module so every number it prints is
+   tested against X1's real topics. */
+import {
+  addRun, createRunRecorder, describeChanges, loadRuns, modeLabel, runCard, runClock, runCsv, runFigures,
+  runFileName, runWhen, RUNS_STORE_KEY, storeRuns, traceSegments, tunableChanges, valueRange,
+} from "./runs.js";
 import { createDeviceStage, deviceById, loadDevices } from "./device3d.js";
 import { createRobotModel, normalizeRobot } from "./robot3d.js";
 import {
@@ -558,6 +564,9 @@ function demoTick() {
 }
 
 function setDemo(on) {
+  /* The robot being recorded is about to be replaced on screen, by the demo or by nothing: its run ends here,
+     as a link that went away, rather than running on into data that is not its own. */
+  if (runRecorder.recording) recordRun(false);
   demo.on = on;
   $("#demoBtn").setAttribute("aria-pressed", String(on));
   /* Two controls, one state. The dock button is the one that has to be visible while it runs; the
@@ -591,6 +600,9 @@ function setDemo(on) {
     nt.status = { connected: false, address: "", rtt_ms: 0, topics: 0 };
     nt.keysDirty = true;
     onFrame();
+    /* The demo's runs go with it: left in the list they would sit beside the team's own as if they happened. */
+    runLog.runs = runLog.runs.filter((r) => !r.demo);
+    runLog.sig = "";
   }
 }
 
@@ -3945,7 +3957,8 @@ function fitStatusBar() {
 /** The read-only NetworkTables view devices.js works over. */
 const ntView = {
   get linked() { return nt.status.connected || demo.on; },
-  has, num, str, arr, bool,
+  /* `raw` is for the run recorder, which keeps a tunable's switch as a switch rather than as a 1. */
+  has, num, str, arr, bool, raw,
   keys: () => Object.keys(nt.v),
 };
 
@@ -4877,14 +4890,52 @@ function placeCallouts() {
   svg.innerHTML = lines;
 }
 
-/* ---- the last drive ----
+/* ---- the runs ----
  *
- * Tesla writes up every drive; Console writes up every stretch the robot was enabled: how long, how
- * far, how fast, and how low the battery went. It is kept for the session and shown on Park, which is
- * where the driver is looking once the robot is disabled again. Distance comes from the robot's pose,
- * so a robot that publishes none still gets its time and its battery. */
-const DRIVE_POSE_KEY = "/Catalyst/Physics/PoseArray";
-const driveLog = { current: null, last: null };
+ * Tesla writes up every drive; Console writes up every run - each stretch the robot was enabled - from the
+ * frames as they arrive (runs.js): how long, how far, how fast, how low the battery went and, for a robot
+ * that says what it is aiming at, how steadily it held the target. Park's Last drive card shows the latest
+ * and opens the run review, where its numbers and traces sit beside the runs before it, so a tuning change
+ * is judged by what it did. The last RUNS_KEPT are kept here with their samples. Their summaries are
+ * stored, so yesterday's runs are still there to compare against after a restart; the samples are not,
+ * which is what Export is for.
+ *
+ * Recording costs a frame a few dozen reads and sums (see runs.js). Everything else here - storing, the
+ * review, its traces - happens once the robot is disabled. */
+const runRecorder = createRunRecorder();
+const runLog = {
+  runs: (() => {
+    try {
+      return loadRuns(localStorage.getItem(RUNS_STORE_KEY));
+    } catch {
+      return [];
+    }
+  })(),
+  selected: null,  // the run the review shows, by id; null for the latest
+  demoRun: false,  // whether the run being recorded began on demo data
+  sig: "",         // what the review last drew, so it is built again only when that changes
+};
+
+/** Feed the recorder this frame, and keep the run it finishes. `linked` false ends a run in progress: the
+ *  console has stopped watching the robot it was recording. */
+function recordRun(linked = nt.status.connected || demo.on) {
+  const recording = runRecorder.recording;
+  const run = runRecorder.frame(performance.now(), ntView, {
+    word: linked ? controlWord() : null,
+    linked,
+    wall: Date.now(),
+    shots: mechanismState.now ? mechanismState.fired : null,
+  });
+  if (!recording && runRecorder.recording) runLog.demoRun = demo.on;
+  if (!run) return;
+  /* Demo runs are shown, marked, while the demo plays, and never stored: the demo robot is nobody's. */
+  run.demo = runLog.demoRun;
+  runLog.runs = addRun(runLog.runs, run);
+  if (run.demo) return;
+  try {
+    localStorage.setItem(RUNS_STORE_KEY, storeRuns(runLog.runs));
+  } catch { /* private mode or quota: the run is still here until the console closes */ }
+}
 
 /* ---- the robot's mechanisms ----
  *
@@ -4926,43 +4977,6 @@ function trackMechanisms(now) {
     mechanismState.fired += out;
     mechanismState.matchFired += out;
   }
-}
-
-function trackDrive(now) {
-  const linked = nt.status.connected || demo.on;
-  const d = driveLog.current;
-  if (!(linked && ds.enabled)) {
-    /* An enable shorter than a second is a slip of the finger, not a drive. */
-    if (d && now - d.start >= 1000) {
-      driveLog.last = { ...d, seconds: (now - d.start) / 1000, shot: Math.max(0, mechanismState.fired - d.firedAt) };
-    }
-    driveLog.current = null;
-    return;
-  }
-  const drive = d ?? (driveLog.current = {
-    start: now, metres: 0, top: 0, speed: 0, lowest: null, pose: null, at: now, posed: false, firedAt: mechanismState.fired,
-  });
-  const volts = batteryVolts();
-  if (volts !== null) drive.lowest = drive.lowest === null ? volts : Math.min(drive.lowest, volts);
-
-  const pose = robotPlacement(ntView, { poseKey: DRIVE_POSE_KEY, age: poseAge }).pose;
-  if (!pose) return;
-  drive.posed = true;
-  if (drive.pose) {
-    const step = Math.hypot(pose[0] - drive.pose[0], pose[1] - drive.pose[1]);
-    const dt = (now - drive.at) / 1000;
-    /* Waits for the pose to move, so a pose published more slowly than the board paints is not read
-       as a robot stopping between samples. */
-    if (step === 0 && dt < 0.5) return;
-    /* A pose reset jumps metres at once, faster than any FRC robot drives; it is not distance. */
-    if (dt > 0 && step / dt <= 8) {
-      drive.metres += step;
-      drive.speed += (step / dt - drive.speed) * 0.35;
-      drive.top = Math.max(drive.top, drive.speed);
-    }
-  }
-  drive.pose = [pose[0], pose[1]];
-  drive.at = now;
 }
 
 /* ---- the part pages ----
@@ -5097,11 +5111,16 @@ function latestSystemCheck() {
 function paintPart() {
   const panel = $("#parkPart");
   if (!panel) return;
-  const page = openPart ? PART_PAGES[openPart] : null;
+  /* The run review is a page of its own (paintRuns); every other page shares this panel. */
+  const page = openPart && openPart !== RUN_REVIEW ? PART_PAGES[openPart] : null;
   if (panel.hidden !== !page) panel.hidden = !page;
   for (const button of document.querySelectorAll("#parkCallouts .callout")) {
     button.setAttribute("aria-expanded", String(button.dataset.part === openPart));
   }
+  /* Before anything returns, so a card whose page closes stops looking pressed. This line used to sit at
+     the end, where closing the check's page never reached it and the card stayed lit. */
+  $("#parkCheck")?.setAttribute("aria-expanded", String(openPart === "check"));
+  paintRuns();
   if (!page) return;
   $("#parkPartKind").textContent = page.kind;
   $("#parkPartTitle").textContent = page.title;
@@ -5118,12 +5137,14 @@ function paintPart() {
     row.append(dt, dd);
     rows.append(row);
   }
-  $("#parkCheck")?.setAttribute("aria-expanded", String(openPart === "check"));
 }
 
 /** Open a part's page, or close the one that is open when it is pressed again. */
 function showPart(name) {
-  openPart = openPart === name ? null : (name && PART_PAGES[name] ? name : null);
+  const known = name === RUN_REVIEW || Boolean(name && PART_PAGES[name]);
+  openPart = openPart === name ? null : (known ? name : null);
+  /* The review opens on the latest run, whichever one was being looked at the last time. */
+  if (openPart === RUN_REVIEW) runLog.selected = null;
   paintPart();
 }
 
@@ -5134,6 +5155,253 @@ function wireParts() {
   $("#parkPartClose").onclick = () => showPart(null);
   const check = $("#parkCheck");
   if (check) check.onclick = () => showPart("check");
+  $("#parkDriveCard").onclick = () => showPart(RUN_REVIEW);
+  $("#parkRunsClose").onclick = () => showPart(null);
+  $("#runExport").onclick = exportRun;
+  $("#runList").onclick = (e) => {
+    const row = e.target instanceof Element ? e.target.closest("[data-run]") : null;
+    if (!row) return;
+    runLog.selected = row.dataset.run;
+    paintRuns();
+  };
+}
+
+/* ---- the run review ----
+ *
+ * What the Last drive card opens: one run's numbers, its traces, and the runs before it down the side, so
+ * the question after a change - did that help? - is answered by a number rather than by the driver's
+ * impression. It is a panel like a part's page, and goes the same way: Escape, its close button, the card
+ * again, or the robot being enabled. It is built only when Park is showing, so it costs a driven robot
+ * nothing, and built again only when there is something new to show.
+ */
+const RUN_REVIEW = "runs";
+
+/* The traces a run review draws, each from a sample column, for the runs that published it. The heading
+   error is scaled to twice its 95th percentile, so the steadiness while the target is held fills the plot
+   and the swing onto a target runs off its top; the battery is pooled by its lowest, so a sag that lasted a
+   moment is still drawn. */
+const RUN_TRACES = [
+  {
+    key: "error", label: "Heading error", pool: "max", magnitude: true,
+    note: (run) => (Number.isFinite(run.aim?.rmsDeg) ? `${run.aim.rmsDeg.toFixed(1)}° RMS` : ""),
+    range: (run, seen) => ({ lo: 0, hi: Math.max(2, 2 * (run.aim?.p95Deg ?? seen.hi / 2)) }),
+    scale: (v) => (v === 0 ? "0°" : `${v.toFixed(v < 10 ? 1 : 0)}°`),
+  },
+  {
+    key: "speed", label: "Speed", pool: "mean", magnitude: false,
+    note: (run) => (Number.isFinite(run.topSpeed) ? `top ${run.topSpeed.toFixed(1)} m/s` : ""),
+    range: (run, seen) => ({ lo: 0, hi: Math.max(0.5, seen.hi * 1.1) }),
+    scale: (v) => (v === 0 ? "0" : `${v.toFixed(1)} m/s`),
+  },
+  {
+    key: "volts", label: "Battery", pool: "min", magnitude: false,
+    note: (run) => (Number.isFinite(run.voltsStart) && Number.isFinite(run.voltsMin)
+      ? `${run.voltsStart.toFixed(1)} → ${run.voltsMin.toFixed(1)} V` : ""),
+    /* At least half a volt tall, so a resting battery's hundredths are not drawn as a sag. */
+    range: (run, seen) => {
+      const mid = (seen.lo + seen.hi) / 2;
+      const half = Math.max(0.25, (seen.hi - seen.lo) / 2 + 0.05);
+      return { lo: mid - half, hi: mid + half };
+    },
+    scale: (v) => `${v.toFixed(1)} V`,
+  },
+];
+
+function selectedRun() {
+  return runLog.runs.find((r) => r.id === runLog.selected) ?? runLog.runs[0] ?? null;
+}
+
+/** The run before `run` on the same robot, which its tuning is compared against. */
+function runBefore(run) {
+  const i = runLog.runs.indexOf(run);
+  if (i < 0) return null;
+  return runLog.runs.slice(i + 1).find((r) => r.robot === run.robot && Boolean(r.demo) === Boolean(run.demo)) ?? null;
+}
+
+function paintRuns() {
+  const panel = $("#parkRuns");
+  if (!panel) return;
+  const open = openPart === RUN_REVIEW;
+  if (panel.hidden !== !open) panel.hidden = !open;
+  $("#parkDriveCard")?.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    runLog.sig = "";
+    return;
+  }
+  const run = selectedRun();
+  /* The panel's width is in the signature because the traces are drawn to it. */
+  const sig = [runLog.runs.length, runLog.runs[0]?.id, run?.id, panel.clientWidth].join("|");
+  if (sig === runLog.sig) return;
+  runLog.sig = sig;
+
+  $("#runTitle").textContent = run ? modeLabel(run) : "No runs yet";
+  /* How a run ended is said only when it was not the ordinary way, a disable. */
+  const ended = run?.ended === "estop" ? "ended by an e-stop" : run?.ended === "link" ? "ended when the link dropped" : "";
+  $("#runSub").textContent = run
+    ? [run.demo && "Demo data", run.opMode, run.robot, runWhen(run.started), ended].filter(Boolean).join(" · ")
+    : "";
+  $("#runExport").hidden = !run?.samples;
+  paintRunMain(run);
+  paintRunList(run);
+}
+
+function paintRunMain(run) {
+  const main = $("#runMain");
+  if (!run) {
+    main.innerHTML = `<p class="run-note">Every time the robot is enabled, the run is written up here: how far and how fast it went, `
+      + `how low the battery fell and, for a robot that publishes its aim, how steadily it held the target.</p>`;
+    return;
+  }
+  const changes = describeChanges(tunableChanges(runBefore(run)?.tunables, run.tunables), 3);
+  const { drive, aim, vision } = runFigures(run);
+  /* Tesla's trip card: a grey label, a white number, and a grey line of context under it. What a number
+     means, where its label cannot say, is on hover. */
+  const figure = ([label, value, sub, note]) => `<div class="run-fig" title="${escapeHtml(note)}"><small>${escapeHtml(label)}</small>`
+    + `<b${value === "—" ? ' data-empty="true"' : ""}>${escapeHtml(value)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ""}</div>`;
+  const group = (name, figures, absent) => `<section class="run-group"><div class="run-group-name">${name}</div>${
+    figures ? `<div class="run-figs">${figures.map(figure).join("")}</div>` : `<p class="run-note">${absent}</p>`}</section>`;
+  main.innerHTML = [
+    changes ? `<div class="run-changes"><small>Changed since the run before</small><span>${escapeHtml(changes)}</span></div>` : "",
+    group("Drive", drive),
+    group("Aim", aim, "Not published. The robot sends nothing under /Catalyst/Aim."),
+    group("Vision", vision, "Not published. The robot sends no camera health or pose quality."),
+    runTracesHtml(run),
+  ].join("");
+  drawRunTraces(run);
+}
+
+function runTracesHtml(run) {
+  const cols = run.samples?.columns;
+  if (!cols) {
+    return `<section class="run-group"><div class="run-group-name">Traces</div><p class="run-note">A run's traces are kept `
+      + `until the console closes, and this one is from an earlier session: its numbers were stored, its samples were not.</p></section>`;
+  }
+  const traces = RUN_TRACES.filter((t) => cols[t.key]);
+  if (!traces.length) return "";
+  return `<section class="run-group run-traces"><div class="run-group-name">Traces</div>${traces.map((t) => `
+    <div class="run-trace">
+      <div class="run-trace-head"><span>${t.label}</span><b data-note="${t.key}"></b></div>
+      <div class="run-plot"><canvas data-trace="${t.key}"></canvas><span class="run-scale"><i data-top="${t.key}"></i><i data-bottom="${t.key}"></i></span></div>
+    </div>`).join("")}
+    <div class="run-axis"><span>0:00</span><span>${runClock(run.seconds)}</span></div></section>`;
+}
+
+function drawRunTraces(run) {
+  const cols = run.samples?.columns;
+  if (!cols) return;
+  const main = $("#runMain");
+  for (const t of RUN_TRACES) {
+    const canvas = main.querySelector(`canvas[data-trace="${t.key}"]`);
+    if (!canvas) continue;
+    main.querySelector(`[data-note="${t.key}"]`).textContent = t.note(run);
+    const seen = valueRange(cols[t.key], { magnitude: t.magnitude });
+    if (!seen) continue;
+    const { lo, hi } = t.range(run, seen);
+    main.querySelector(`[data-top="${t.key}"]`).textContent = t.scale(hi);
+    main.querySelector(`[data-bottom="${t.key}"]`).textContent = t.scale(lo);
+    drawTrace(canvas, cols.t, cols[t.key], { span: run.seconds, lo, hi, pool: t.pool, magnitude: t.magnitude });
+  }
+}
+
+/* An `rgba()` of a token's hex, for the canvas, which takes no custom properties. Null for a token that is
+   not a plain hex, and the wash is then left out rather than drawn in a colour made up here. */
+function tokenAlpha(hex, alpha) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/* A run's trace, drawn the way the board's rolling traces are (see sparkline): a thin line in the reading's
+ * white, and a wash under it that is gone well before the floor. On a canvas rather than in SVG because a
+ * match is three thousand rows, and at the screen's own pixel ratio so the line is as fine as the board's.
+ * No light on the last sample: a finished run has no "now". */
+function drawTrace(canvas, times, values, options) {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const ctx = canvas.getContext("2d");
+  if (!w || !h || !ctx) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const lines = traceSegments(times, values, { ...options, w, h, step: 2, top: Math.max(4, h * 0.14), bottom: Math.max(2, h * 0.06) });
+  const clear = tokenAlpha(TOK.data, 0);
+  if (clear) {
+    const wash = ctx.createLinearGradient(0, 0, 0, h);
+    wash.addColorStop(0, tokenAlpha(TOK.data, 0.08));
+    wash.addColorStop(0.75, clear);
+    ctx.fillStyle = wash;
+    for (const line of lines) {
+      if (line.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(line[0][0], h);
+      for (const [x, y] of line) ctx.lineTo(x, y);
+      ctx.lineTo(line[line.length - 1][0], h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.strokeStyle = TOK.data;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const line of lines) {
+    ctx.beginPath();
+    ctx.moveTo(line[0][0], line[0][1]);
+    for (const [x, y] of line) ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+}
+
+/* The runs down the side, newest first. Each is read by one figure, the same for every row so they can be
+   compared down the column: the heading error's RMS when any of them aimed - lower is steadier - and the
+   distance otherwise; the bar is that figure against the largest in the list. Under a run, what changed in
+   its tuning since the run before it. */
+function paintRunList(selected) {
+  const runs = runLog.runs;
+  const byAim = runs.some((r) => Number.isFinite(r.aim?.rmsDeg));
+  $("#runListKey").textContent = !runs.length ? "" : byAim ? "on target · RMS" : "top speed · distance";
+  if (!runs.length) {
+    $("#runList").innerHTML = `<li class="run-note">None yet.</li>`;
+    return;
+  }
+  const figure = (r) => (byAim ? r.aim?.rmsDeg : r.distance);
+  const most = Math.max(0, ...runs.map(figure).filter(Number.isFinite));
+  $("#runList").innerHTML = runs.map((run) => {
+    const value = figure(run);
+    const key = !Number.isFinite(value) ? "—" : byAim ? `${value.toFixed(1)}°` : `${value < 100 ? value.toFixed(1) : value.toFixed(0)} m`;
+    const second = byAim
+      ? (Number.isFinite(run.aim?.onTarget) ? `${Math.round(run.aim.onTarget * 100)}%` : "")
+      : (Number.isFinite(run.topSpeed) ? `${run.topSpeed.toFixed(1)} m/s` : "");
+    const fill = Number.isFinite(value) && most > 0 ? Math.max(2, (value / most) * 100) : 0;
+    const change = describeChanges(tunableChanges(runBefore(run)?.tunables, run.tunables), 1);
+    return `<li><button type="button" class="run-row" data-run="${escapeHtml(run.id)}" aria-pressed="${run === selected}">`
+      + `<span class="run-row-when">${escapeHtml(runWhen(run.started))}<span> · ${escapeHtml(modeLabel(run, { short: true }))}${run.demo ? " · demo" : ""}</span></span>`
+      + `<span class="run-row-len">${runClock(run.seconds)}</span>`
+      + `<span class="run-row-bar" aria-hidden="true"><i style="width:${fill.toFixed(1)}%"></i></span>`
+      + `<span class="run-row-key">${second ? `<span>${second}</span>` : ""}${key}</span>`
+      + (change ? `<span class="run-row-change">${escapeHtml(change)}</span>` : "")
+      + `</button></li>`;
+  }).join("");
+}
+
+/* The selected run's samples as a CSV file, handed to the webview as a download: made here, from memory,
+   with nothing sent anywhere. */
+function exportRun() {
+  const run = selectedRun();
+  const csv = run ? runCsv(run) : null;
+  if (!csv) return;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = runFileName(run);
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
@@ -5256,19 +5524,11 @@ function paintParkInfo() {
     [summary?.motors?.expected && `${count(summary.motors)} motors`, loop !== null && `loop ${loop.toFixed(1)} ms`]
       .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Loop time unknown");
 
-  const last = driveLog.last;
-  if (!last) {
-    setText("#parkDrive", "—");
-    setText("#parkDriveSub", "No drive yet this session");
-  } else {
-    const time = `${Math.floor(last.seconds / 60)}:${String(Math.floor(last.seconds % 60)).padStart(2, "0")}`;
-    const far = last.metres < 100 ? last.metres.toFixed(1) : last.metres.toFixed(0);
-    setText("#parkDrive", last.posed ? `${far} m · ${time}` : time);
-    setText("#parkDriveSub",
-      [last.shot >= 1 && `~${Math.round(last.shot)} FUEL shot`, last.posed && `top ${last.top.toFixed(1)} m/s`,
-        last.lowest !== null && `lowest ${last.lowest.toFixed(1)} V`]
-        .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Nothing published to measure");
-  }
+  /* The latest run. One read back from storage is from an earlier session, so it says when it was. */
+  const last = runLog.runs[0] ?? null;
+  const card = runCard(last);
+  setText("#parkDrive", card.title);
+  setText("#parkDriveSub", last && !last.samples && Number.isFinite(last.started) ? `${runWhen(last.started)} · ${card.sub}` : card.sub);
 
   if (parkState.scene) {
     parkState.scene.setCad?.(cadFits());
@@ -7783,7 +8043,6 @@ function paint() {
   paintMatchCue();
   fitStatusBar();
   paintDockAuto();
-  trackDrive(performance.now());
   trackMechanisms(performance.now());
   rememberRobot(performance.now());
   paintPark();
@@ -7822,6 +8081,8 @@ function onFrame() {
     if (buf.length > HIST_LEN) buf.shift();
   }
   ds.word = (controlWord() ?? 0) | 0;
+  /* Every frame, not every paint: a run's numbers should not depend on whether the window was on top. */
+  recordRun();
   if (nt.keysDirty) {
     nt.keysDirty = false;
     refreshTopicList();

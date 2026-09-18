@@ -115,11 +115,35 @@
           <p id="parkPartLede"></p>
           <dl id="parkPartRows"></dl>
         </aside>
+        <!-- The run review, opened from the Last drive card: one run's numbers and traces, and the runs
+             before it down the side. Filled by paintRuns in app.js; a panel like the part pages, and closed
+             the same ways. -->
+        <aside class="park-part park-runs" id="parkRuns" hidden aria-label="Run review">
+          <header>
+            <div><small>Run review</small><b id="runTitle">—</b><span class="run-sub" id="runSub"></span></div>
+            <div class="run-actions">
+              <button type="button" class="run-export" id="runExport" hidden>Export CSV</button>
+              <button type="button" class="park-part-close" id="parkRunsClose" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          </header>
+          <div class="run-body">
+            <div class="run-main" id="runMain"></div>
+            <div class="run-side">
+              <div class="run-side-head"><span>Recent runs</span><small id="runListKey"></small></div>
+              <ol class="run-list" id="runList"></ol>
+            </div>
+          </div>
+        </aside>
         <div class="park-cards">
           <div class="pcard"><small>Match</small><b id="parkMatch">—</b><span id="parkMatchSub"></span></div>
           <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
           <div class="pcard"><small>Health</small><b id="parkHealth">—</b><span id="parkHealthSub"></span></div>
-          <div class="pcard"><small>Last drive</small><b id="parkDrive">—</b><span id="parkDriveSub"></span></div>
+          <!-- The latest run, and the way into the run review. -->
+          <button type="button" class="pcard" id="parkDriveCard" aria-expanded="false" aria-controls="parkRuns">
+            <small>Last drive</small><b id="parkDrive">—</b><span id="parkDriveSub"></span>
+          </button>
           <!-- The robot's own pre-match check, when it has one: the result, and a page with every test. -->
           <button type="button" class="pcard pcheck" id="parkCheck" data-part="check" hidden aria-expanded="false">
             <small>Pre-match check</small><b id="parkCheckState">—</b><span id="parkCheckSub"></span>
