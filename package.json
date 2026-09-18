@@ -13,6 +13,7 @@
     "robot-cad": "node scripts/robot-cad.mjs",
     "robot-cad-preview": "node scripts/robot-cad-preview.mjs",
     "driver-cad": "node scripts/driver-cad.mjs",
+    "device-cad": "node scripts/device-cad.mjs",
     "serve": "node scripts/serve.mjs",
     "dev": "node scripts/vendor.mjs && tauri dev",
     "build": "node scripts/check-identity.mjs --write && node scripts/vendor.mjs && tauri build",

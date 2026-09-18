@@ -28,6 +28,7 @@ import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
+import { loadDevices } from "./device3d.js";
 import {
   addDriver, activeDriver, capture, captureRobot, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
   makeDriver, readDrivers, removeDriver, robotPlan, ROBOT_MAX, setRobotSetting, switchDriver,
@@ -6411,6 +6412,7 @@ function showSection(name) {
   }
   $("#spane").scrollTop = 0;
   driverSection(name === "drivers");
+  devicePart?.setActive(name === "devices");
   paintSettings();
 }
 
@@ -7476,6 +7478,48 @@ function coreRows(rows) {
 
 /* The wiring, which is its own section. Both halves hide themselves when the robot published nothing
  * for them, so the empty state is "neither drew" rather than a flag kept in step by hand. */
+/* ---- a device on a stage ----
+ *
+ * The camera card names the cameras; this draws the one the robot has. The models are baked by
+ * `npm run device-cad` from the vendors' own published CAD (see device3d.js), and a console without them
+ * shows the list and nothing else, which is why every step here checks rather than assumes.
+ */
+let devicePart = null;
+let deviceManifest = null;
+let devicePartWanted = "";
+
+async function paintCameraPart(names) {
+  const holder = $("#gCamPart");
+  if (!holder) return;
+  deviceManifest ??= await loadDevices();
+  const mod = deviceManifest ? await import("./device3d.js") : null;
+  const device = mod ? names.map((n) => mod.deviceFor(deviceManifest, n)).find(Boolean) : null;
+  if (!device) {
+    holder.hidden = true;
+    devicePart?.setActive(false);
+    return;
+  }
+  const name = names.find((n) => mod.deviceFor(deviceManifest, n) === device) ?? device.name;
+  if (devicePartWanted === device.id && !holder.hidden) {
+    $("#gCamPartName").textContent = name;
+    return;
+  }
+  devicePartWanted = device.id;
+  holder.hidden = false;
+  devicePart ??= mod.createDeviceStage($("#gCamCanvas"), {
+    reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  });
+  const ok = await devicePart.show(device);
+  holder.hidden = !ok;
+  if (!ok) return;
+  devicePart.setActive(currentSection === "devices" && $("#settings").dataset.open === "true");
+  $("#gCamPartName").textContent = name;
+  /* Its real size, because the point of drawing the part is that somebody can match it to the one in
+     their hand. */
+  const mm = device.sizeMm ? `${device.sizeMm.map((v) => Math.round(v)).join(" × ")} mm` : "";
+  $("#gCamPartNote").textContent = [device.name, mm].filter(Boolean).join(" · ");
+}
+
 function paintDevices() {
   paintDeviceTree();
   paintPowerPanel();
@@ -7525,6 +7569,7 @@ function paintCameraCard() {
   card.hidden = names.length === 0;
   if (card.hidden) return;
   $("#gCamCount").textContent = String(names.length);
+  paintCameraPart(names);
   setHtml($("#gCams"), names.map((name) => {
     const r = roster.find((p) => p[0] === name);
     const h = health.get(name);

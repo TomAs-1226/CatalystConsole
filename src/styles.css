@@ -2903,3 +2903,14 @@ kbd {
 .dbind b[data-combo="true"]::after { content: "combo"; margin-left: 8px;
   font-size: var(--fs-12); font-weight: 400; letter-spacing: var(--track-label); color: var(--cat-faint); }
 .dbind span { font-size: var(--fs-13); line-height: 1.5; color: var(--cat-body); }
+
+/* ---------------------------------------------------------------- a part on a stage
+
+   The device itself, turning slowly beside the list that names it. Its own canvas, made the first time
+   the section is looked at and asleep whenever it is not. */
+.gpart { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-2); overflow: hidden; margin-bottom: 12px; }
+.gpart[hidden] { display: none; }
+.gpart canvas { display: block; width: 100%; height: 190px; }
+.gpartwho { position: absolute; left: 14px; bottom: 12px; display: grid; gap: 1px; }
+.gpartwho b { font-size: var(--fs-15); color: var(--cat-white); font-weight: var(--cat-w-medium); }
+.gpartwho span { font-size: var(--fs-12); color: var(--cat-dim); }

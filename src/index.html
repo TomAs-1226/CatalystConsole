@@ -627,6 +627,12 @@
 
             <section class="gcard" id="gCamCard" hidden>
               <h4>Cameras <b id="gCamCount"></b></h4>
+              <!-- The camera the robot has, drawn as the object it is, from the vendor's own CAD. It
+                   appears only when one of the robot's cameras is a model this console has. -->
+              <div class="gpart" id="gCamPart" hidden>
+                <canvas id="gCamCanvas" aria-hidden="true"></canvas>
+                <div class="gpartwho"><b id="gCamPartName">—</b><span id="gCamPartNote"></span></div>
+              </div>
               <div class="gcams" id="gCams"></div>
             </section>
           </div>
