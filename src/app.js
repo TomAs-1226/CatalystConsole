@@ -4437,6 +4437,9 @@ function parkRobotSpec() {
     bumperThickness: n("Chassis/BumperThicknessMeters"),
     height: n("Chassis/HeightMeters"),
     modules,
+    /* A robot on the link that publishes no mechanisms is a drivebase, drawn without the generic
+       shooter; the demo plays a robot that has one (see cadFits). */
+    superstructure: demo.on || !nt.status.connected || mechanismState.now !== null,
   };
 }
 

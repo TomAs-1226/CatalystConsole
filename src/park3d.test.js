@@ -615,3 +615,12 @@ test("a shot with the robot behind the camera falls back to swinging round the l
   const behind = { eye: [0, 0.3, -2], look: [0, 0.3, -5], fov: 40, rect: { x: 0, y: 0, w: 800, h: 600 } };
   assert.deepEqual(glideShots(shotA, behind, 0.5, middle), mixShots(shotA, behind, 0.5));
 });
+
+test("a robot known to have no superstructure is drawn as its chassis; any other gets the generic one", async () => {
+  const { normalizeRobot } = await import("./robot3d.js");
+  assert.equal(normalizeRobot({}).superstructure, true);
+  assert.equal(normalizeRobot({ superstructure: true }).superstructure, true);
+  /* Only an explicit false turns it off: a spec that says nothing about it is an unknown robot. */
+  assert.equal(normalizeRobot({ superstructure: undefined }).superstructure, true);
+  assert.equal(normalizeRobot({ superstructure: false }).superstructure, false);
+});

@@ -69,7 +69,12 @@ export function normalizeRobot(spec) {
     modules = [[x, y], [x, -y], [-x, y], [-x, -y]];
   }
 
-  return { frameLength, frameWidth, bumperLength, bumperWidth, bumperThickness, height, modules };
+  /* Whether to stand the generic superstructure - a shooter under a hood - on the chassis. It is there to
+     give an unknown robot a silhouette, and it is wrong for a robot known to have none: a drivebase that
+     publishes no mechanisms is drawn as the chassis it is. Only an explicit false turns it off. */
+  const superstructure = s.superstructure !== false;
+
+  return { frameLength, frameWidth, bumperLength, bumperWidth, bumperThickness, height, modules, superstructure };
 }
 
 /**
@@ -471,7 +476,7 @@ function buildRobot(spec, mat, keep) {
   let crown = new THREE.Vector3(0, baseTop, 0);
   let reach = 0;
   let muzzle = null;
-  if (plateH > 0.08 && postZ > 0.06) {
+  if (spec.superstructure !== false && plateH > 0.08 && postZ > 0.06) {
     put(roundedBox(0.0254, RAIL_HEIGHT, W - 2 * rail - 0.002, 0.004, 0.0015), mat.body, postX, FRAME_BOTTOM + RAIL_HEIGHT / 2, 0);
     const plate = sidePlate(plateW, plateH, Math.min(0.1, plateW * 0.4), 0.008, 0.002);
     for (const side of [-1, 1]) put(plate, mat.body, postX, FRAME_TOP, side * postZ);
