@@ -378,6 +378,8 @@ export function applyPose(rig, pose) {
 /* The figure is drawn nearly life size in a panel a few hundred pixels tall, so a long lens and a low
    camera - the same lens the Park stage photographs the robot with. */
 const STAGE_FOV = 26;
+/* The floor reaches past the robot as well as the figure now. */
+const FLOOR_M = 4.2;
 const FRAME_MS = 1000 / 60;
 
 /**
@@ -403,11 +405,11 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
   const camera = new THREE.PerspectiveCamera(STAGE_FOV, 16 / 9, 0.1, 40);
   /* Far enough back that the whole figure fits the tall, narrow panel it stands in: the vertical field
      is 26 degrees, so a 1.76 m figure needs about 3.8 m, and 4.0 leaves a little air over its head. */
-  /* Far enough back that the whole figure fits the panel it stands in - the field is 26 degrees, so a
-     1.76 m figure needs about 3.8 m - and looking a little to the left of the mark, so there is room on
-     that side for the walk-on to come from. */
-  camera.position.set(3.75, 1.62, 2.8);
-  camera.lookAt(-0.12, 0.92, 0);
+  /* Both of them in frame: the figure on its mark and the robot beside it. Far enough back for a 1.76 m
+     person at a 26 degree field - about 3.8 m - and pulled further still because there are now two
+     things to fit, looking between them rather than at either. */
+  camera.position.set(4.6, 1.8, 2.5);
+  camera.lookAt(0.1, 0.82, -0.45);
 
   /* The same studio the robot stands in: a low ambient, a key over the camera's shoulder, a cool rim
      from behind that draws the figure's edge out of a dark panel. */
@@ -420,11 +422,11 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
 
   /* The floor: a disc that fades to nothing before its edge, so the figure stands on something without
      the panel having a horizon in it. */
-  const floorGeometry = new THREE.CircleGeometry(3.2, 48);
+  const floorGeometry = new THREE.CircleGeometry(FLOOR_M, 56);
   const floorMaterial = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    uniforms: { uOpacity: { value: 0.5 } },
+    uniforms: { uOpacity: { value: 0.5 }, uRadius: { value: FLOOR_M } },
     vertexShader: `
       varying vec2 vXy;
       void main() {
@@ -435,7 +437,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
       varying vec2 vXy;
       uniform float uOpacity;
       void main() {
-        float r = length(vXy) / 3.2;
+        float r = length(vXy) / uRadius;
         float fade = smoothstep(1.0, 0.25, r);
         gl_FragColor = vec4(vec3(0.07, 0.07, 0.075), fade * uOpacity);
       }`,
@@ -448,6 +450,32 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
      `npm run driver-cad` - replaces it when it has loaded. Neither the panel nor the choreography knows
      which one it is drawing: both rigs take the same pose. */
   let wanted = colour;
+  /* The robot the driver is walking up to. It is the team's own, from the same model the Park stage
+     draws, so this is the robot they are about to drive rather than a picture of a robot - which is the
+     whole reason to put it here. It stands on the figure's right at arm's length, turned a little toward
+     the camera the way a car is parked on a grid slot.
+
+     Nothing about it is animated: a robot with its wheels turning behind a person standing still reads
+     as a video playing, and this is a photograph of two things waiting for a match. */
+  let robot = null;
+  (async () => {
+    try {
+      const mod = await import("./robot3d.js");
+      if (disposed) return;
+      robot = mod.createRobotModel({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
+      /* A model builds nothing until it is told what shape the robot is. There is no robot connected to
+         this panel, so it gets the defaults - which is the team's own CAD where that has been baked, and
+         a robot of the usual size where it has not. */
+      robot.setSpec(mod.normalizeRobot({}));
+      robot.root.position.set(0.1, 0, -1.25);
+      robot.root.rotation.y = 0.5;
+      scene.add(robot.lights, robot.root);
+      wake();
+    } catch (err) {
+      console.warn("no robot to stand the driver beside", err);
+    }
+  })();
+
   let rig = createDriver({ colour });
   let played = null;
   scene.add(rig.root);
@@ -566,6 +594,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
       if (raf) cancelAnimationFrame(raf);
       observer.disconnect();
       rig.dispose();
+      robot?.dispose();
       floorGeometry.dispose();
       floorMaterial.dispose();
       renderer.dispose();
@@ -894,6 +923,25 @@ export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
     for (const mesh of originals) mesh.material = suit;
   }
 
+  /* ---- the stance ----
+   *
+   * The arms-folded pose, solved against measured constraints by scripts/driver-fold.mjs because no
+   * animation library that can be downloaded without an account has one. It is held over the top of the
+   * stand rather than replacing it: the clip keeps breathing, shifting its weight and moving its head,
+   * and only the six bones of the two arms are taken over. A pose that replaced the whole clip would be
+   * a photograph, and a figure that never moves reads as a crash.
+   */
+  const stance = [];
+  for (const [name, q] of Object.entries(asset.manifest?.stance?.bones ?? {})) {
+    const bone = bones.get(plainBone(name));
+    if (bone && Array.isArray(q) && q.length === 4) {
+      stance.push({ bone, to: new THREE.Quaternion(q[0], q[1], q[2], q[3]) });
+    }
+  }
+  /* How far into the fold the figure is: it goes over as the stand fades in, and comes back out if the
+     walk ever starts again. */
+  let folded = 0;
+
   const speed = walkClip?.duration ? stride / walkClip.duration : 0;
   const walking = walkClip ? mixer.clipAction(walkClip) : null;
   const standing = standClip ? mixer.clipAction(standClip) : null;
@@ -932,7 +980,17 @@ export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
       const dt = last === null ? 0 : Math.min(0.1, (now - last) / 1000);
       last = now;
       mixer.update(dt);
-      return at.walking || at.standing < 1;
+
+      /* The arms go over the clip after it has been applied, because a mixer writes every bone it has a
+         track for and anything written before it is simply overwritten. */
+      if (stance.length) {
+        const want = at.walking ? 0 : 1;
+        folded += (want - folded) * (dt > 0 ? 1 - Math.exp(-dt / 0.22) : 0);
+        if (folded > 0.001) {
+          for (const { bone, to } of stance) bone.quaternion.slerp(to, folded);
+        }
+      }
+      return at.walking || at.standing < 1 || (folded > 0.001 && folded < 0.999);
     },
     setColour(next) {
       if (next) suit.color.set(next);

@@ -2756,8 +2756,9 @@ kbd {
 
    The profile list beside the figure whose suit takes the profile's colour. The stage is a canvas like
    Park's, on its own so a settings panel nobody has opened has never made a renderer. */
-.drivers { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 22px; align-items: start; margin: 18px 0 26px; }
-@media (max-width: 900px) { .drivers { grid-template-columns: 1fr; } }
+/* The stage runs the full width above the list: the driver walks on from the left and stops beside the
+   robot, and two things on one line need room that a column beside a list does not have. */
+.drivers { display: grid; gap: 18px; margin: 18px 0 26px; }
 
 .dstage { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-1); overflow: hidden; }
 .dstage canvas { display: block; width: 100%; height: min(420px, 38vh); }

@@ -64,6 +64,22 @@ const DEVICES = [
     url: "https://downloads.limelightvision.io/cad/LIMELIGHT3CAD_STL.stl",
     creaseDeg: 32,
   },
+  {
+    id: "limelight3a",
+    name: "Limelight 3A",
+    kind: "camera",
+    match: ["limelight3a", "limelight 3a", "ll3a"],
+    url: "https://downloads.limelightvision.io/cad/LIMELIGHT3ACAD_STL.stl",
+    creaseDeg: 32,
+  },
+  {
+    id: "limelight3g",
+    name: "Limelight 3G",
+    kind: "camera",
+    match: ["limelight3g", "limelight 3g", "ll3g"],
+    url: "https://downloads.limelightvision.io/cad/LIMELIGHT3GCAD_STL.stl",
+    creaseDeg: 32,
+  },
 ];
 
 function log(line) {

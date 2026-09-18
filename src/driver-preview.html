@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>driver preview</title>
+<style>body{margin:0;background:#131314;color:#98989d;font:12px system-ui}.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}figure{margin:0;position:relative}canvas{width:100%;height:440px;display:block;background:#1c1c1e}figcaption{position:absolute;left:8px;bottom:6px}</style>
+</head><body><div class="strip" id="strip"></div>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "./vendor/three.module.min.js";
+import { createModelDriver, loadDriverModel } from "./driver3d.js";
+const asset = await loadDriverModel();
+if (!asset) throw new Error("no baked driver");
+const TIMES = [0.5, 1.1, 2.0, 6.0];
+const VIEWS = [
+  { name: "front", eye: [3.1, 1.25, 0.3], look: [0, 0.95, 0] },
+  { name: "three-quarter", eye: [2.4, 1.35, 1.8], look: [0, 0.95, 0] },
+];
+const strip = document.getElementById("strip");
+for (const view of VIEWS) for (const t of TIMES) {
+  const figure = document.createElement("figure");
+  const canvas = document.createElement("canvas");
+  const caption = document.createElement("figcaption");
+  caption.textContent = `${view.name} · t=${t.toFixed(2)}s`;
+  figure.append(canvas, caption); strip.append(figure);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(1); renderer.setSize(canvas.clientWidth, 440, false);
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / 440, 0.1, 40);
+  camera.position.set(...view.eye); camera.lookAt(...view.look);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x0b0b0c, 0.35));
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(3, 4.4, 2.6);
+  const rim = new THREE.DirectionalLight(0xdae3f4, 2.3); rim.position.set(-2.4, 2.2, -3.2);
+  scene.add(key, rim); scene.add(new THREE.GridHelper(4, 16, 0x3a3a3c, 0x2c2c2e));
+  const rig = await createModelDriver(asset, { colour: "#8e8e93" });
+  scene.add(rig.root);
+  const HZ = 60;
+  for (let i = 0; i <= t * HZ; i++) rig.step(i / HZ, (i / HZ) * 1000);
+  rig.root.updateMatrixWorld(true);
+  renderer.render(scene, camera);
+}
+window.__ready = true;
+</script></body></html>
