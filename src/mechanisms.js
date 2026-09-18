@@ -100,6 +100,62 @@ export function readAim(read) {
   };
 }
 
+const locked = (s) => s === "ALIGNED" || s === "SOTF";
+
+/**
+ * The aim to draw, steadied against the flicker of the robot's own aiming (see readAim).
+ *
+ * On a real robot shooting on the move, the aim drops to idle for a frame, falls from a lock to ALIGNING
+ * for a moment, and swaps SOTF and ALIGNED while its speed sits near the threshold between them. Drawn as
+ * it comes, each of those fades the highlight out and back in, which a driver reads as the robot losing
+ * its target. `next(aim, nowMs)` returns what to draw instead:
+ *
+ * - a null aim is bridged with the last aim drawn until it has been null for `dropMs`;
+ * - a lock (ALIGNED or SOTF) falling back to ALIGNING stays locked until ALIGNING has lasted `unlockMs`;
+ * - ALIGNED and SOTF trade places only once the new state has held for `unlockMs` too;
+ * - anything else - a first aim, ALIGNING becoming a lock, a target more than `newTargetM` from the last
+ *   one - shows at once.
+ *
+ * Only the state is held back: the target, the aim point and the numbers are always the latest the robot
+ * sent. `reset()` forgets it all, for a robot that is disabled and so has no aim to bridge.
+ */
+export function createAimDebounce({ dropMs = 600, unlockMs = 350, newTargetM = 0.5 } = {}) {
+  let shown = null;    // the aim last returned
+  let goneAt = null;   // when the robot's aim went null, while the last one is bridging the gap
+  let pending = null;  // { state, since }: a state the robot is in that is not being shown yet
+  const reset = () => {
+    shown = null;
+    goneAt = null;
+    pending = null;
+  };
+  const next = (aim, nowMs) => {
+    if (!aim) {
+      if (!shown) return null;
+      goneAt ??= nowMs;
+      if (nowMs - goneAt < dropMs) return shown;
+      reset();
+      return null;
+    }
+    goneAt = null;
+    const moved = shown !== null
+      && Math.hypot(aim.target[0] - shown.target[0], aim.target[1] - shown.target[1]) > newTargetM;
+    if (!shown || moved || aim.state === shown.state || !locked(shown.state)) {
+      pending = null;
+      shown = aim;
+      return shown;
+    }
+    if (pending?.state !== aim.state) pending = { state: aim.state, since: nowMs };
+    if (nowMs - pending.since >= unlockMs) {
+      pending = null;
+      shown = aim;
+    } else {
+      shown = { ...aim, state: shown.state };
+    }
+    return shown;
+  };
+  return { next, reset };
+}
+
 /** True when anything here would move a part of the robot. */
 export function hasMechanisms(m) {
   return Boolean(m) && [m.hoodDeg, m.deployM, m.intake?.speed, m.conveyor?.speed, m.feeder?.speed, m.shooterRps]

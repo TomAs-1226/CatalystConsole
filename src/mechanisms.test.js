@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   ballAt,
+  createAimDebounce,
   createHopper,
   fitKeep,
   hasMechanisms,
@@ -184,4 +185,103 @@ test("what the robot is aiming at is read only while it aims, with the lead poin
   const still = readAim(view({ "/Catalyst/Aim/State": "ALIGNING", "/Catalyst/Aim/Target": [11.93, 4.03] }));
   assert.deepEqual(still.aimPoint, [11.93, 4.03], "no lead published: aimed straight at the target");
   assert.equal(still.headingErrorDeg, null);
+});
+
+/* ---- steadying the aim ---- */
+
+const HUB = [11.91, 4.03];
+const aimAt = (state, target = HUB, more = {}) => ({
+  state, target, aimPoint: target, headingErrorDeg: null, distance: 2, timeOfFlight: null, ...more,
+});
+
+test("a new aim shows at once, and the aim going null is bridged until it has been null for dropMs", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  assert.equal(d.next(null, 0), null, "nothing to bridge before the first aim");
+  const first = aimAt("ALIGNED");
+  assert.equal(d.next(first, 100), first);
+  assert.equal(d.next(null, 200), first);
+  assert.equal(d.next(null, 799), first, "599 ms of null is still a flicker");
+  assert.equal(d.next(null, 800), null, "600 ms of null is the aim ending");
+  assert.equal(d.next(null, 900), null);
+  const again = aimAt("ALIGNING");
+  assert.equal(d.next(again, 1000), again, "an aim after one has ended is new, and shows at once");
+});
+
+test("each gap in the aim is timed from its own start", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("SOTF"), 0);
+  d.next(null, 100);
+  assert.equal(d.next(null, 650)?.state, "SOTF");
+  assert.equal(d.next(aimAt("SOTF"), 690)?.state, "SOTF");
+  assert.equal(d.next(null, 700)?.state, "SOTF");
+  assert.equal(d.next(null, 1299)?.state, "SOTF", "the first gap's 550 ms do not count against the second");
+  assert.equal(d.next(null, 1300), null);
+});
+
+test("a lock falling back to ALIGNING stays locked until ALIGNING has lasted unlockMs, with the latest numbers", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("ALIGNED", HUB, { distance: 2 }), 0);
+  const held = d.next(aimAt("ALIGNING", [11.95, 4.0], { distance: 2.4, headingErrorDeg: 3.5 }), 100);
+  assert.equal(held.state, "ALIGNED");
+  assert.deepEqual(held.target, [11.95, 4.0], "the target is the latest");
+  assert.equal(held.distance, 2.4, "and so are the numbers");
+  assert.equal(held.headingErrorDeg, 3.5);
+  assert.equal(d.next(aimAt("ALIGNING"), 449).state, "ALIGNED");
+  assert.equal(d.next(aimAt("ALIGNING"), 450).state, "ALIGNING", "350 ms of ALIGNING is the lock lost");
+  assert.equal(d.next(null, 500).state, "ALIGNING", "and a gap after that bridges what was last drawn");
+});
+
+test("a lock that comes back inside the grace never showed as lost, and the next loss is timed afresh", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("SOTF"), 0);
+  assert.equal(d.next(aimAt("ALIGNING"), 100).state, "SOTF");
+  assert.equal(d.next(aimAt("SOTF"), 300).state, "SOTF", "re-locked");
+  assert.equal(d.next(aimAt("ALIGNING"), 400).state, "SOTF");
+  assert.equal(d.next(aimAt("ALIGNING"), 749).state, "SOTF", "349 ms since this loss, not 649 since the first");
+  assert.equal(d.next(aimAt("ALIGNING"), 750).state, "ALIGNING");
+  assert.equal(d.next(aimAt("ALIGNED"), 760).state, "ALIGNED", "a lock is good news, and shows at once");
+});
+
+test("a moment of null inside an unlock does not reset it: the gap is ignored, not a fresh start", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("ALIGNED"), 0);
+  d.next(aimAt("ALIGNING"), 100);
+  assert.equal(d.next(null, 200).state, "ALIGNED");
+  assert.equal(d.next(aimAt("ALIGNING"), 450).state, "ALIGNING");
+});
+
+test("SOTF and ALIGNED trading places near the speed threshold shows neither flip, and a settled switch does", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("ALIGNED"), 0);
+  /* The robot's speed wandering either side of 0.25 m/s: a state change every 200 ms, for two seconds. */
+  for (let t = 50; t <= 2000; t += 50) {
+    const robot = Math.floor(t / 200) % 2 === 0 ? "ALIGNED" : "SOTF";
+    assert.equal(d.next(aimAt(robot), t).state, "ALIGNED", `at ${t} ms, with the robot saying ${robot}`);
+  }
+  d.next(aimAt("SOTF"), 2100);
+  assert.equal(d.next(aimAt("SOTF"), 2449).state, "ALIGNED");
+  assert.equal(d.next(aimAt("SOTF"), 2450).state, "SOTF", "SOTF held 350 ms shows");
+  assert.equal(d.next(aimAt("ALIGNED"), 2500).state, "SOTF", "and the way back is held the same");
+  assert.equal(d.next(aimAt("ALIGNED"), 2850).state, "ALIGNED");
+});
+
+test("a new target shows at once, state and all, while the same target wandering a little does not", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("ALIGNED"), 0);
+  assert.equal(d.next(aimAt("ALIGNING", [HUB[0] + 0.2, HUB[1]]), 100).state, "ALIGNED", "0.2 m is the same target");
+  const other = aimAt("ALIGNING", [4.63, 4.03]);
+  assert.equal(d.next(other, 150), other, "the other HUB is a new aim");
+  assert.equal(d.next(null, 200), other);
+  const place = aimAt("ALIGNED", [2.0, 6.5]);
+  assert.equal(d.next(place, 300), place, "and a new target ends a gap at once");
+});
+
+test("reset forgets the aim, so a robot that is disabled shows none from that moment", () => {
+  const d = createAimDebounce({ dropMs: 600, unlockMs: 350 });
+  d.next(aimAt("ALIGNED"), 0);
+  d.next(aimAt("ALIGNING"), 100);
+  d.reset();
+  assert.equal(d.next(null, 110), null);
+  const fresh = aimAt("ALIGNING");
+  assert.equal(d.next(fresh, 120), fresh, "and the next aim starts clean, not held to the old lock");
 });

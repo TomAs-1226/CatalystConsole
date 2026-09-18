@@ -1,0 +1,1295 @@
+{
+ "capturedAt": "2026-09-17T20:32:28",
+ "robot": "Catalyst X1 (7e65603)",
+ "values": {
+  "/Auto Selector/.controllable": {
+   "t": "bool",
+   "v": true
+  },
+  "/Auto Selector/.instance": {
+   "t": "num",
+   "v": 0
+  },
+  "/Auto Selector/.type": {
+   "t": "str",
+   "v": "String Chooser"
+  },
+  "/Auto Selector/active": {
+   "t": "str",
+   "v": "Leave"
+  },
+  "/Auto Selector/default": {
+   "t": "str",
+   "v": "Leave"
+  },
+  "/Auto Selector/options": {
+   "t": "strs",
+   "v": [
+    "Do Nothing",
+    "Leave",
+    "Square",
+    "Spin check",
+    "Vision return",
+    "Do nothing"
+   ]
+  },
+  "/Catalyst/Aim/AimPoint": {
+   "t": "nums",
+   "v": [
+    11.907353555280622,
+    4.02849930604578
+   ]
+  },
+  "/Catalyst/Aim/DistanceMeters": {
+   "t": "num",
+   "v": 1.4947609081255542
+  },
+  "/Catalyst/Aim/HeadingErrorDeg": {
+   "t": "num",
+   "v": -5.627774258990058
+  },
+  "/Catalyst/Aim/State": {
+   "t": "str",
+   "v": "IDLE"
+  },
+  "/Catalyst/Aim/Target": {
+   "t": "nums",
+   "v": [
+    11.907353555280622,
+    4.02849930604578
+   ]
+  },
+  "/Catalyst/Aim/TimeOfFlightSeconds": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Controls/.manifest": {
+   "t": "str",
+   "v": "[{\"control\":\"Left stick\",\"action\":\"Drive, field-centric\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Right stick\",\"action\":\"Turn\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"L1\",\"action\":\"Slow mode (35%) while held\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"R1\",\"action\":\"Turret mode while held: drive anywhere, keep facing the tag\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Circle\",\"action\":\"X-brake while held\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Triangle\",\"action\":\"Face the field centre while held\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Square\",\"action\":\"Snap to the nearest 90\u00b0 while held\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"D-pad up\",\"action\":\"Line up on the tag; press again or push a stick to stop (not while R1 is held)\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"D-pad left\",\"action\":\"Aim left of the tag\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"D-pad right\",\"action\":\"Aim right of the tag\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"D-pad down\",\"action\":\"Aim at the tag itself\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Cross\",\"action\":\"Co-pilot on / off: drive to the test origin, then hold\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Touchpad\",\"action\":\"Double-press: forward is where the robot faces now\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Options\",\"action\":\"Forward is where the robot faces now\",\"controller\":\"Driver\",\"combo\":false},{\"control\":\"Create\",\"action\":\"Start / stop recording a ghost\",\"controller\":\"Driver\",\"combo\":false}]"
+  },
+  "/Catalyst/Drive/BackLeft/Velocity": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Drive/BackRight/Velocity": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Drive/FrontLeft/Velocity": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Drive/FrontRight/Velocity": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Drive/ModuleVelocities": {
+   "t": "nums",
+   "v": [
+    -0.8252816638824739,
+    0.0,
+    -2.313243028131547,
+    0.0,
+    0.83448554860979,
+    0.0,
+    -0.8252816638824745,
+    0.0
+   ]
+  },
+  "/Catalyst/Match/TimeLeft": {
+   "t": "num",
+   "v": 140.0
+  },
+  "/Catalyst/Physics/Acceleration": {
+   "t": "num",
+   "v": 0.00047838445848162717
+  },
+  "/Catalyst/Physics/Disturbance/Degrees": {
+   "t": "num",
+   "v": 93.45657153367553
+  },
+  "/Catalyst/Physics/Disturbance/Fraction": {
+   "t": "num",
+   "v": 0.12361274277828968
+  },
+  "/Catalyst/Physics/Disturbance/MpsSq": {
+   "t": "num",
+   "v": 1.333449594363386
+  },
+  "/Catalyst/Physics/LastRejectionMeters": {
+   "t": "num",
+   "v": 1.6482269538834076
+  },
+  "/Catalyst/Physics/PoseArray": {
+   "t": "nums",
+   "v": [
+    13.410353058302471,
+    4.154305841385954,
+    -2.9497969912070525
+   ]
+  },
+  "/Catalyst/Physics/Quality/Confidence": {
+   "t": "num",
+   "v": 0.5933557673670371
+  },
+  "/Catalyst/Physics/Quality/Level": {
+   "t": "str",
+   "v": "MODERATE"
+  },
+  "/Catalyst/Physics/Quality/Reason": {
+   "t": "str",
+   "v": "vision stale 234.3 s"
+  },
+  "/Catalyst/Physics/Quality/TranslationStdDev": {
+   "t": "num",
+   "v": 0.41851134798030365
+  },
+  "/Catalyst/Physics/RejectedObservations": {
+   "t": "num",
+   "v": 3
+  },
+  "/Catalyst/Physics/SensorDisagreement": {
+   "t": "num",
+   "v": 0.02657693053185146
+  },
+  "/Catalyst/Physics/Slip/Factor": {
+   "t": "num",
+   "v": 5e-324
+  },
+  "/Catalyst/Physics/Slip/ModuleScores": {
+   "t": "nums",
+   "v": [
+    5e-324,
+    5e-324,
+    5e-324,
+    5e-324
+   ]
+  },
+  "/Catalyst/Physics/Slip/Peak": {
+   "t": "num",
+   "v": 5e-324
+  },
+  "/Catalyst/Physics/Slip/WorstModule": {
+   "t": "num",
+   "v": 0
+  },
+  "/Catalyst/Physics/Speed": {
+   "t": "num",
+   "v": 0.0005315386106370297
+  },
+  "/Catalyst/Physics/Status": {
+   "t": "str",
+   "v": "external push 1.3 m/s^2 from 93 deg"
+  },
+  "/Catalyst/Physics/TippingUsage": {
+   "t": "num",
+   "v": 3.332015934088558e-05
+  },
+  "/Catalyst/Physics/TractionUsage": {
+   "t": "num",
+   "v": 4.434694439548926e-05
+  },
+  "/Catalyst/Physics/Velocity/X": {
+   "t": "num",
+   "v": -3.202363571751519e-05
+  },
+  "/Catalyst/Physics/Velocity/Y": {
+   "t": "num",
+   "v": 0.0005305730688165163
+  },
+  "/Catalyst/Robot/Catalyst/InUse": {
+   "t": "strs",
+   "v": [
+    "Physics Core",
+    "Strategist"
+   ]
+  },
+  "/Catalyst/Robot/Catalyst/PhysicsCore/Count": {
+   "t": "num",
+   "v": 1
+  },
+  "/Catalyst/Robot/Catalyst/PhysicsCore/Names": {
+   "t": "strs",
+   "v": [
+    "BALANCED"
+   ]
+  },
+  "/Catalyst/Robot/Catalyst/Strategist/Count": {
+   "t": "num",
+   "v": 1
+  },
+  "/Catalyst/Robot/Catalyst/Strategist/Names": {
+   "t": "strs",
+   "v": [
+    "X1 co-pilot"
+   ]
+  },
+  "/Catalyst/Robot/Chassis/BumperLengthMeters": {
+   "t": "num",
+   "v": 0.8889999999999999
+  },
+  "/Catalyst/Robot/Chassis/BumperThicknessMeters": {
+   "t": "num",
+   "v": 0.08889999999999999
+  },
+  "/Catalyst/Robot/Chassis/BumperWidthMeters": {
+   "t": "num",
+   "v": 0.8382
+  },
+  "/Catalyst/Robot/Chassis/FrameLengthMeters": {
+   "t": "num",
+   "v": 0.7111999999999999
+  },
+  "/Catalyst/Robot/Chassis/FrameWidthMeters": {
+   "t": "num",
+   "v": 0.6604
+  },
+  "/Catalyst/Robot/Drivetrain/CanFd": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/Robot/Drivetrain/DriveGearRatio": {
+   "t": "num",
+   "v": 5.8909090909090915
+  },
+  "/Catalyst/Robot/Drivetrain/MaxAngularRateRadPerSec": {
+   "t": "num",
+   "v": 13.39969048826112
+  },
+  "/Catalyst/Robot/Drivetrain/MaxSpeedMps": {
+   "t": "num",
+   "v": 5.24
+  },
+  "/Catalyst/Robot/Drivetrain/ModuleLocations": {
+   "t": "nums",
+   "v": [
+    0.288925,
+    0.26352499999999995,
+    0.288925,
+    -0.26352499999999995,
+    -0.288925,
+    0.26352499999999995,
+    -0.288925,
+    -0.26352499999999995
+   ]
+  },
+  "/Catalyst/Robot/Drivetrain/Modules": {
+   "t": "num",
+   "v": 4
+  },
+  "/Catalyst/Robot/Drivetrain/OdometryHz": {
+   "t": "num",
+   "v": 100.0
+  },
+  "/Catalyst/Robot/Drivetrain/SlipCurrentAmps": {
+   "t": "num",
+   "v": 120.0
+  },
+  "/Catalyst/Robot/Drivetrain/SteerGearRatio": {
+   "t": "num",
+   "v": 12.1
+  },
+  "/Catalyst/Robot/Drivetrain/TrackWidthMeters": {
+   "t": "num",
+   "v": 0.5270499999999999
+  },
+  "/Catalyst/Robot/Drivetrain/Type": {
+   "t": "str",
+   "v": "Swerve"
+  },
+  "/Catalyst/Robot/Drivetrain/WheelBaseMeters": {
+   "t": "num",
+   "v": 0.57785
+  },
+  "/Catalyst/Robot/Drivetrain/WheelRadiusMeters": {
+   "t": "num",
+   "v": 0.0508
+  },
+  "/Catalyst/Robot/Hardware/Cameras": {
+   "t": "strs",
+   "v": [
+    "limelight-ground"
+   ]
+  },
+  "/Catalyst/Robot/Hardware/CanDevices": {
+   "t": "num",
+   "v": 13
+  },
+  "/Catalyst/Robot/Hardware/Devices": {
+   "t": "strs",
+   "v": [
+    "can_s2|4|TalonFX (Falcon 500)",
+    "can_s2|13|CANcoder",
+    "can_s2|16|CANcoder",
+    "can_s2|19|CANcoder",
+    "can_s2|22|CANcoder",
+    "can_s2|23|Pigeon2",
+    "can_s2|24|TalonFX (Falcon 500)",
+    "can_s2|25|TalonFX (Falcon 500)",
+    "can_s2|26|TalonFX (Falcon 500)",
+    "can_s2|27|TalonFX (Falcon 500)",
+    "can_s2|30|TalonFX (Falcon 500)",
+    "can_s2|45|TalonFX (Falcon 500)",
+    "can_s2|46|TalonFX (Falcon 500)"
+   ]
+  },
+  "/Catalyst/Robot/Hardware/Gyro": {
+   "t": "str",
+   "v": "Pigeon2"
+  },
+  "/Catalyst/Robot/Hardware/GyroCanId": {
+   "t": "num",
+   "v": 23
+  },
+  "/Catalyst/Robot/Hardware/Inventory": {
+   "t": "strs",
+   "v": [
+    "CANcoder|4",
+    "Pigeon2|1",
+    "TalonFX (Falcon 500)|8"
+   ]
+  },
+  "/Catalyst/Robot/Identity/Controller": {
+   "t": "str",
+   "v": "Systemcore"
+  },
+  "/Catalyst/Robot/Identity/Name": {
+   "t": "str",
+   "v": "Catalyst X1"
+  },
+  "/Catalyst/Robot/Identity/Season": {
+   "t": "num",
+   "v": 2027
+  },
+  "/Catalyst/Robot/Power/Battery": {
+   "t": "str",
+   "v": "MK ES17-12"
+  },
+  "/Catalyst/Robot/Software/CatalystCommitTime": {
+   "t": "str",
+   "v": "2026-09-11T16:01:38-07:00"
+  },
+  "/Catalyst/Robot/Software/CatalystGitDirty": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/Robot/Software/CatalystGitSha": {
+   "t": "str",
+   "v": "14e2080"
+  },
+  "/Catalyst/Robot/Software/CatalystVersion": {
+   "t": "str",
+   "v": "2.0.0-alpha.3"
+  },
+  "/Catalyst/Robot/Software/JavaVersion": {
+   "t": "str",
+   "v": "25.0.2"
+  },
+  "/Catalyst/Robot/Software/RobotCodeVersion": {
+   "t": "str",
+   "v": "0.2.0"
+  },
+  "/Catalyst/Robot/Software/WPILibVersion": {
+   "t": "str",
+   "v": "2027.0.0-alpha-6"
+  },
+  "/Catalyst/Swerve/HeadingDeg": {
+   "t": "num",
+   "v": -169.01091637592793
+  },
+  "/Catalyst/Swerve/OmegaRadPerSec": {
+   "t": "num",
+   "v": -0.0
+  },
+  "/Catalyst/Swerve/SpeedMPS": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Swerve/SpeedMultiplier": {
+   "t": "num",
+   "v": 0.75
+  },
+  "/Catalyst/Systemcore/BatteryVolts": {
+   "t": "num",
+   "v": 12.675000190734863
+  },
+  "/Catalyst/Systemcore/BrownedOut": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/Systemcore/CanDown": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/Systemcore/CanDownCount": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Systemcore/CanUnavailCount": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Systemcore/CanUtilization": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.47328564870064843,
+    0.0,
+    0.0
+   ]
+  },
+  "/Catalyst/Systemcore/CpuPercent": {
+   "t": "num",
+   "v": 26.98113250732422
+  },
+  "/Catalyst/Systemcore/Rail3v3Amps": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Systemcore/RamFraction": {
+   "t": "num",
+   "v": 0.1980815754849115
+  },
+  "/Catalyst/Systemcore/RamTotalBytes": {
+   "t": "num",
+   "v": 4246257664.0
+  },
+  "/Catalyst/Systemcore/RamUsedBytes": {
+   "t": "num",
+   "v": 841105408.0
+  },
+  "/Catalyst/Systemcore/StorageFraction": {
+   "t": "num",
+   "v": 0.2936535845727489
+  },
+  "/Catalyst/Systemcore/StorageTotalBytes": {
+   "t": "num",
+   "v": 7326429184.0
+  },
+  "/Catalyst/Systemcore/StorageUsedBytes": {
+   "t": "num",
+   "v": 2151432192.0
+  },
+  "/Catalyst/Systemcore/TeamNumber": {
+   "t": "num",
+   "v": 0
+  },
+  "/Catalyst/Systemcore/TempCelsius": {
+   "t": "num",
+   "v": 50.150001525878906
+  },
+  "/Catalyst/Tunables/.manifest": {
+   "t": "str",
+   "v": "[{\"key\":\"/Catalyst/X1/Driver/Deadband\",\"name\":\"Stick deadband\",\"group\":\"Driver feel\",\"min\":0,\"max\":0.3,\"step\":0.005},{\"key\":\"/Catalyst/X1/Driver/TurnDeadband\",\"name\":\"Turn stick deadband\",\"group\":\"Driver feel\",\"min\":0,\"max\":0.3,\"step\":0.005},{\"key\":\"/Catalyst/X1/Driver/SpeedCap\",\"name\":\"Speed cap (driving sticks)\",\"group\":\"Driver feel\",\"min\":0.2,\"max\":1,\"step\":0.05},{\"key\":\"/Catalyst/X1/Rumble/Strength\",\"name\":\"Strength\",\"group\":\"Rumble\",\"min\":0,\"max\":1,\"step\":0.05},{\"key\":\"/Catalyst/X1/Rumble/SlowMode\",\"name\":\"Buzz when slow mode engages\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/Snap\",\"name\":\"Buzz when Square snaps to 90\u00b0\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/TurretMode\",\"name\":\"Buzz when turret mode engages\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/OnTarget\",\"name\":\"Buzz when turret mode is on target\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/TagInView\",\"name\":\"Buzz when the align tag is steadily in view\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/AlignStart\",\"name\":\"Buzz when align starts\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/AlignSettled\",\"name\":\"Buzz when align settles on the tag\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/AlignStop\",\"name\":\"Buzz when align stops\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/ScoringSide\",\"name\":\"Buzz when the scoring side changes\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/Reseed\",\"name\":\"Buzz when field-centric is reseeded\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/XBrake\",\"name\":\"Buzz on X-brake\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/GhostRecording\",\"name\":\"Buzz when a ghost recording starts\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/Brownout\",\"name\":\"Buzz when a brownout is predicted\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/TipRisk\",\"name\":\"Buzz when the tipping risk is high\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Rumble/SafetyTrip\",\"name\":\"Buzz when the safety watchdog trips\",\"group\":\"Rumble\"},{\"key\":\"/Catalyst/X1/Align/TagId\",\"name\":\"Tag to line up on (-2 our hub, -1 any)\",\"group\":\"Align\",\"min\":-2,\"max\":32,\"step\":1},{\"key\":\"/Catalyst/X1/Align/MaxSpeed\",\"name\":\"Speed cap (fraction of top speed)\",\"group\":\"Align\",\"min\":0.05,\"max\":0.5,\"step\":0.01},{\"key\":\"/Catalyst/X1/Align/StandoffM\",\"name\":\"Standoff from the tag\",\"group\":\"Align\",\"min\":0.5,\"max\":3,\"step\":0.05,\"unit\":\"m\"},{\"key\":\"/Catalyst/X1/Align/ScoringOffsetIn\",\"name\":\"Scoring offset beside the tag\",\"group\":\"Align\",\"min\":0,\"max\":12,\"step\":0.5,\"unit\":\"in\"},{\"key\":\"/Catalyst/X1/Align/SettleNearDeg\",\"name\":\"Settle band, near tag\",\"group\":\"Align\",\"min\":0.3,\"max\":10,\"step\":0.1,\"unit\":\"\u00b0\"},{\"key\":\"/Catalyst/X1/Align/SettleFarDeg\",\"name\":\"Settle band, far tag\",\"group\":\"Align\",\"min\":0.3,\"max\":10,\"step\":0.1,\"unit\":\"\u00b0\"},{\"key\":\"/Catalyst/X1/Align/TurnSign\",\"name\":\"Turn direction (+1, or -1 if mirrored; applies when disabled)\",\"group\":\"Align\",\"min\":-1,\"max\":1,\"step\":2},{\"key\":\"/Catalyst/X1/Turret/Gain\",\"name\":\"Tracking gain\",\"group\":\"Turret aim\",\"min\":0.5,\"max\":12,\"step\":0.1,\"unit\":\"1/s\"},{\"key\":\"/Catalyst/X1/Turret/TurnAccel\",\"name\":\"Turn acceleration\",\"group\":\"Turret aim\",\"min\":2,\"max\":40,\"step\":0.5,\"unit\":\"rad/s\u00b2\"},{\"key\":\"/Catalyst/X1/Turret/LookaheadS\",\"name\":\"Look-ahead\",\"group\":\"Turret aim\",\"min\":0,\"max\":0.3,\"step\":0.01,\"unit\":\"s\"},{\"key\":\"/Catalyst/X1/Turret/TargetSmoothing\",\"name\":\"Tag smoothing\",\"group\":\"Turret aim\",\"min\":0.05,\"max\":1,\"step\":0.05},{\"key\":\"/Catalyst/X1/Turret/ShotSpeedMps\",\"name\":\"Shot speed for the lead (0 = off)\",\"group\":\"Turret aim\",\"min\":0,\"max\":20,\"step\":0.5,\"unit\":\"m/s\"},{\"key\":\"/Catalyst/X1/Driver/ForwardUpPositive\",\"name\":\"Pad reports stick-up as positive (applies when disabled)\",\"group\":\"Controller\"},{\"key\":\"/Catalyst/X1/Driver/AlignButton\",\"name\":\"Align button, raw index (-1 none; applies when disabled)\",\"group\":\"Controller\",\"min\":-1,\"max\":20,\"step\":1},{\"key\":\"/Catalyst/X1/Driver/ReseedButton\",\"name\":\"Reseed button, raw index (-1 none; applies when disabled)\",\"group\":\"Controller\",\"min\":-1,\"max\":20,\"step\":1}]"
+  },
+  "/Catalyst/Vision/Anchored": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/Vision/CameraCount": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/Vision/CycleAccepted": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Vision/CycleRejected": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Vision/Health/Cameras": {
+   "t": "num",
+   "v": 1
+  },
+  "/Catalyst/Vision/Health/CamerasOk": {
+   "t": "num",
+   "v": 1
+  },
+  "/Catalyst/Vision/Health/Level": {
+   "t": "num",
+   "v": 0
+  },
+  "/Catalyst/Vision/Health/LevelName": {
+   "t": "str",
+   "v": "OK"
+  },
+  "/Catalyst/Vision/Health/Names": {
+   "t": "strs",
+   "v": [
+    "limelight-ground"
+   ]
+  },
+  "/Catalyst/Vision/Health/Rows": {
+   "t": "strs",
+   "v": [
+    "limelight-ground|NO_TARGETS|no usable target|74.3|72.8|true"
+   ]
+  },
+  "/Catalyst/Vision/Health/Summary": {
+   "t": "str",
+   "v": "all 1 camera healthy"
+  },
+  "/Catalyst/Vision/Health/limelight-ground/AcceptRatio": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/Vision/Health/limelight-ground/Connected": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/Vision/Health/limelight-ground/Detail": {
+   "t": "str",
+   "v": "no usable target"
+  },
+  "/Catalyst/Vision/Health/limelight-ground/Fps": {
+   "t": "num",
+   "v": 74.3499984741211
+  },
+  "/Catalyst/Vision/Health/limelight-ground/SecondsSinceFrame": {
+   "t": "num",
+   "v": 0.014792
+  },
+  "/Catalyst/Vision/Health/limelight-ground/State": {
+   "t": "str",
+   "v": "NO_TARGETS"
+  },
+  "/Catalyst/Vision/Health/limelight-ground/TempC": {
+   "t": "num",
+   "v": 72.83950805664062
+  },
+  "/Catalyst/Vision/Seed/Camera": {
+   "t": "str",
+   "v": "limelight-ground"
+  },
+  "/Catalyst/Vision/Seed/Tags": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/Vision/Seeded": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/Vision/TotalAccepted": {
+   "t": "num",
+   "v": 2436.0
+  },
+  "/Catalyst/Vision/TotalRejected": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Vision/limelight-ground/Ambiguity": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/Vision/limelight-ground/Api": {
+   "t": "str",
+   "v": "per-key (Limelight OS 2026)"
+  },
+  "/Catalyst/Vision/limelight-ground/AvgDistance": {
+   "t": "num",
+   "v": 0.7546828956993089
+  },
+  "/Catalyst/Vision/limelight-ground/InnovationRot": {
+   "t": "num",
+   "v": 2.4849490570751045
+  },
+  "/Catalyst/Vision/limelight-ground/InnovationXY": {
+   "t": "num",
+   "v": 0.03455012048789921
+  },
+  "/Catalyst/Vision/limelight-ground/RobotToCamera": {
+   "t": "nums",
+   "v": [
+    0.35559999999999997,
+    0.0,
+    0.25265,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/Catalyst/Vision/limelight-ground/RotDeg": {
+   "t": "num",
+   "v": 176.00053856724574
+  },
+  "/Catalyst/Vision/limelight-ground/Status": {
+   "t": "str",
+   "v": "Accepted"
+  },
+  "/Catalyst/Vision/limelight-ground/TagCount": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/Vision/limelight-ground/X": {
+   "t": "num",
+   "v": 13.487468692805322
+  },
+  "/Catalyst/Vision/limelight-ground/Y": {
+   "t": "num",
+   "v": 3.974253977672714
+  },
+  "/Catalyst/X1/Align/Active": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Align/BearingDeg": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/X1/Align/CameraCheck": {
+   "t": "str",
+   "v": "unclear (slope -0.11): was the tag moving?"
+  },
+  "/Catalyst/X1/Align/CameraSlope": {
+   "t": "num",
+   "v": -0.11288568034677285
+  },
+  "/Catalyst/X1/Align/DrivetrainFault": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Align/HeadingErrorDeg": {
+   "t": "num",
+   "v": -13.663208283100829
+  },
+  "/Catalyst/X1/Align/MaxSpeed": {
+   "t": "num",
+   "v": 0.25
+  },
+  "/Catalyst/X1/Align/Ready": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Align/ScoringOffsetIn": {
+   "t": "num",
+   "v": 3.0
+  },
+  "/Catalyst/X1/Align/ScoringOffsetM": {
+   "t": "num",
+   "v": 0.07619999999999999
+  },
+  "/Catalyst/X1/Align/ScoringSide": {
+   "t": "num",
+   "v": 1
+  },
+  "/Catalyst/X1/Align/SeeingTagId": {
+   "t": "num",
+   "v": -1
+  },
+  "/Catalyst/X1/Align/SettleBandDeg": {
+   "t": "num",
+   "v": 2.069810823108779
+  },
+  "/Catalyst/X1/Align/SettleFarDeg": {
+   "t": "num",
+   "v": 5.0
+  },
+  "/Catalyst/X1/Align/SettleNearDeg": {
+   "t": "num",
+   "v": 2.0
+  },
+  "/Catalyst/X1/Align/Settled": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Align/StandoffM": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/X1/Align/TagId": {
+   "t": "num",
+   "v": -2.0
+  },
+  "/Catalyst/X1/Align/TurnSign": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/X1/Align/Wanted": {
+   "t": "num",
+   "v": -2
+  },
+  "/Catalyst/X1/Align/Why": {
+   "t": "str",
+   "v": "no tag in view"
+  },
+  "/Catalyst/X1/Driver/AlignButton": {
+   "t": "num",
+   "v": 11.0
+  },
+  "/Catalyst/X1/Driver/Axes": {
+   "t": "nums",
+   "v": [
+    -0.01177978515625,
+    -0.01177978515625,
+    0.011749626137316227,
+    -0.01177978515625,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/Catalyst/X1/Driver/Buttons": {
+   "t": "str",
+   "v": ""
+  },
+  "/Catalyst/X1/Driver/Curve": {
+   "t": "str",
+   "v": "LINEAR"
+  },
+  "/Catalyst/X1/Driver/Deadband": {
+   "t": "num",
+   "v": 0.08
+  },
+  "/Catalyst/X1/Driver/ForwardUpPositive": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Driver/Mapping": {
+   "t": "str",
+   "v": "leftX=0 leftY=1 rightX=2 rightY=3"
+  },
+  "/Catalyst/X1/Driver/Name": {
+   "t": "str",
+   "v": "DualSense Wireless Controller"
+  },
+  "/Catalyst/X1/Driver/ReseedButton": {
+   "t": "num",
+   "v": 20.0
+  },
+  "/Catalyst/X1/Driver/SpeedCap": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/X1/Driver/TurnDeadband": {
+   "t": "num",
+   "v": 0.2
+  },
+  "/Catalyst/X1/Rumble/AlignSettled": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/AlignStart": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/AlignStop": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/Brownout": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/GhostRecording": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/OnTarget": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/Reseed": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/SafetyTrip": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/ScoringSide": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/SlowMode": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/Snap": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/Strength": {
+   "t": "num",
+   "v": 1.0
+  },
+  "/Catalyst/X1/Rumble/TagInView": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/TipRisk": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/TurretMode": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Rumble/XBrake": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Turret/Active": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Turret/AimErrorDeg": {
+   "t": "num",
+   "v": -6.341498130080822
+  },
+  "/Catalyst/X1/Turret/Aiming": {
+   "t": "bool",
+   "v": true
+  },
+  "/Catalyst/X1/Turret/Gain": {
+   "t": "num",
+   "v": 4.0
+  },
+  "/Catalyst/X1/Turret/LookaheadS": {
+   "t": "num",
+   "v": 0.1
+  },
+  "/Catalyst/X1/Turret/OnTarget": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Turret/ShotLead": {
+   "t": "bool",
+   "v": false
+  },
+  "/Catalyst/X1/Turret/ShotSpeedMps": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/X1/Turret/ShotTimeS": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/Catalyst/X1/Turret/SwingRadPerSec": {
+   "t": "num",
+   "v": 0.07570036171209829
+  },
+  "/Catalyst/X1/Turret/TargetSmoothing": {
+   "t": "num",
+   "v": 0.3
+  },
+  "/Catalyst/X1/Turret/TurnAccel": {
+   "t": "num",
+   "v": 8.0
+  },
+  "/Catalyst/X1/Turret/TurnRadPerSec": {
+   "t": "num",
+   "v": -0.45458485286547934
+  },
+  "/FMSInfo/.type": {
+   "t": "str",
+   "v": "FMSInfo"
+  },
+  "/FMSInfo/ControlWord": {
+   "t": "raw",
+   "v": "6381071000000022"
+  },
+  "/FMSInfo/EventName": {
+   "t": "str",
+   "v": ""
+  },
+  "/FMSInfo/FMSControlData": {
+   "t": "num",
+   "v": 32
+  },
+  "/FMSInfo/GameData": {
+   "t": "str",
+   "v": ""
+  },
+  "/FMSInfo/GameSpecificMessage": {
+   "t": "str",
+   "v": ""
+  },
+  "/FMSInfo/IsRedAlliance": {
+   "t": "bool",
+   "v": true
+  },
+  "/FMSInfo/MatchNumber": {
+   "t": "num",
+   "v": 0
+  },
+  "/FMSInfo/MatchType": {
+   "t": "num",
+   "v": 0
+  },
+  "/FMSInfo/OpMode": {
+   "t": "str",
+   "v": "X1 Drive"
+  },
+  "/FMSInfo/ReplayNumber": {
+   "t": "num",
+   "v": 0
+  },
+  "/FMSInfo/StationNumber": {
+   "t": "num",
+   "v": 1
+  },
+  "/limelight-ground/botpose": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_orb": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_orb_wpiblue": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_orb_wpired": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_targetspace": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_wpiblue": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/botpose_wpired": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    27.874889373779297,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/camerapose_robotspace": {
+   "t": "nums",
+   "v": [
+    0.35559999999999997,
+    0.0,
+    0.25265,
+    0.0,
+    0.0,
+    -0.0
+   ]
+  },
+  "/limelight-ground/camerapose_robotspace_set": {
+   "t": "nums",
+   "v": [
+    0.35559999999999997,
+    0.0,
+    0.25265,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/camerapose_targetspace": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/capture_rewind": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/cl": {
+   "t": "num",
+   "v": 15.058907508850098
+  },
+  "/limelight-ground/crosshairs": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/getpipe": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/getpipetype": {
+   "t": "str",
+   "v": "pipe_fiducial"
+  },
+  "/limelight-ground/hb": {
+   "t": "num",
+   "v": 183673.0
+  },
+  "/limelight-ground/hw": {
+   "t": "nums",
+   "v": [
+    74.3499984741211,
+    72.83950805664062,
+    62.750797271728516,
+    78.4974136352539
+   ]
+  },
+  "/limelight-ground/imu": {
+   "t": "nums",
+   "v": [
+    10.254894804755322,
+    0.6394557782103704,
+    0.4589747724515689,
+    10.254894804755322,
+    0.6299999952316284,
+    0.07000000029802322,
+    0.2800000011920929,
+    0.009272000752389431,
+    -0.009759999811649323,
+    1.0082080364227295
+   ]
+  },
+  "/limelight-ground/json": {
+   "t": "str",
+   "v": ""
+  },
+  "/limelight-ground/ledMode": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/llpython": {
+   "t": "nums",
+   "v": []
+  },
+  "/limelight-ground/pipeline": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/rawbarcodes": {
+   "t": "strs",
+   "v": []
+  },
+  "/limelight-ground/rawdetections": {
+   "t": "nums",
+   "v": []
+  },
+  "/limelight-ground/rawfiducials": {
+   "t": "nums",
+   "v": []
+  },
+  "/limelight-ground/rawtargets": {
+   "t": "nums",
+   "v": []
+  },
+  "/limelight-ground/robot_orientation_ignoreshared_set": {
+   "t": "num",
+   "v": 1
+  },
+  "/limelight-ground/robot_orientation_set": {
+   "t": "nums",
+   "v": [
+    -169.01091637592793,
+    -0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/snapshot": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/stddevs": {
+   "t": "nums",
+   "v": [
+    0.019439642038461775,
+    0.03897777072686884,
+    0.02173339580127129,
+    0.1401660130491182,
+    1.2519447136642539,
+    167.58355053369897,
+    0.026318187406391632,
+    0.020262680075883742,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/stream": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/t2d": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    12.8159818649292,
+    15.058907508850098,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    -1.0,
+    -1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/ta": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/targetpose_cameraspace": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/targetpose_robotspace": {
+   "t": "nums",
+   "v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "/limelight-ground/tc": {
+   "t": "nums",
+   "v": [
+    0.5647059082984924,
+    0.5647059082984924,
+    0.5647059082984924
+   ]
+  },
+  "/limelight-ground/tcclass": {
+   "t": "str",
+   "v": ""
+  },
+  "/limelight-ground/tdclass": {
+   "t": "str",
+   "v": ""
+  },
+  "/limelight-ground/tid": {
+   "t": "num",
+   "v": -1.0
+  },
+  "/limelight-ground/tl": {
+   "t": "num",
+   "v": 12.8159818649292
+  },
+  "/limelight-ground/tv": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/tx": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/txnc": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/ty": {
+   "t": "num",
+   "v": 0.0
+  },
+  "/limelight-ground/tync": {
+   "t": "num",
+   "v": 0.0
+  }
+ }
+}

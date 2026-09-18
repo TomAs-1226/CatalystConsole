@@ -305,3 +305,67 @@ export function robotPlan(driver, declared = []) {
     missing: rows.filter((r) => r.set && !r.writable).length,
   };
 }
+
+/* -------------------------------------------------------------- the robot's manifests */
+
+/* The robot declares what it will let a dashboard change, in a JSON manifest on one topic. The console
+ * shows exactly that and nothing more — it never guesses that a topic looks tunable. The schema is in
+ * README.md under "The contract with the robot". */
+export const TUNABLE_MANIFEST = "/Catalyst/Tunables/.manifest";
+
+/** The tunable manifest's entries as the robot published them, out of a read-only NetworkTables view
+ *  with `str`; [] when there is none or it does not parse. */
+export function readTunables(read) {
+  const src = read.str(TUNABLE_MANIFEST, null);
+  if (!src) return [];
+  try {
+    const parsed = JSON.parse(src);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The manifest with the type each value has on the wire attached, which is what decides both the control
+ * drawn for it and whether a stored setting can be written to it. `kind` is null when the robot has
+ * declared a key without publishing a value yet - the declaration is the permission, so that is still
+ * writable, it is only unknown what it looks like. `read` needs `str`, and `raw` for a key's `{ t, v }`.
+ */
+export function readDeclaredTunables(read) {
+  return readTunables(read)
+    .filter((t) => t && typeof t.key === "string" && t.key)
+    .map((t) => ({ ...t, kind: read.raw(t.key)?.t ?? null }));
+}
+
+/* What the robot's controls do, in a second manifest on one topic: a JSON array of
+ * `{ "control", "action", "controller", "combo" }`, of which only the first two are required. It is read
+ * and never written - which button does what is the robot's own wiring, and a dashboard that could
+ * rebind a button would be a dashboard that drives. Showing it costs nothing and answers the question
+ * every new driver asks. The Drivers panel prints this shape on screen when no robot publishes one. */
+export const CONTROLS_MANIFEST = "/Catalyst/Controls/.manifest";
+
+/** The controls manifest as `[{ control, action, controller, combo }]`, out of a view with `str`. */
+export function readControlBindings(read) {
+  const src = read.str(CONTROLS_MANIFEST, null);
+  if (!src) return [];
+  let parsed = null;
+  try {
+    parsed = JSON.parse(src);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((b) => b && typeof b.control === "string" && b.control && typeof b.action === "string" && b.action)
+    .map((b) => ({
+      control: b.control,
+      action: b.action,
+      /* Which stick it is on. A robot that says nothing has one, and calling it the driver's is the
+       * only reading that is true of every robot with a single controller. */
+      controller: typeof b.controller === "string" && b.controller ? b.controller : "Driver",
+      /* Declared, never inferred from a "+" in the text: the console does not decide what is a
+       * combination on the robot's behalf. */
+      combo: b.combo === true,
+    }));
+}

@@ -26,14 +26,14 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
-import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
+import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
 import { createDeviceStage, deviceById, loadDevices } from "./device3d.js";
 import { createRobotModel, normalizeRobot } from "./robot3d.js";
 import {
-  addDriver, activeDriver, capture, captureRobot, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
-  makeDriver, readDrivers, removeDriver, robotPlan, ROBOT_MAX, setRobotSetting, switchDriver,
-  updateDriver, writeDrivers,
+  addDriver, activeDriver, capture, captureRobot, cleanName, CONTROLS_MANIFEST, DRIVER_COLOURS, driverHex,
+  DRIVERS_MAX, makeDriver, readControlBindings, readDeclaredTunables, readDrivers, readTunables, removeDriver,
+  robotPlan, ROBOT_MAX, setRobotSetting, switchDriver, TUNABLE_MANIFEST, updateDriver, writeDrivers,
 } from "./drivers.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
@@ -595,63 +595,19 @@ function setDemo(on) {
 
 /* --------------------------------------------------------------- tunable writes */
 
-/* The robot declares what it will let a dashboard change, in a JSON manifest on one topic. The console
- * shows exactly that and nothing more — it never guesses that a topic looks tunable. The schema is in
- * README.md under "The contract with the robot". */
-const TUNABLE_MANIFEST = "/Catalyst/Tunables/.manifest";
-
+/* The robot's two manifests - what it lets a dashboard change, and what its controls do - are parsed in
+ * drivers.js, where the tests hold them to a real robot's output (see x1-contract.test.js). These read
+ * the live store. */
 function tunables() {
-  const src = str(TUNABLE_MANIFEST, null);
-  if (!src) return [];
-  try {
-    const parsed = JSON.parse(src);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return readTunables({ str });
 }
 
-/**
- * The manifest with the type each value has on the wire attached, which is what decides both the control
- * drawn for it and whether a stored setting can be written to it. `kind` is null when the robot has
- * declared a key without publishing a value yet - the declaration is the permission, so that is still
- * writable, it is only unknown what it looks like.
- */
 function declaredTunables() {
-  return tunables()
-    .filter((t) => t && typeof t.key === "string" && t.key)
-    .map((t) => ({ ...t, kind: raw(t.key)?.t ?? null }));
+  return readDeclaredTunables({ str, raw });
 }
-
-/* What the robot's controls do, in a second manifest on one topic: a JSON array of
- * `{ "control", "action", "controller", "combo" }`, of which only the first two are required. It is read
- * and never written - which button does what is the robot's own wiring, and a dashboard that could
- * rebind a button would be a dashboard that drives. Showing it costs nothing and answers the question
- * every new driver asks. The Drivers panel prints this shape on screen when no robot publishes one. */
-const CONTROLS_MANIFEST = "/Catalyst/Controls/.manifest";
 
 function controlBindings() {
-  const src = str(CONTROLS_MANIFEST, null);
-  if (!src) return [];
-  let parsed = null;
-  try {
-    parsed = JSON.parse(src);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .filter((b) => b && typeof b.control === "string" && b.control && typeof b.action === "string" && b.action)
-    .map((b) => ({
-      control: b.control,
-      action: b.action,
-      /* Which stick it is on. A robot that says nothing has one, and calling it the driver's is the
-       * only reading that is true of every robot with a single controller. */
-      controller: typeof b.controller === "string" && b.controller ? b.controller : "Driver",
-      /* Declared, never inferred from a "+" in the text: the console does not decide what is a
-       * combination on the robot's behalf. */
-      combo: b.combo === true,
-    }));
+  return readControlBindings({ str });
 }
 
 /** The range and the decimals a manifest entry's slider works in. The step decides the decimals: a 25 RPM
@@ -2265,8 +2221,13 @@ define("field", {
     const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
     x.foff.hidden = !(drawn && drawn.clamped);
     /* What the robot's aiming is doing, in words under the figures, grey or blue as its marks on the field
-       are: aligning, locked on with the distance, or shooting on the move. */
-    const aim = linked && ds.enabled ? readAim(ntView) : null;
+       are: aligning, locked on with the distance, or shooting on the move. Steadied first, so a frame of
+       idle or a moment of ALIGNING mid-lock does not blink the highlight out (see createAimDebounce). The
+       steadying is this tile's own, and forgotten whenever the robot is disabled, which ends an aim at once. */
+    const aiming = linked && ds.enabled;
+    state.aimSteady ??= createAimDebounce();
+    if (!aiming) state.aimSteady.reset();
+    const aim = aiming ? state.aimSteady.next(readAim(ntView), now) : null;
     const aimState = aim ? aim.state : "";
     const range = aim && aim.distance !== null ? ` · ${aim.distance.toFixed(1)} m` : "";
     const aimText = !aim ? ""
