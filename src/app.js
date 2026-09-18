@@ -26,7 +26,8 @@ import { stateLayer } from "./motion.js";
    tested without a DOM. */
 import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
-import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
+import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
+import { aimCaption } from "./aim-target.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
 import { createDeviceStage, deviceById, loadDevices } from "./device3d.js";
 import { createRobotModel, normalizeRobot } from "./robot3d.js";
@@ -2221,19 +2222,20 @@ define("field", {
     const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
     x.foff.hidden = !(drawn && drawn.clamped);
     /* What the robot's aiming is doing, in words under the figures, grey or blue as its marks on the field
-       are: aligning, locked on with the distance, or shooting on the move. Steadied first, so a frame of
-       idle or a moment of ALIGNING mid-lock does not blink the highlight out (see createAimDebounce). The
-       steadying is this tile's own, and forgotten whenever the robot is disabled, which ends an aim at once. */
+       are: aligning to the hub or to a tag, locked on with the distance, aligned, or shooting on the move.
+       Steadied first, so a frame of idle or a moment of ALIGNING mid-lock does not blink the highlight out
+       (see createAimDebounce). The steadying is this tile's own, and forgotten whenever the robot is
+       disabled, which ends an aim at once. */
     const aiming = linked && ds.enabled;
     state.aimSteady ??= createAimDebounce();
     if (!aiming) state.aimSteady.reset();
-    const aim = aiming ? state.aimSteady.next(readAim(ntView), now) : null;
+    /* Aligning to a tag, the robot also says which tag it sees and how far off the tag it stops, and the
+       field view draws where that is (see aim-target.js aimCaption and standoffPose). They go through the
+       steadying with the aim they belong to, so a gap it bridges keeps the tag it was aligning to. */
+    const seen = aiming ? readAim(ntView) : null;
+    const aim = aiming ? state.aimSteady.next(seen && { ...seen, ...readAlign(ntView) }, now) : null;
     const aimState = aim ? aim.state : "";
-    const range = aim && aim.distance !== null ? ` · ${aim.distance.toFixed(1)} m` : "";
-    const aimText = !aim ? ""
-      : aim.state === "ALIGNING" ? "Aligning"
-      : aim.state === "ALIGNED" ? `Locked on${range}`
-      : `Shooting on the move${range}`;
+    const aimText = aimCaption(aim, { tagId: aim?.tagId, standoff: aim?.standoff, from: pose });
     if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
     if (x.aim.dataset.state !== aimState) x.aim.dataset.state = aimState;
     if (x.aimText.textContent !== aimText) x.aimText.textContent = aimText;

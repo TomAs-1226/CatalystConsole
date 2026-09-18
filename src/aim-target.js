@@ -1,13 +1,14 @@
-/* What the robot is aiming at, as the field view needs to know it: which HUB or AprilTag the published
- * target is, where the line from the robot to it meets that thing's face, and which face that is.
+/* What the robot is aiming at, as the field view and the field tile's caption need to know it: whether the
+ * published target is a HUB or an AprilTag, where the line from the robot to a HUB meets its face, where a
+ * robot aligning to a tag will stop, and how the caption says what the aim is doing.
  *
  * Kept apart from field3d.js so the geometry can be tested without a renderer. Everything here is in
  * WPILib field metres, blue origin, the frame /Catalyst/Aim/Target is published in.
  *
- * It exists because a turret or shooting-on-the-move robot aims at the HUB's centre, and the centre is
- * inside the HUB. A view that marks the target where it is ends up marking the inside of a structure, so
- * the marks have to stop at its face: the aim band ends where the line to the centre enters the HUB, and
- * the face it enters through is the one that is lit. */
+ * It exists because the two aims look alike on the wire and mean different things. A turret or
+ * shooting-on-the-move robot aims at the HUB's centre, which is inside the HUB, so the band to it has to
+ * stop at the HUB's face and the HUB itself is what is lit. A robot aligning to a tag drives to a place in
+ * front of it, so that place is drawn as well as the tag. */
 
 /* The two HUBS on the 2026 field: 1.207 m squares about their centres (WPILib's 2026 layout puts the tags
    on their faces at these x and y). */
@@ -35,19 +36,6 @@ export const TAGS = Object.freeze([
   [28, 4.588, 0.644, 0.889, 180], [29, 0.008, 0.666, 0.552, 0], [30, 0.008, 1.098, 0.552, 0],
   [31, 0.008, 3.746, 0.552, 0], [32, 0.008, 4.178, 0.552, 0],
 ].map(([id, x, y, z, yawDeg]) => Object.freeze({ id, x, y, z, yaw: (yawDeg * Math.PI) / 180 })));
-
-/* The four faces of a square, by the way each one faces. */
-const FACES = Object.freeze({
-  "-x": { axis: 0, side: "min", normal: [-1, 0] },
-  "+x": { axis: 0, side: "max", normal: [1, 0] },
-  "-y": { axis: 1, side: "min", normal: [0, -1] },
-  "+y": { axis: 1, side: "max", normal: [0, 1] },
-});
-
-/** The outward direction of a square's `face` ("-x", "+x", "-y" or "+y"), as [x, y]. */
-export function faceNormal(face) {
-  return FACES[face]?.normal ?? null;
-}
 
 /** The HUB whose footprint holds field point [x, y], within `slack` metres of it (a tag on a face counts). */
 export function hubContaining([x, y], slack = 0.03) {
@@ -86,28 +74,6 @@ export function enterSquare(from, to, square) {
 }
 
 /**
- * The face of `square` to light for a robot at `from` aiming at `to`: the one the line enters through,
- * except that the face already lit (`current`) is kept while the line still meets it within `slack`
- * metres of its corner. A robot sitting near the square's diagonal would otherwise flip the light from
- * one face to the other with every wobble in its pose.
- */
-export function faceToward(from, to, square, current = null, slack = 0.15) {
-  const entry = enterSquare(from, to, square);
-  if (!entry) return current;
-  if (!current || current === entry.face || !FACES[current]) return entry.face;
-  const { axis, side } = FACES[current];
-  const plane = square[side][axis];
-  const run = to[axis] - from[axis];
-  const outside = side === "min" ? from[axis] < plane : from[axis] > plane;
-  if (!outside || Math.abs(run) < 1e-12) return entry.face;
-  const t = (plane - from[axis]) / run;
-  const other = 1 - axis;
-  const across = from[other] + (to[other] - from[other]) * t;
-  const keep = t > 0 && across >= square.min[other] - slack && across <= square.max[other] + slack;
-  return keep ? current : entry.face;
-}
-
-/**
  * The 2026 tag at field point [x, y], if one is within `within` metres of it, or null. Two tags stand back
  * to back on each trench arm, so of the tags in reach the one facing the robot at `from` wins, then the
  * nearest.
@@ -126,4 +92,85 @@ export function nearestTag([x, y], from = null, within = 0.25) {
     }
   }
   return best;
+}
+
+/* How far a published target may be from the tag the robot says it sees and still be taken for that tag.
+   A robot aligning beside a tag (X1 aims up to 3 in to either side of it) places the target through its
+   own pose, so it lands a little off the tag; the centre of a HUB, 0.6 m from its nearest tag, must not. */
+const SEEN_TAG_REACH = 0.4;
+
+/**
+ * What an aim at field point `target` is aimed at: `{ kind: "tag", tag, hub }`, with the HUB the tag is on
+ * or null, `{ kind: "hub", hub }` or `{ kind: "place" }` for anything else.
+ *
+ * A tag is the one the robot says it sees (`tagId`) when the target is within reach of it, and otherwise
+ * the tag the target is on (see nearestTag, with the robot at `from`). A target in a HUB's footprint that
+ * is not a tag is that HUB: a turret, or a robot shooting on the move, aims at its centre.
+ */
+export function aimedAt(target, { from = null, tagId = null } = {}) {
+  if (!Array.isArray(target) || !Number.isFinite(target[0]) || !Number.isFinite(target[1])) return { kind: "place" };
+  const seen = Number.isInteger(tagId) ? TAGS.find((t) => t.id === tagId) : null;
+  const tag = seen && Math.hypot(seen.x - target[0], seen.y - target[1]) <= SEEN_TAG_REACH ? seen : nearestTag(target, from);
+  if (tag) return { kind: "tag", tag, hub: hubContaining([tag.x, tag.y]) };
+  const hub = hubContaining(target);
+  return hub ? { kind: "hub", hub } : { kind: "place" };
+}
+
+/**
+ * How far the face a HUB's `tag` is on runs to either side of the tag, as [left, right] in metres along
+ * the face - left negative - seen from in front of the tag, so its light can stop at the face's edges
+ * instead of hanging in the air past a corner. Half the HUB's tags are 0.36 m off their face's centre.
+ */
+export function faceSpan(tag, hub) {
+  const nx = Math.cos(tag.yaw);
+  const ny = Math.sin(tag.yaw);
+  const along = -(tag.x - hub.centre[0]) * ny + (tag.y - hub.centre[1]) * nx;
+  return [-hub.half - along, hub.half - along];
+}
+
+/**
+ * Where a robot at `from` aligning to `target` stops, `standoff` metres from it: `{ x, y, heading }`, facing
+ * the target, or null without a standoff or with the robot on the target.
+ *
+ * On the line from the target through the robot, not on the tag's own normal: Catalyst X1's align turns to
+ * face the tag and closes the range along the way it faces, with nothing sideways and no squaring up to
+ * the tag's face (see alignToTag in X1.java), so it arrives on the line it started on. A place on the
+ * tag's normal would be one the robot never goes to whenever it starts off to one side.
+ */
+export function standoffPose(from, target, standoff) {
+  if (!(standoff > 0) || !Array.isArray(from) || !Array.isArray(target)) return null;
+  const dx = from[0] - target[0];
+  const dy = from[1] - target[1];
+  const run = Math.hypot(dx, dy);
+  if (!(run > 1e-6)) return null;
+  return {
+    x: target[0] + (dx / run) * standoff,
+    y: target[1] + (dy / run) * standoff,
+    heading: Math.atan2(-dy, -dx),
+  };
+}
+
+/**
+ * The words under the field tile's figures for an aim (see readAim), or "" for none.
+ *
+ * Aligning to a tag says which tag the robot says it sees and how far it still has to go to its standoff -
+ * `tagId` and `standoff` as mechanisms.js readAlign reads them - and "Aligned" once it is there. Neither
+ * number is worked out here: the tag and the standoff are the robot's, the distance to go is its published
+ * distance less its standoff, and whatever it does not publish is a dash. A HUB, or anything else, says
+ * what the shooter is doing and how far off the target is, as it always has. `from` is the robot, for
+ * telling apart the two tags back to back on a trench arm.
+ */
+export function aimCaption(aim, { tagId = null, standoff = null, from = null } = {}) {
+  if (!aim) return "";
+  const { kind } = aimedAt(aim.target, { from, tagId });
+  const locked = aim.state === "ALIGNED" || aim.state === "SOTF";
+  const distance = Number.isFinite(aim.distance) ? aim.distance : null;
+  if (kind === "tag") {
+    if (locked) return "Aligned";
+    const toGo = distance !== null && standoff > 0 ? Math.abs(distance - standoff).toFixed(2) : "—";
+    return `Aligning to tag ${Number.isInteger(tagId) ? tagId : "—"} · ${toGo} m`;
+  }
+  const range = distance !== null ? ` · ${distance.toFixed(1)} m` : "";
+  if (aim.state === "ALIGNING") return kind === "hub" ? "Aligning to the hub" : "Aligning";
+  return aim.state === "ALIGNED" ? `Locked on${range}` : `Shooting on the move${range}`;
 }

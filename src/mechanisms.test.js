@@ -13,6 +13,7 @@ import {
   launchSpeed,
   PRELOAD_FUEL,
   readAim,
+  readAlign,
   readMechanisms,
   shooterReadiness,
   speedToReach,
@@ -185,6 +186,19 @@ test("what the robot is aiming at is read only while it aims, with the lead poin
   const still = readAim(view({ "/Catalyst/Aim/State": "ALIGNING", "/Catalyst/Aim/Target": [11.93, 4.03] }));
   assert.deepEqual(still.aimPoint, [11.93, 4.03], "no lead published: aimed straight at the target");
   assert.equal(still.headingErrorDeg, null);
+});
+
+test("an align's tag and standoff are the robot's own, and each is null when it publishes none", () => {
+  assert.deepEqual(readAlign(view({})), { tagId: null, standoff: null });
+  assert.deepEqual(readAlign(view({ "/Catalyst/X1/Align/SeeingTagId": 10, "/Catalyst/X1/Align/StandoffM": 1.0 })),
+    { tagId: 10, standoff: 1.0 });
+  /* X1 copies its Limelight's tid; either will do, and -1 is no tag at all. */
+  assert.equal(readAlign(view({ "/limelight-ground/tid": 9 })).tagId, 9);
+  assert.equal(readAlign(view({ "/Catalyst/X1/Align/SeeingTagId": -1, "/limelight-ground/tid": -1 })).tagId, null);
+  assert.equal(readAlign(view({ "/Catalyst/X1/Align/SeeingTagId": -1, "/limelight-ground/tid": 11 })).tagId, 11);
+  /* A standoff of nothing, or of no number, is no standoff. */
+  assert.equal(readAlign(view({ "/Catalyst/X1/Align/StandoffM": 0 })).standoff, null);
+  assert.equal(readAlign(view({ "/Catalyst/X1/Align/StandoffM": Number.NaN })).standoff, null);
 });
 
 /* ---- steadying the aim ---- */

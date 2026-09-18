@@ -100,6 +100,30 @@ export function readAim(read) {
   };
 }
 
+/**
+ * What a robot aligning to an AprilTag says about where it is going, beside its aim (see readAim):
+ * `{ tagId, standoff }`, each null when it is not published.
+ *
+ * `tagId` is the tag its camera is on: Catalyst X1's /Catalyst/X1/Align/SeeingTagId, or its Limelight's
+ * own tid, which is what X1 copies there; -1, no tag, is null. `standoff` is how far from the tag the
+ * robot's centre stops, in metres: /Catalyst/X1/Align/StandoffM.
+ */
+export function readAlign(read) {
+  const num = (key) => {
+    const v = read.num(key, null);
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+  const id = (key) => {
+    const v = num(key);
+    return v !== null && v >= 1 ? Math.round(v) : null;
+  };
+  const standoff = num("/Catalyst/X1/Align/StandoffM");
+  return {
+    tagId: id("/Catalyst/X1/Align/SeeingTagId") ?? id("/limelight-ground/tid"),
+    standoff: standoff !== null && standoff > 0 ? standoff : null,
+  };
+}
+
 const locked = (s) => s === "ALIGNED" || s === "SOTF";
 
 /**
