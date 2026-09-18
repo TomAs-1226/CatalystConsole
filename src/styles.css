@@ -2759,13 +2759,13 @@ kbd {
 .drivers { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 22px; align-items: start; margin: 18px 0 26px; }
 @media (max-width: 900px) { .drivers { grid-template-columns: 1fr; } }
 
-.dstage { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-1); overflow: hidden; min-height: 380px; }
-.dstage canvas { display: block; width: 100%; height: 400px; }
+.dstage { position: relative; border-radius: var(--cat-r-card); background: var(--cat-surface-1); overflow: hidden; }
+.dstage canvas { display: block; width: 100%; height: min(420px, 38vh); }
 .dstage-who { position: absolute; left: 16px; bottom: 14px; display: grid; gap: 2px; }
 .dstage-who b { font-size: var(--fs-18); color: var(--cat-white); font-weight: var(--cat-w-medium); }
 .dstage-who span { font-size: var(--fs-12); color: var(--cat-dim); }
 
-.dlist { display: grid; gap: 10px; align-content: start; }
+.dlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; align-content: start; }
 .dcard { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
   padding: 12px 14px; border-radius: var(--cat-r-card); background: var(--cat-surface-1);
   border: 1px solid transparent; }
@@ -2824,3 +2824,82 @@ kbd {
 
 .callout { -webkit-appearance: none; appearance: none; font: inherit; cursor: pointer; text-align: left; }
 .callout[aria-expanded="true"] { color: var(--cat-white); }
+
+/* ---------------------------------------------------------------- a profile's robot settings
+
+   Under each profile card, what that driver's robot settings are and what the robot holds for them now.
+   The whole block is a hairline below the name rather than a panel of its own: it belongs to that
+   profile, and a second card inside a card would read as a second thing.
+
+   With no robot the controls are unavailable and dimmed. The rows are not: with nothing connected they
+   carry no control and no reading, only the setting and the value this profile will apply, and both of
+   those are true in the pit with the battery on a cart. Nor is the line explaining why - that sentence
+   is the part that has to stay readable. */
+.drobot { grid-column: 1 / -1; display: grid; gap: 10px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cat-hair); }
+.drobot[data-off="true"] .drobotfoot { opacity: 0.55; }
+.drobot :is(input, select, button):disabled { cursor: not-allowed; }
+
+.drobothead { display: grid; gap: 3px; }
+.drobothead b { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.drobothead .dwhy { font-size: var(--fs-12); line-height: 1.5; color: var(--cat-dim); }
+/* What the last apply did. Said in the ordinary body colour: it is an account of something that
+   happened, not a state worth a signal colour. */
+.drobothead .dnote { font-size: var(--fs-12); line-height: 1.5; color: var(--cat-body); }
+
+/* The robot's own grouping, so the rumble switches sit together and the deadband sits with the rest of
+   the feel. Drawn as a label rather than a heading: it is a divider inside one card. */
+.dgroup { font-size: var(--fs-12); color: var(--cat-faint);
+  text-transform: uppercase; letter-spacing: var(--track-label); }
+
+/* Two lines: what the setting is and what this profile holds for it, then the control and what the robot
+   holds. The second line is the honest half - the profile's number is a stored preference and the
+   robot's is a reading, and they are not the same kind of fact. */
+.drow { display: grid; grid-template-columns: minmax(0, 1fr) auto 26px;
+  column-gap: 12px; row-gap: 8px; align-items: center; }
+.drow + .drow { padding-top: 10px; border-top: 1px solid var(--cat-hair); }
+.drow .nm { grid-column: 1; grid-row: 1; min-width: 0; }
+.drow .nm span { display: block; font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+.drow .nm small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: var(--fs-12); font-weight: 400; color: var(--cat-dim); }
+.drow .v { grid-column: 2; grid-row: 1; white-space: nowrap;
+  font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); font-variant-numeric: tabular-nums; }
+.drow .dforget { grid-column: 3; grid-row: 1; width: 26px; height: 26px; flex: none;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--cat-faint); cursor: pointer; }
+.drow .dforget:hover { background: var(--cat-surface-3); color: var(--cat-white); }
+.drow .dforget svg { width: 14px; height: 14px; }
+.drow .dctl { grid-column: 1; grid-row: 2; display: flex; align-items: center; min-width: 0; }
+.drow .dctl input[type="range"] { width: 100%; }
+.drow .dnow { grid-column: 2 / span 2; grid-row: 2; text-align: right; white-space: nowrap;
+  font-size: var(--fs-12); color: var(--cat-dim); font-variant-numeric: tabular-nums; }
+/* A setting this robot has never heard of. It keeps its row and its dash where the control would be,
+   because losing it silently on the one robot that lacks it is how a profile quietly empties itself. */
+.drow .dmiss { grid-column: 1 / -1; grid-row: 2; font-size: var(--fs-12); line-height: 1.5; color: var(--cat-dim); }
+
+.drobot .dempty, .dcontrols .dempty { font-size: var(--fs-12); line-height: 1.55; color: var(--cat-dim); max-width: 72ch; }
+
+.drobotfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Smaller than a settings row's controls: these sit inside a card, where the panel's full-height capsule
+   would be the loudest thing on it. */
+.drobotfoot .sbtn { height: 34px; padding: 0 16px; font-size: var(--fs-13); }
+.drobotfoot .sbtn:disabled { background: var(--cat-surface-1); color: var(--cat-faint); }
+.drobotfoot .sbtn:disabled:hover { background: var(--cat-surface-1); }
+.settings .drobotfoot .dadd { flex: 1 1 150px; height: 34px; font-size: var(--fs-13); }
+
+/* ---------------------------------------------------------------- what the controls do
+
+   The robot's own account of its buttons, read and never written. A fixed first column so the controls
+   line up as a column of buttons rather than as ragged prose. */
+.dsh { margin: 26px 0 0; font-size: var(--fs-18); font-weight: var(--cat-w-medium);
+  letter-spacing: var(--track-head); color: var(--cat-white); }
+.dsh + .cnote { margin-top: 4px; }
+.dcontrols { display: grid; gap: 0; margin: 0 0 26px; max-width: 72ch; }
+.dcontrols .dgroup { margin-top: 16px; }
+.dbind { display: grid; grid-template-columns: minmax(110px, 32%) minmax(0, 1fr); gap: 16px;
+  align-items: baseline; padding: 9px 0; border-top: 1px solid var(--cat-hair); }
+.dbind b { font-size: var(--fs-13); font-weight: var(--cat-w-medium); color: var(--cat-white); }
+/* A combination is marked because the robot said it was one, never because the text has a plus in it. */
+.dbind b[data-combo="true"]::after { content: "combo"; margin-left: 8px;
+  font-size: var(--fs-12); font-weight: 400; letter-spacing: var(--track-label); color: var(--cat-faint); }
+.dbind span { font-size: var(--fs-13); line-height: 1.5; color: var(--cat-body); }

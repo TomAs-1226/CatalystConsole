@@ -403,8 +403,11 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
   const camera = new THREE.PerspectiveCamera(STAGE_FOV, 16 / 9, 0.1, 40);
   /* Far enough back that the whole figure fits the tall, narrow panel it stands in: the vertical field
      is 26 degrees, so a 1.76 m figure needs about 3.8 m, and 4.0 leaves a little air over its head. */
-  camera.position.set(3.2, 1.45, 2.4);
-  camera.lookAt(0, 0.9, 0);
+  /* Far enough back that the whole figure fits the panel it stands in - the field is 26 degrees, so a
+     1.76 m figure needs about 3.8 m - and looking a little to the left of the mark, so there is room on
+     that side for the walk-on to come from. */
+  camera.position.set(3.75, 1.62, 2.8);
+  camera.lookAt(-0.12, 0.92, 0);
 
   /* The same studio the robot stands in: a low ambient, a key over the camera's shoulder, a cool rim
      from behind that draws the figure's edge out of a dark panel. */
@@ -446,7 +449,7 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
      which one it is drawing: both rigs take the same pose. */
   let wanted = colour;
   let rig = createDriver({ colour });
-  let pose = applyPose;
+  let played = null;
   scene.add(rig.root);
   loadDriverModel().then(async (asset) => {
     if (!asset || disposed) return;
@@ -464,8 +467,10 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
     scene.remove(rig.root);
     rig.dispose();
     rig = better;
-    pose = applyModelPose;
+    played = better;
     scene.add(rig.root);
+    started = performance.now();
+    standing = Boolean(reduced);
     wake();
   });
 
@@ -499,8 +504,9 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
   function tick(now) {
     raf = 0;
     if (!active || disposed) return;
-    const t = standing ? POSED_S + 4 : (now - started) / 1000;
-    const playing = t < POSED_S;
+    const done = played ? played.seconds : POSED_S;
+    const t = standing ? done + 4 : (now - started) / 1000;
+    const playing = t < done;
     if (now - lastFrame < (playing ? FRAME_MS : BREATH_MS) - 2) {
       raf = requestAnimationFrame(tick);
       return;
@@ -508,7 +514,8 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
     lastFrame = now;
     resize();
     if (!sized.w || !sized.h) return;
-    pose(rig, driverPose(t, standing ? { crossed: true } : {}));
+    if (played) played.step(t, now);
+    else applyPose(rig, driverPose(t, standing ? { crossed: true } : {}));
     renderer.render(scene, camera);
     /* Reduced motion gets the standing figure and nothing else moving. */
     if (playing || !reduced) raf = requestAnimationFrame(tick);
@@ -569,8 +576,8 @@ export function createDriverStage(canvas, { colour = "#8e8e93", reduced = false 
 /* ---- the baked figure ---- */
 
 /**
- * The figure from `npm run driver-cad`, if it has been baked: `{ manifest, scene }`, or null. Loaded
- * once per page, like the robot's CAD.
+ * The figure from `npm run driver-cad`: `{ manifest, scene, animations }`, or null when none is baked.
+ * Loaded once per page, like the robot's CAD.
  */
 let loadingModel = null;
 export function loadDriverModel() {
@@ -578,10 +585,10 @@ export function loadDriverModel() {
     const response = await fetch("./vendor/driver.json").catch(() => null);
     if (!response || !response.ok) return null;
     const manifest = await response.json();
-    if (manifest?.version !== 1) return null;
+    if (!(manifest?.version >= 3)) return null;
     const { GLTFLoader } = await import("./vendor/loaders/GLTFLoader.js");
     const gltf = await new GLTFLoader().loadAsync(`./vendor/${manifest.model?.file ?? "driver.glb"}`);
-    return { manifest, scene: gltf.scene };
+    return { manifest, scene: gltf.scene, animations: gltf.animations ?? [] };
   })().catch((err) => {
     console.warn("no driver model baked; drawing the built-in figure", err);
     return null;
@@ -589,122 +596,317 @@ export function loadDriverModel() {
   return loadingModel;
 }
 
+/** A person, in metres, whatever the rig was modelled at. */
+const DRIVER_M = 1.76;
+
+/* A bone name with its rig's prefix taken off, so a skeleton can be read without knowing whose it is. */
+const plainBone = (name) => name.replace(/^mixamorig[:_ ]?\d*/i, "").replace(/^[:_]/, "");
+
 /**
- * A rig around the baked model, with the same surface as `createDriver` so `applyPose` can drive either.
+ * The mannequin the console draws: grey, featureless, jointed.
  *
- * Posing someone else's skeleton means not caring how its bones are built. The angles here are in the
- * console's frame - x forward, rotation about z swings a limb forward - and each bone is given the world
- * orientation it has at rest, turned by that angle, expressed back in whatever local frame its parent
- * happens to be in: `local = parentWorld⁻¹ · turn · restWorld`. That works on any rig whose bones are
- * named, without knowing which way any of them points.
+ * A character mesh from an animation library is a person - a face, a build, clothes - and a person is the
+ * wrong thing to put on this screen. What belongs there is an artist's dummy: obviously a stand-in for
+ * whoever is driving rather than a picture of anybody.
+ *
+ * It is built over the source's own skeleton, so every clip that skeleton can play still plays, and each
+ * limb is one piece bound rigidly to one bone, which is what a wooden dummy is. A ball at each joint
+ * covers the gap the way a ball joint does. There is no smooth skinning because there is nothing to
+ * smooth: the pieces are meant to read as separate.
+ *
+ * Lengths come from the skeleton - every piece reaches from its bone to the next - so the proportions are
+ * the rig's own. Only the thicknesses are chosen, as a fraction of the figure's height, which is what
+ * makes this work on a rig of any size.
+ */
+const LIMBS = [
+  { bone: "Hips", to: "Spine", girth: 0.115, wide: 1.15, ball: 0.105 },
+  { bone: "Spine", to: "Spine1", girth: 0.105, wide: 1.2 },
+  { bone: "Spine1", to: "Spine2", girth: 0.112, wide: 1.25 },
+  { bone: "Spine2", to: "Neck", girth: 0.125, wide: 1.3, taper: 0.55, ball: 0.075 },
+  { bone: "Neck", to: "Head", girth: 0.042 },
+  /* The head is a rounded box of a thing rather than a cone: the piece stops well short of the crown
+     bone and keeps its width, and the ball at the jaw fills in underneath it. */
+  { bone: "Head", to: "HeadTop_End", girth: 0.092, taper: 0.92, reach: 0.6, ball: 0.088 },
+  { bone: "LeftShoulder", to: "LeftArm", girth: 0.058, ball: 0.06 },
+  { bone: "RightShoulder", to: "RightArm", girth: 0.058, ball: 0.06 },
+  { bone: "LeftArm", to: "LeftForeArm", girth: 0.048, taper: 0.85, ball: 0.05 },
+  { bone: "RightArm", to: "RightForeArm", girth: 0.048, taper: 0.85, ball: 0.05 },
+  { bone: "LeftForeArm", to: "LeftHand", girth: 0.04, taper: 0.8, ball: 0.041 },
+  { bone: "RightForeArm", to: "RightHand", girth: 0.04, taper: 0.8, ball: 0.041 },
+  { bone: "LeftHand", to: "LeftHandMiddle1", girth: 0.032, reach: 2.1, taper: 0.8, ball: 0.033 },
+  { bone: "RightHand", to: "RightHandMiddle1", girth: 0.032, reach: 2.1, taper: 0.8, ball: 0.033 },
+  { bone: "LeftUpLeg", to: "LeftLeg", girth: 0.08, taper: 0.76, ball: 0.082 },
+  { bone: "RightUpLeg", to: "RightLeg", girth: 0.08, taper: 0.76, ball: 0.082 },
+  { bone: "LeftLeg", to: "LeftFoot", girth: 0.058, taper: 0.68, ball: 0.058 },
+  { bone: "RightLeg", to: "RightFoot", girth: 0.058, taper: 0.68, ball: 0.058 },
+  { bone: "LeftFoot", to: "LeftToeBase", girth: 0.042, reach: 1.35, taper: 0.85, ball: 0.042 },
+  { bone: "RightFoot", to: "RightToeBase", girth: 0.042, reach: 1.35, taper: 0.85, ball: 0.042 },
+];
+
+/** A rounded, tapered piece from one point to another, in the space both were measured in. */
+function limbGeometry(a, b, rA, rB, segments = 12) {
+  const along = new THREE.Vector3().subVectors(b, a);
+  const length = along.length();
+  if (!(length > 1e-9)) return null;
+  const profile = [];
+  const STEPS = 7;
+  for (let i = 0; i <= STEPS; i++) {
+    const u = i / STEPS;
+    /* Drawn in at both ends, so a piece is a rounded slug rather than a pipe with its ends open. */
+    const cap = Math.min(1, Math.min(u, 1 - u) / 0.16);
+    profile.push(new THREE.Vector2(Math.max(1e-5, (rA + (rB - rA) * u) * (0.35 + 0.65 * Math.sqrt(cap))), u * length));
+  }
+  const geometry = new THREE.LatheGeometry(profile, segments);
+  geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), along.normalize()));
+  geometry.translate(a.x, a.y, a.z);
+  return geometry;
+}
+
+/**
+ * The mannequin over `skeleton`, built in the space the bones are in right now and bound to them, so it
+ * moves with every clip they can play. `unit` is how many of that space's units a metre is.
+ */
+async function buildMannequin(skeleton, unit, material, reference) {
+  const { mergeGeometries } = await import("./vendor/utils/BufferGeometryUtils.js");
+  const index = new Map(skeleton.bones.map((b, i) => [plainBone(b.name), i]));
+  /* Built in the space the skeleton's own bind matrices are written in, which is the space the mesh that
+     came with the rig was bound in - not the world, and not the rig's local space either. Getting this
+     wrong does not look like a small error: every piece follows its bone through a different transform
+     and the figure comes apart into a cloud. */
+  const toBind = reference.bindMatrixInverse.clone();
+  const at = (name) => {
+    const i = index.get(name);
+    return i === undefined ? null : skeleton.bones[i].getWorldPosition(new THREE.Vector3()).applyMatrix4(toBind);
+  };
+
+  const pieces = [];
+  const owners = [];
+  const add = (geometry, bone) => {
+    if (!geometry) return;
+    pieces.push(geometry);
+    owners.push(index.get(bone) ?? 0);
+  };
+
+  for (const limb of LIMBS) {
+    const a = at(limb.bone);
+    const b = at(limb.to);
+    if (!a || !b || index.get(limb.bone) === undefined) continue;
+    /* A hand and a foot run past the bone they point at, because that bone stops at a knuckle. */
+    const end = limb.reach ? a.clone().addScaledVector(new THREE.Vector3().subVectors(b, a), limb.reach) : b;
+    const r = limb.girth * unit;
+    const piece = limbGeometry(a, end, r, r * (limb.taper ?? 1));
+    /* A body is wider across than it is front to back, and a stack of circular pieces reads as a pipe.
+       Widening the torso along the figure's own left-right axis is what makes it a chest. */
+    if (piece && limb.wide) piece.scale(limb.wide, 1, 1);
+    add(piece, limb.bone);
+    if (limb.ball) {
+      const ball = new THREE.SphereGeometry(limb.ball * unit, 14, 10);
+      ball.translate(a.x, a.y, a.z);
+      add(ball, limb.bone);
+    }
+  }
+  if (!pieces.length) return null;
+
+  const merged = mergeGeometries(pieces, false);
+  const count = merged.getAttribute("position").count;
+  const skinIndex = new Uint16Array(count * 4);
+  const skinWeight = new Float32Array(count * 4);
+  let vertex = 0;
+  pieces.forEach((piece, i) => {
+    const n = piece.getAttribute("position").count;
+    for (let k = 0; k < n; k++, vertex++) {
+      skinIndex[vertex * 4] = owners[i];
+      skinWeight[vertex * 4] = 1;
+    }
+    piece.dispose();
+  });
+  merged.setAttribute("skinIndex", new THREE.BufferAttribute(skinIndex, 4));
+  merged.setAttribute("skinWeight", new THREE.BufferAttribute(skinWeight, 4));
+  merged.computeVertexNormals();
+
+  const mesh = new THREE.SkinnedMesh(merged, material);
+  mesh.name = "mannequin";
+  /* A skinned mesh's bounding box is its bind pose, which is not where it is once it is posed. */
+  mesh.frustumCulled = false;
+  /* Bound with an identity bind matrix, because the geometry was just built in the same space the bones
+     report themselves in. Everything above it - the scale that makes it a person's height, the turn that
+     makes it face forward - goes on a group above, where it moves the bones and the mesh together. */
+  mesh.bind(skeleton, reference.bindMatrix);
+  return mesh;
+}
+
+/**
+ * Where the figure has got to along its walk-on at `t` seconds.
+ *
+ * The only part of the choreography the console owns. Walking is not derived here - it is a clip somebody
+ * animated - and what is left is carrying the figure along the floor. The speed that has to happen at is
+ * not a matter of taste: a walk clip is animated on the spot, so the ground has to pass under it at
+ * exactly the rate its feet are already moving, which is measured off the clip itself. Any other speed is
+ * a moon-walk.
+ */
+export function walkOn(t, { speed = 0.9, from = -2.6, settle = 0.4 } = {}) {
+  const time = Number.isFinite(t) ? Math.max(0, t) : 0;
+  const seconds = speed > 0 ? Math.abs(from) / speed : 0;
+  if (time < seconds) return { x: from + speed * time, walking: true, standing: 0 };
+  return { x: 0, walking: false, standing: Math.min(1, (time - seconds) / Math.max(settle, 1e-3)) };
+}
+
+/**
+ * A rig around the baked model: a mannequin over its skeleton, playing its clips.
+ *
+ * Everything about the rig is measured here rather than taken on trust, and measured with a clip running
+ * rather than at rest. A rig carries its units in three places at once - the bones, the node above them,
+ * and the position tracks of its clips - and the only frame in which all three agree is the one the
+ * figure is actually drawn in. Which way it faces, how tall it is and how long its stride is are all read
+ * off the skeleton while the walk plays.
  */
 export async function createModelDriver(asset, { colour = "#8e8e93" } = {}) {
   const { clone: cloneSkinned } = await import("./vendor/utils/SkeletonUtils.js");
-  const names = asset.manifest.bones;
   /* A skinned mesh cloned the ordinary way keeps its original skeleton, so two figures on one page would
      move as one. */
   const model = cloneSkinned(asset.scene);
-  const suit = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour), roughness: 0.58, metalness: 0.05, dithering: true });
-  const bones = new Map();
-  model.traverse((o) => {
-    if (o.isBone) bones.set(o.name, o);
-    if (o.isMesh || o.isSkinnedMesh) {
-      o.material = suit;
-      /* The bounding box of a skinned mesh is its bind pose, which is not where it is once it is posed. */
-      o.frustumCulled = false;
-    }
-  });
-
-  /* A hand modelled in a T-pose is flat with the fingers splayed, which reads as a mannequin holding
-     still. A light curl at every joint of every finger is what a hand does when nobody is using it, and
-     it costs one pass at build time. Fingers close about their own first axis on a rig built this way. */
-  for (const [name, bone] of bones) {
-    if (/Index|Middle|Ring|Pinky|Thumb/.test(name)) bone.rotateX(/Thumb/.test(name) ? 0.22 : 0.36);
-  }
 
   const root = new THREE.Group();
   root.name = "driver";
-  const body = new THREE.Group();
-  body.name = "driver-body";
-  body.add(model);
-  root.add(body);
+  /* The group that makes the rig a person: its scale, its facing, its feet on the floor. */
+  const fit = new THREE.Group();
+  fit.name = "driver-fit";
+  fit.add(model);
+  root.add(fit);
   root.updateMatrixWorld(true);
 
-  /* Where every bone sits at rest, in the world. Read once. */
-  const rest = new Map();
-  for (const [name, bone] of bones) rest.set(name, bone.getWorldQuaternion(new THREE.Quaternion()));
+  let skeleton = null;
+  const originals = [];
+  model.traverse((o) => {
+    if (o.isSkinnedMesh) {
+      skeleton ??= o.skeleton;
+      originals.push(o);
+    }
+  });
+  if (!skeleton) throw new Error("the baked driver has no skeleton");
 
-  const turn = new THREE.Quaternion();
-  const about = new THREE.Quaternion();
-  const want = new THREE.Quaternion();
-  const parentWorld = new THREE.Quaternion();
-  const X = new THREE.Vector3(1, 0, 0);
-  const Y = new THREE.Vector3(0, 1, 0);
-  const Z = new THREE.Vector3(0, 0, 1);
+  const mixer = new THREE.AnimationMixer(model);
+  const clips = new Map(asset.animations.map((clip) => [clip.name, clip]));
+  const named = asset.manifest?.clips ?? {};
+  const walkClip = clips.get(named.walk);
+  const standClip = clips.get(named.stand);
 
-  /**
-   * Turn `name` from where it rests, by three world-space rotations in a fixed order: about x first,
-   * which is what tips a limb out to the side, then about z, which swings it forward, then about y,
-   * which turns the whole limb about the body. Written out rather than left to an Euler, because the
-   * order is the whole meaning of it.
-   */
-  function place(name, x, y, z) {
-    const bone = bones.get(name);
-    if (!bone) return;
-    turn.setFromAxisAngle(X, x);
-    turn.premultiply(about.setFromAxisAngle(Z, z));
-    turn.premultiply(about.setFromAxisAngle(Y, y));
-    want.copy(turn).multiply(rest.get(name));
-    bone.parent.updateWorldMatrix(true, false);
-    bone.parent.getWorldQuaternion(parentWorld);
-    bone.quaternion.copy(parentWorld.invert()).multiply(want);
+  const bones = new Map(skeleton.bones.map((b) => [plainBone(b.name), b]));
+  const of = (name) => bones.get(name) ?? null;
+  const crown = of("HeadTop_End") ?? of("Head");
+  const feet = [of("LeftFoot"), of("RightFoot")];
+  const toe = of("LeftToeBase") ?? of("LeftToe_End");
+
+  /* ---- measure, with the walk running ---- */
+  let unit = 1;          // units of the rig's space per metre
+  let yaw = 0;           // which way it faces, radians from +x
+  let floor = 0;         // where the floor is in the rig's space
+  let stride = 1.4;      // metres of ground one loop of the walk covers
+  if (crown && feet.every(Boolean)) {
+    const action = walkClip ? mixer.clipAction(walkClip) : null;
+    action?.play();
+    const head = new THREE.Vector3();
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    let tall = 0;
+    let apart = 0;
+    let low = Infinity;
+    const STEPS = walkClip ? 48 : 1;
+    for (let i = 0; i <= STEPS; i++) {
+      if (walkClip) mixer.setTime((walkClip.duration * i) / STEPS);
+      model.updateMatrixWorld(true);
+      crown.getWorldPosition(head);
+      feet[0].getWorldPosition(a);
+      feet[1].getWorldPosition(b);
+      tall = Math.max(tall, head.y - Math.min(a.y, b.y));
+      apart = Math.max(apart, Math.hypot(a.x - b.x, a.z - b.z));
+      low = Math.min(low, a.y, b.y);
+      if (toe && i === Math.round(STEPS / 4)) {
+        const ahead = toe.getWorldPosition(new THREE.Vector3()).sub(a);
+        ahead.y = 0;
+        if (ahead.lengthSq() > 1e-12) {
+          ahead.normalize();
+          yaw = Math.atan2(ahead.z, ahead.x);
+        }
+      }
+    }
+    action?.stop();
+    skeleton.pose();
+    model.updateMatrixWorld(true);
+    if (tall > 1e-9) {
+      /* The crown is the top of the head, so the measured height is the figure's own. */
+      unit = tall / DRIVER_M;
+      floor = low;
+      /* Two steps to a loop, one per leg. */
+      stride = (apart * 2) / unit;
+    }
   }
+
+  fit.scale.setScalar(1 / unit);
+  fit.rotation.y = yaw;
+  fit.position.y = -floor / unit;
+  root.updateMatrixWorld(true);
+
+  /* ---- the figure ---- */
+  const suit = new THREE.MeshStandardMaterial({ color: new THREE.Color(colour), roughness: 0.58, metalness: 0.05, dithering: true });
+  const dummy = await buildMannequin(skeleton, unit, suit, originals[0]);
+  if (dummy) {
+    /* It goes where the mesh it replaces was, so its own place in the hierarchy matches the bind matrix
+       it was built against. */
+    (originals[0].parent ?? fit).add(dummy);
+    for (const mesh of originals) mesh.visible = false;
+  } else {
+    /* Nothing was recognised in this skeleton, so the character's own mesh is what there is. */
+    for (const mesh of originals) mesh.material = suit;
+  }
+
+  const speed = walkClip?.duration ? stride / walkClip.duration : 0;
+  const walking = walkClip ? mixer.clipAction(walkClip) : null;
+  const standing = standClip ? mixer.clipAction(standClip) : null;
+  walking?.setLoop(THREE.LoopRepeat, Infinity);
+  standing?.setLoop(THREE.LoopRepeat, Infinity);
+
+  let last = null;
+  let phase = "";
 
   return {
     root,
-    body,
+    body: root,
     model,
     materials: [suit],
-    /* Posed by `applyPose`, which knows only these two. */
-    place,
-    names,
+    /** What the figure measured out at, for anyone who wants to check it. */
+    measured: { unit, yaw, stride, speed },
+    /** How long the walk-on takes. */
+    get seconds() {
+      return (speed > 0 ? 2.6 / speed : 0) + 1.5;
+    },
+    /** Put the figure where it is at `t` seconds into the walk-on, and advance its clips. */
+    step(t, now) {
+      const at = walkOn(t, { speed: speed || 1, from: speed > 0 ? -2.6 : 0 });
+      root.position.x = at.x;
+      const want = at.walking ? "walk" : "stand";
+      if (want !== phase) {
+        /* Cross-faded rather than cut, in the clips' own time: a figure that snaps from walking to
+           standing has not arrived anywhere. */
+        if (want === "walk") walking?.reset().fadeIn(0.2).play();
+        else {
+          standing?.reset().fadeIn(0.5).play();
+          walking?.fadeOut(0.5);
+        }
+        phase = want;
+      }
+      const dt = last === null ? 0 : Math.min(0.1, (now - last) / 1000);
+      last = now;
+      mixer.update(dt);
+      return at.walking || at.standing < 1;
+    },
     setColour(next) {
       if (next) suit.color.set(next);
     },
     dispose() {
+      mixer.stopAllAction();
       suit.dispose();
-      model.traverse((o) => {
-        if (o.isMesh || o.isSkinnedMesh) o.geometry?.dispose();
-      });
+      dummy?.geometry.dispose();
     },
   };
-}
-
-/** Put a baked rig in the pose `driverPose` returned. Parents before children, so a chain composes. */
-export function applyModelPose(rig, pose) {
-  rig.body.position.set(pose.x, pose.y, 0);
-  rig.body.rotation.y = pose.turn;
-  rig.body.rotation.z = pose.lean;
-
-  const n = rig.names;
-  rig.place(n.hips, 0, 0, -pose.weight);
-  for (const name of n.spine) rig.place(name, 0, 0, -pose.chest / n.spine.length);
-  for (const name of n.neck) rig.place(name, 0, pose.head.turn / 2, -pose.head.lift / 2);
-  rig.place(n.head, 0, pose.head.turn / 2, -pose.head.lift / 2);
-
-  for (const [index, side] of [n.left, n.right].entries()) {
-    /* A rigged figure is modelled in a T, arms straight out, so before any of the choreography applies
-       the arms have to come down to where a person's arms are: a quarter turn about the forward axis,
-       less the few degrees a standing arm holds away from the body. The legs are already modelled
-       hanging, so they need nothing. */
-    const hang = (index === 0 ? -1 : 1) * (Math.PI / 2 - 0.14);
-    const swing = pose.shoulder[index] + pose.forward[index];
-    rig.place(side.shoulder, hang + pose.adduct[index], pose.across[index], swing);
-    /* The elbow's flex is on top of whatever the shoulder did, because a forearm is carried by its arm. */
-    rig.place(side.elbow, hang + pose.adduct[index], pose.across[index], swing + pose.elbow[index]);
-    rig.place(side.hand, hang + pose.adduct[index], pose.across[index], swing + pose.elbow[index]);
-    rig.place(side.hip, 0, 0, pose.hip[index]);
-    rig.place(side.knee, 0, 0, pose.hip[index] + pose.knee[index]);
-    rig.place(side.foot, 0, 0, pose.hip[index] + pose.knee[index] + pose.ankle[index]);
-  }
 }

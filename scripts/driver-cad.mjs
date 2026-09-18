@@ -1,210 +1,105 @@
-/* Bake the driver figure the console draws in Settings.
+/* Put the driver figure where the console can load it.
  *
- *   npm run driver-cad -- "path/to/Rigged Humanoid.fbx"
+ *   npm run driver-cad -- "path/to/character.glb"
  *
- * The source is a rigged humanoid FBX with a named skeleton (Hips, Spine1..3, Neck, Head, and
- * Left/Right Shoulder, Arm, Forearm, Hand, Hip, Leg, Knee, Foot) and one single-frame clip - a Blender
- * pose library - holding the arms-folded stance the figure stands in. There is no walk in it, so the
- * walk-on is animated by the console (see driver3d.js); what this script has to produce is the mesh,
- * the skeleton, and that one pose, in a form the console can load without shipping an FBX reader.
+ * The figure is a rigged humanoid with its animation already on it: a walk to come on with and a stand to
+ * hold. The console does not animate a person - walking is not something to derive from first principles,
+ * and every attempt to do it by hand here read as a puppet - so what it draws is somebody's clips.
  *
- * Out: src/vendor/driver.glb and src/vendor/driver.json. Both are baked rather than checked in, like the
- * robot's model, so the repository carries no third-party mesh.
+ * This script deliberately does almost nothing. It copies the file and writes down what is in it.
  *
- * Node has no DOM, and three's exporter reaches for a few browser globals when it writes buffers, so the
- * handful it needs are supplied here rather than pulling in a DOM shim for six methods.
+ * It used to do more: strip the character's own mesh, build a mannequin over its skeleton, normalise the
+ * scale, and re-export the lot as a new GLB. Every one of those steps worked and the result still came out
+ * wrong, because a rig carries its units in three places at once - the bones, the node above them, and the
+ * position tracks of its clips - and re-exporting rearranges which of the three they end up in. A file
+ * that plays correctly in the viewer it shipped with is the one thing about a rig that can be relied on,
+ * so it is passed through untouched and everything else happens at load, in one consistent space, where it
+ * can be measured against what is actually on screen. See createModelDriver in src/driver3d.js.
+ *
+ * Out: src/vendor/driver.glb and src/vendor/driver.json, baked rather than checked in - like the robot's
+ * model, so the repository carries no third-party mesh.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { basename, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as THREE from "three";
-import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
-import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-
-/* three's glTF exporter puts its binary chunk together as a Blob and reads it back through a FileReader.
-   Node has the Blob and not the reader, and a DOM shim for one method is a dependency nobody should have
-   to install to build this. The blob already knows how to hand over its own bytes. */
-globalThis.FileReader ??= class {
-  readAsArrayBuffer(blob) {
-    blob.arrayBuffer().then(
-      (buffer) => {
-        this.result = buffer;
-        this.onloadend?.({ target: this });
-      },
-      (error) => {
-        this.error = error;
-        this.onerror?.({ target: this });
-      },
-    );
-  }
-};
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_SOURCE = resolve(process.env.USERPROFILE ?? process.env.HOME ?? ".", "Downloads", "Rigged Humanoid.fbx");
+const HOME = process.env.USERPROFILE ?? process.env.HOME ?? ".";
+const DEFAULT_SOURCE = resolve(HOME, "Downloads", "Xbot.glb");
 
-/* The figure is drawn at a person's height whatever the source was modelled at. */
-const HEIGHT_M = 1.76;
-
-/* Bones the console poses. Everything else in the rig - the IK handles, the pole targets, the switchers
-   a Blender rig carries - is left alone: it is skinned to, so it cannot be deleted, but nothing here
-   needs to know about it. */
-const POSED = {
-  hips: "Hips",
-  spine: ["Spine1", "Spine2", "Spine3"],
-  neck: ["Neck", "Neck001"],
-  head: "Head",
-  left: { shoulder: "Left_Arm", elbow: "Left_Forearm", hand: "Left_Hand", hip: "Left_Leg", knee: "Left_Knee", foot: "Left_Foot" },
-  right: { shoulder: "Right_Arm", elbow: "Right_Forearm", hand: "Right_Hand", hip: "Right_Leg", knee: "Right_Knee", foot: "Right_Foot" },
+/**
+ * Which clip is the walk and which is the stand, by what its name says it is - the only thing a file from
+ * an animation library reliably tells you. First match wins, so the order is the order of preference: an
+ * idle with the arms folded is the stand this console wants, and a plain idle will do when there is none.
+ */
+const WANTED = {
+  walk: [/^walk$/i, /walk(?!.*(back|strafe|crouch|jump|run))/i],
+  stand: [/(cross|fold)\w*[ _-]?(arm|idle)|(arm|idle)\w*[ _-]?(cross|fold)/i, /^idle$/i, /standing[ _-]?idle/i, /idle/i],
 };
 
 function log(line) {
   process.stdout.write(`${line}\n`);
 }
 
-/** The rotation each bone has in `clip` at its first key, as [x, y, z, w] by bone name. */
-function poseFromClip(clip) {
-  const pose = {};
-  for (const track of clip.tracks) {
-    const [name, property] = track.name.split(".");
-    if (property !== "quaternion") continue;
-    const v = track.values;
-    if (v.length < 4) continue;
-    pose[name] = [round(v[0]), round(v[1]), round(v[2]), round(v[3])];
-  }
-  return pose;
+/** What is in a GLB, read straight out of its JSON chunk - no loader, no scene, no units to get wrong. */
+function contents(file) {
+  const bytes = readFileSync(file);
+  if (bytes.readUInt32LE(0) !== 0x46546c67) throw new Error(`${basename(file)} is not a GLB`);
+  const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString("utf8"));
+  return {
+    clips: (json.animations ?? []).map((a, i) => a.name ?? `clip${i}`),
+    bones: (json.skins?.[0]?.joints ?? []).map((i) => json.nodes[i]?.name).filter(Boolean),
+    triangles: Math.round((json.meshes ?? []).flatMap((m) => m.primitives).reduce((n, p) => {
+      const count = p.indices != null ? json.accessors[p.indices].count : json.accessors[p.attributes.POSITION].count;
+      return n + count / 3;
+    }, 0)),
+  };
 }
 
-const round = (v) => Math.round(v * 1e5) / 1e5;
-
-async function main() {
+function main() {
   const source = process.argv[2] || DEFAULT_SOURCE;
-  log(`reading ${source}`);
-  const file = readFileSync(source);
-  const group = new FBXLoader().parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength), "");
-
-  /* ---- what came in ---- */
-  let triangles = 0;
-  let skinned = null;
-  const bones = [];
-  group.traverse((o) => {
-    if (o.isSkinnedMesh && !skinned) skinned = o;
-    if (o.isMesh) {
-      const g = o.geometry;
-      triangles += (g.index ? g.index.count : g.getAttribute("position").count) / 3;
-    }
-    if (o.isBone) bones.push(o.name);
-  });
-  if (!skinned) throw new Error("no skinned mesh in the FBX");
-  log(`  ${Math.round(triangles)} triangles, ${bones.length} bones, ${group.animations.length} clip(s)`);
-
-  const missing = [POSED.hips, POSED.head, ...POSED.spine, ...POSED.neck,
-    ...Object.values(POSED.left), ...Object.values(POSED.right)].filter((n) => !bones.includes(n));
-  if (missing.length) throw new Error(`the rig is missing bones the console poses: ${missing.join(", ")}`);
-
-  /* ---- the stance ---- */
-  const poseClip = group.animations.find((a) => /pose/i.test(a.name)) ?? group.animations[0] ?? null;
-  const stance = poseClip ? poseFromClip(poseClip) : {};
-  log(`  stance from "${poseClip?.name ?? "(none)"}": ${Object.keys(stance).length} bones`);
-
-  /* ---- put it in the console's frame ---- */
-  /* The console's frame is x forward, y up, z to the figure's right, at a person's height, standing on
-     the floor at the origin. FBX arrives in centimetres and three's loader has already stood it Y-up;
-     which way it faces is whatever the modeller had in Blender, and is read off the model rather than
-     guessed: a foot points forward, so the toe bone is ahead of the ankle bone. */
-  const wrapper = new THREE.Group();
-  wrapper.name = "driver";
-  const facing = new THREE.Group();
-  facing.name = "driver-facing";
-  facing.add(group);
-  wrapper.add(facing);
-  wrapper.updateMatrixWorld(true);
-
-  const boneNamed = (name) => {
-    let found = null;
-    group.traverse((o) => {
-      if (!found && o.isBone && o.name === name) found = o;
-    });
-    return found;
-  };
-  const ankle = boneNamed(POSED.left.foot);
-  const toe = boneNamed("Left_Foot001") ?? boneNamed("Left_Toe");
-  let yaw = 0;
-  if (ankle && toe) {
-    const ahead = toe.getWorldPosition(new THREE.Vector3()).sub(ankle.getWorldPosition(new THREE.Vector3()));
-    ahead.y = 0;
-    if (ahead.lengthSq() > 1e-9) yaw = Math.atan2(ahead.z, ahead.normalize().x);
+  if (extname(source).toLowerCase() !== ".glb") {
+    throw new Error("the source has to be a GLB: it is passed through to the browser as it is");
   }
-  facing.rotation.y = -yaw;
-  wrapper.updateMatrixWorld(true);
-  log(`  faces ${((yaw * 180) / Math.PI).toFixed(1)} deg from +x; turned to face it`);
+  log(`reading ${source}`);
+  const { clips, bones, triangles } = contents(source);
+  log(`  ${triangles} triangles, ${bones.length} bones, ${clips.length} clip(s): ${clips.join(", ")}`);
+  if (!bones.length) throw new Error("the source has no skeleton - the figure has to be rigged");
 
-  const box = new THREE.Box3().setFromObject(wrapper);
-  const size = box.getSize(new THREE.Vector3());
-  const scale = HEIGHT_M / size.y;
-  wrapper.scale.setScalar(scale);
-  wrapper.updateMatrixWorld(true);
-  const scaled = new THREE.Box3().setFromObject(wrapper);
-  wrapper.position.set(
-    -(scaled.max.x + scaled.min.x) / 2,
-    -scaled.min.y,
-    -(scaled.max.z + scaled.min.z) / 2,
-  );
-  wrapper.updateMatrixWorld(true);
-  log(`  scaled x${scale.toFixed(4)} to ${HEIGHT_M} m`);
-
-  /* ---- make it small ---- */
-  /* An FBX arrives with a vertex per corner of every triangle and a texture coordinate on each, and a
-     glTF written straight back out of that is most of a megabyte for a figure with three thousand
-     triangles in it. Welding the corners back together and dropping the attributes nothing reads -
-     there is no texture on this model - is the difference between a download and a stutter. */
-  let before = 0;
-  let after = 0;
-  group.traverse((o) => {
-    if (!o.isMesh) return;
-    let g = o.geometry;
-    before += g.getAttribute("position").count;
-    for (const name of ["uv", "uv1", "uv2", "uv3", "color", "tangent"]) {
-      if (g.getAttribute(name)) g.deleteAttribute(name);
+  const chosen = {};
+  for (const [role, patterns] of Object.entries(WANTED)) {
+    for (const pattern of patterns) {
+      const hit = clips.find((name) => pattern.test(name));
+      if (hit) {
+        chosen[role] = hit;
+        log(`  ${role}: "${hit}"`);
+        break;
+      }
     }
-    if (!g.index) {
-      g = mergeVertices(g, 1e-4);
-      o.geometry = g;
-    }
-    after += g.getAttribute("position").count;
-  });
-  log(`  ${before} vertices welded to ${after}`);
+    if (!chosen[role]) log(`  ${role}: nothing matched - the console will hold the rest pose`);
+  }
 
-  /* One material, so the console can colour the figure by setting one colour. Phong out of an FBX is
-     replaced by the console at load; what matters here is that there is exactly one. */
-  const materials = new Set();
-  group.traverse((o) => {
-    if (o.isMesh) for (const m of [o.material].flat()) if (m) materials.add(m);
-  });
-  log(`  ${materials.size} material(s): ${[...materials].map((m) => m.name || "(unnamed)").join(", ")}`);
-
-  /* ---- write ---- */
-  const exported = await new GLTFExporter().parseAsync(wrapper, { binary: true, animations: [], onlyVisible: false });
   const out = resolve(root, "src/vendor");
   mkdirSync(out, { recursive: true });
-  const glb = Buffer.from(exported);
-  writeFileSync(resolve(out, "driver.glb"), glb);
+  copyFileSync(source, resolve(out, "driver.glb"));
+  const bytes = readFileSync(resolve(out, "driver.glb")).length;
 
-  const manifest = {
-    version: 1,
+  writeFileSync(resolve(out, "driver.json"), `${JSON.stringify({
+    version: 3,
     generatedAt: new Date().toISOString(),
-    source: source.split(/[\\/]/).pop(),
-    model: { file: "driver.glb", bytes: glb.length, triangles: Math.round(triangles), heightM: HEIGHT_M },
-    bones: POSED,
-    /* Bone rotations for the stance the model was posed in, as [x, y, z, w]. The console blends into
-       these at the end of the walk-on rather than inventing a fold of its own. */
-    stance,
-    how: "FBX read with three's FBXLoader, scaled to 1.76 m and stood on the floor, written as a GLB. The stance is the first key of the FBX's own pose-library clip.",
-  };
-  writeFileSync(resolve(out, "driver.json"), `${JSON.stringify(manifest, null, 1)}\n`);
-  log(`wrote src/vendor/driver.glb: ${(glb.length / 1024).toFixed(0)} KB, and driver.json`);
+    source: basename(source),
+    model: { file: "driver.glb", bytes, triangles, bones: bones.length },
+    /* Which of the file's clips the console plays for each part of the walk-on. */
+    clips: chosen,
+    available: clips,
+    /* A mannequin is built over this skeleton at load, so the console needs the bone names. Everything
+       else about the rig - its units, which way it faces, how long its stride is - is measured at load
+       rather than written down here, because measuring it is reliable and reading it is not. */
+    bones,
+    how: "Copied as it is. A file that plays correctly in the viewer it shipped with is the only thing about a rig that can be relied on; the mannequin, the scale and the facing all happen at load.",
+  }, null, 1)}\n`);
+  log(`wrote src/vendor/driver.glb: ${(bytes / 1024).toFixed(0)} KB, and driver.json`);
 }
 
-await main();
+main();

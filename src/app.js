@@ -29,8 +29,9 @@ import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hu
 import { createHopper, FEED_RATE, hasMechanisms, readAim, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
 import {
-  addDriver, activeDriver, capture, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
-  makeDriver, readDrivers, removeDriver, switchDriver, updateDriver, writeDrivers,
+  addDriver, activeDriver, capture, captureRobot, cleanName, DRIVER_COLOURS, driverHex, DRIVERS_MAX,
+  makeDriver, readDrivers, removeDriver, robotPlan, ROBOT_MAX, setRobotSetting, switchDriver,
+  updateDriver, writeDrivers,
 } from "./drivers.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
@@ -469,11 +470,48 @@ function demoTick() {
       { key: "/Catalyst/Tunables/shooter.target", name: "Target speed", group: "Shooter", min: 0, max: 6000, step: 25, unit: "RPM" },
       { key: "/Catalyst/Tunables/drive.slew", name: "Slew limit", group: "Drivetrain", min: 0.5, max: 12, step: 0.1, unit: "m/s²" },
       { key: "/Catalyst/Tunables/physics.enabled", name: "Physics advisories", group: "Physics Core" },
+      /* The driver-feel end of the same manifest, which is what a driver profile is made of. A deadband
+       * that stopped at 0.1 would be no use to whoever has the DualSense whose right stick wanders 0.1
+       * to 0.2, so the range a demo robot declares goes to 0.3 - the number has to be able to cover the
+       * controller the team actually drives with. */
+      { key: "/Catalyst/Tunables/drive.deadband", name: "Deadband", group: "Driver feel", min: 0, max: 0.3, step: 0.005 },
+      { key: "/Catalyst/Tunables/drive.maxSpeed", name: "Speed cap", group: "Driver feel", min: 0.2, max: 1, step: 0.05 },
+      { key: "/Catalyst/Tunables/drive.slowMode", name: "Slow mode", group: "Driver feel", min: 0.1, max: 1, step: 0.05 },
+      /* Rumble is the robot's to do - the Driver Station holds the controller and this console has no
+       * route to it at all - so a per-driver rumble is a switch per event and a strength, declared by
+       * the robot like any other tunable and written back the same way. */
+      { key: "/Catalyst/Tunables/rumble.strength", name: "Strength", group: "Rumble", min: 0, max: 1, step: 0.05 },
+      { key: "/Catalyst/Tunables/rumble.hopperFull", name: "Buzz when the hopper fills", group: "Rumble" },
+      { key: "/Catalyst/Tunables/rumble.atSpeed", name: "Buzz when the shooter is at speed", group: "Rumble" },
+      { key: "/Catalyst/Tunables/rumble.collision", name: "Buzz on a collision", group: "Rumble" },
     ]));
     set("/Catalyst/Tunables/shooter.kP", "num", 0.34);
     set("/Catalyst/Tunables/shooter.target", "num", 4900);
     set("/Catalyst/Tunables/drive.slew", "num", 6.5);
     set("/Catalyst/Tunables/physics.enabled", "bool", true);
+    set("/Catalyst/Tunables/drive.deadband", "num", 0.07);
+    set("/Catalyst/Tunables/drive.maxSpeed", "num", 0.9);
+    set("/Catalyst/Tunables/drive.slowMode", "num", 0.3);
+    set("/Catalyst/Tunables/rumble.strength", "num", 0.6);
+    set("/Catalyst/Tunables/rumble.hopperFull", "bool", true);
+    set("/Catalyst/Tunables/rumble.atSpeed", "bool", true);
+    set("/Catalyst/Tunables/rumble.collision", "bool", false);
+
+    /* What the demo robot's buttons do. Read, never written: a binding is the robot's own wiring, and
+     * the console shows it so somebody who has not driven this robot can find out what the sticks do
+     * without reading RobotContainer. */
+    set(CONTROLS_MANIFEST, "str", JSON.stringify([
+      { control: "Right trigger", action: "Intake", controller: "Driver" },
+      { control: "Left bumper", action: "Eject", controller: "Driver" },
+      { control: "Left trigger", action: "Prepare to score", controller: "Driver" },
+      { control: "A", action: "Shoot now", controller: "Driver" },
+      { control: "B", action: "Stand down", controller: "Driver" },
+      { control: "X", action: "Hold still", controller: "Driver" },
+      { control: "Start", action: "Reset heading", controller: "Driver" },
+      { control: "Y", action: "Unjam", controller: "Operator" },
+      { control: "X", action: "Home the hood and the intake", controller: "Operator" },
+      { control: "Left bumper + Start", action: "Re-home everything", controller: "Operator", combo: true },
+    ]));
   }
 
   set("/Auto Selector/options", "strs",
@@ -549,6 +587,63 @@ function tunables() {
   }
 }
 
+/**
+ * The manifest with the type each value has on the wire attached, which is what decides both the control
+ * drawn for it and whether a stored setting can be written to it. `kind` is null when the robot has
+ * declared a key without publishing a value yet - the declaration is the permission, so that is still
+ * writable, it is only unknown what it looks like.
+ */
+function declaredTunables() {
+  return tunables()
+    .filter((t) => t && typeof t.key === "string" && t.key)
+    .map((t) => ({ ...t, kind: raw(t.key)?.t ?? null }));
+}
+
+/* What the robot's controls do, in a second manifest on one topic: a JSON array of
+ * `{ "control", "action", "controller", "combo" }`, of which only the first two are required. It is read
+ * and never written - which button does what is the robot's own wiring, and a dashboard that could
+ * rebind a button would be a dashboard that drives. Showing it costs nothing and answers the question
+ * every new driver asks. The Drivers panel prints this shape on screen when no robot publishes one. */
+const CONTROLS_MANIFEST = "/Catalyst/Controls/.manifest";
+
+function controlBindings() {
+  const src = str(CONTROLS_MANIFEST, null);
+  if (!src) return [];
+  let parsed = null;
+  try {
+    parsed = JSON.parse(src);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((b) => b && typeof b.control === "string" && b.control && typeof b.action === "string" && b.action)
+    .map((b) => ({
+      control: b.control,
+      action: b.action,
+      /* Which stick it is on. A robot that says nothing has one, and calling it the driver's is the
+       * only reading that is true of every robot with a single controller. */
+      controller: typeof b.controller === "string" && b.controller ? b.controller : "Driver",
+      /* Declared, never inferred from a "+" in the text: the console does not decide what is a
+       * combination on the robot's behalf. */
+      combo: b.combo === true,
+    }));
+}
+
+/** The range and the decimals a manifest entry's slider works in. The step decides the decimals: a 25 RPM
+ *  step printed to three places is noise, and a 0.001 gain printed to one is unusable. */
+function tunableRange(t) {
+  const step = Number(t?.step ?? 0.01) || 0.01;
+  return {
+    min: Number(t?.min ?? 0),
+    max: Number(t?.max ?? 1),
+    step,
+    places: step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step))),
+  };
+}
+
+/** Whether the write went out. Callers that report to the driver need this: saying a setting was applied
+ *  when the write threw would be the console inventing a fact about the robot. */
 async function ntSet(key, value) {
   /* Demo mode has no robot to write to, so the write lands in the local store instead. Otherwise a
    * slider would snap back and the demo would look broken rather than convincing. */
@@ -558,13 +653,15 @@ async function ntSet(key, value) {
       : { t: "str", v: String(value) };
     if (key.endsWith("/selected")) nt.v[key.replace(/\/selected$/, "/active")] = nt.v[key];
     schedulePaint();
-    return;
+    return true;
   }
-  if (!invoke) return;
+  if (!invoke) return false;
   try {
     await invoke("nt_set", { key, value });
+    return true;
   } catch (e) {
     console.warn("nt_set failed", key, e);
+    return false;
   }
 }
 
@@ -3112,17 +3209,14 @@ function paintTune() {
         control.append(el("div", "v", bool(t.key) ? "On" : "Off"), tog);
         row.appendChild(control);
       } else {
+        const { min, max, step, places } = tunableRange(t);
         const slider = el("input");
         slider.type = "range";
-        slider.min = String(t.min ?? 0);
-        slider.max = String(t.max ?? 1);
-        slider.step = String(t.step ?? 0.01);
-        slider.value = String(current ?? t.min ?? 0);
+        slider.min = String(min);
+        slider.max = String(max);
+        slider.step = String(step);
+        slider.value = String(current ?? min);
         paintRange(slider);
-        /* Show exactly as many decimals as the step can resolve: a 25 RPM step printed to three
-         * places is noise, and a 0.001 gain printed to one is unusable. */
-        const step = Number(t.step ?? 0.01);
-        const places = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
         const readout = el("div", "v", `${fmt(current, places)}${t.unit ? ` ${t.unit}` : ""}`);
         slider.oninput = () => {
           paintRange(slider);
@@ -5487,6 +5581,7 @@ function paintDrivers() {
   const list = $("#driverList");
   if (!list) return;
   const active = activeDriver(drivers);
+  const declared = declaredTunables();
   list.textContent = "";
   for (const driver of drivers.list) {
     const card = document.createElement("div");
@@ -5558,7 +5653,7 @@ function paintDrivers() {
       else paintDrivers();
     };
     actions.append(use, drop);
-    card.append(dot, who, actions);
+    card.append(dot, who, actions, robotBlock(driver, declared));
     list.append(card);
   }
 
@@ -5571,6 +5666,319 @@ function paintDrivers() {
     driverStageShown = active.id;
     driverStage?.setColour(driverHex(active));
     driverStage?.play();
+  }
+  paintControls();
+  driversDrawn = driversSignature();
+}
+
+/* The panel repaints ten times a second, and the cards are full of things a person is in the middle of
+ * using: a name being typed, a slider being dragged, a select that is open. Rebuilding them on every
+ * frame takes the focus out from under all three, so the cards are built when what they are made of
+ * changes and only their readings are written on the frames in between.
+ *
+ * The signature is deliberately made of structure and not of values. A stored setting's number is not in
+ * it, because that number belongs to the control the driver is holding - the control writes its own
+ * readout as it moves, and a rebuild mid-drag would drop it. The keys are, because a setting arriving or
+ * leaving is a different set of rows. */
+let driversDrawn = "";
+
+function driversSignature() {
+  return JSON.stringify([
+    drivers.active,
+    robotLinked(),
+    robotNote?.id ?? "",
+    robotNote?.text ?? "",
+    drivers.list.map((d) => [
+      d.id, d.name, d.colour,
+      d.layout ? d.layout.length : layout.length,
+      Object.keys(d.robot ?? {}),
+    ]),
+    declaredTunables().map((t) => [t.key, t.name, t.group, t.unit, t.min, t.max, t.step, t.kind]),
+    controlBindings().map((b) => [b.controller, b.control, b.action, b.combo]),
+  ]);
+}
+
+function syncDrivers() {
+  const signature = driversSignature();
+  if (signature !== driversDrawn) {
+    paintDrivers();
+    return;
+  }
+  syncRobotRows();
+}
+
+/* ---- a profile's robot settings, on its card ---- */
+
+/**
+ * The settings block under one profile: what it will put on the robot, and what the robot says about
+ * each of them right now.
+ */
+function robotBlock(driver, declared) {
+  const inUse = driver.id === drivers.active;
+  const linked = robotLinked();
+  const plan = robotPlan(driver, declared);
+  const block = el("div", "drobot");
+  block.dataset.off = String(!linked);
+
+  const head = el("div", "drobothead");
+  head.append(el("b", null, "Robot settings"));
+  /* One line, and it is the whole of what the driver needs to know about whether this is live. Not an
+   * error when there is no robot: the pit is where profiles get set up and the robot is rarely on. */
+  head.append(el("span", "dwhy", !linked
+    ? "No robot connected. These are applied when one is."
+    : !declared.length
+      ? "This robot publishes no tunable manifest, so it offers nothing to set."
+      : inUse
+        ? "Changes go to the robot as you make them."
+        : "Applied when you use this profile."));
+  if (robotNote?.id === driver.id) head.append(el("span", "dnote", robotNote.text));
+  block.append(head);
+
+  /* Grouped the way the robot grouped them, so the rumble switches sit together and the deadband sits
+   * with the rest of the feel. One group is no grouping: a heading over the only group says nothing. */
+  const groups = new Map();
+  for (const row of plan.rows) {
+    const group = row.entry?.group || "General";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(row);
+  }
+  for (const [group, rows] of groups) {
+    if (groups.size > 1) block.append(el("div", "dgroup", group));
+    for (const row of rows) block.append(robotRow(driver, row, { inUse, linked }));
+  }
+
+  if (!plan.rows.length && linked && declared.length) {
+    block.append(el("div", "dempty", "Nothing yet. Adding a setting takes the value the robot is set to now."));
+  }
+
+  const foot = el("div", "drobotfoot");
+  /* Only what the robot is publishing a value for. Adding a setting takes that value, so a key with
+   * nothing behind it could only be added at a number the console made up. */
+  const spare = declared.filter((t) => !(t.key in (driver.robot ?? {})) && liveTunable(t.key) !== null);
+  if (spare.length && plan.rows.length < ROBOT_MAX) {
+    const add = el("select", "dadd");
+    add.setAttribute("aria-label", `Add a robot setting to ${driver.name}`);
+    const hint = new Option("Add a setting…", "");
+    hint.disabled = true;
+    hint.selected = true;
+    add.append(hint);
+    const byGroup = new Map();
+    for (const t of spare) {
+      const group = t.group || "General";
+      if (!byGroup.has(group)) byGroup.set(group, []);
+      byGroup.get(group).push(t);
+    }
+    for (const [group, entries] of byGroup) {
+      const holder = el("optgroup");
+      holder.label = group;
+      for (const t of entries) holder.append(new Option(t.name || leaf(t.key), t.key));
+      add.append(holder);
+    }
+    add.disabled = !linked;
+    add.onchange = () => {
+      const value = liveTunable(add.value);
+      if (add.value && value !== null) {
+        drivers = setRobotSetting(drivers, driver.id, add.value, value);
+        saveDrivers();
+      }
+      paintDrivers();
+    };
+    foot.append(add);
+  }
+
+  const take = el("button", "sbtn", "Take from robot");
+  take.type = "button";
+  /* Only when there is something to take. A robot that publishes none of this profile's settings gives
+   * this button nothing to copy, and a button that can be pressed and does nothing is worse than one
+   * that is plainly unavailable. */
+  take.disabled = !linked || !plan.rows.some((r) => liveTunable(r.key) !== null);
+  take.title = "Copy what the robot is set to now into this profile";
+  take.onclick = () => {
+    const values = {};
+    for (const row of plan.rows) {
+      const value = liveTunable(row.key);
+      if (value !== null) values[row.key] = value;
+    }
+    drivers = captureRobot(drivers, driver.id, values);
+    saveDrivers();
+    paintDrivers();
+  };
+  foot.append(take);
+  block.append(foot);
+  return block;
+}
+
+/** One setting: what this profile holds for it, the control that changes it, and what the robot holds. */
+function robotRow(driver, row, { inUse, linked }) {
+  const { key, value, entry, writable } = row;
+  const label = entry?.name || leaf(key);
+  const unit = entry?.unit ? ` ${entry.unit}` : "";
+  const { min, max, step, places } = tunableRange(entry);
+  const line = el("div", "drow");
+  line.dataset.robotKey = key;
+
+  const name = el("div", "nm");
+  name.append(el("span", null, label));
+  name.append(el("small", null, key));
+  line.append(name);
+
+  const isSwitch = typeof value === "boolean";
+  /* The profile's own value, which it has whether or not anything is connected - printed to the decimals
+   * the robot's step resolves when there is a robot to say, and exactly as stored when there is not,
+   * because the number of decimals is a fact about the robot rather than about the setting. */
+  const stored = isSwitch ? (value ? "On" : "Off") : entry ? `${value.toFixed(places)}${unit}` : String(value);
+  const readout = el("div", "v", linked && !writable ? "—" : stored);
+  line.append(readout);
+
+  const forget = el("button", "dforget");
+  forget.type = "button";
+  forget.title = "Take this setting out of the profile";
+  forget.setAttribute("aria-label", `Take ${label} out of ${driver.name}`);
+  forget.innerHTML = TILE_TOOL_ICONS.remove;
+  forget.onclick = () => {
+    drivers = setRobotSetting(drivers, driver.id, key, null);
+    saveDrivers();
+    paintDrivers();
+  };
+  line.append(forget);
+
+  if (!linked) {
+    /* No robot, so no control: a slider needs the range the robot declares, and drawing one against a
+     * range this console picked would be inventing the thing the driver is about to read off it. The
+     * setting and the value it will apply are both shown - those are the profile's own and are true in
+     * the pit with the battery out - and the line at the top of the block says why nothing moves. */
+    return line;
+  }
+
+  if (!writable) {
+    /* A profile filled in on the practice bot, used on the competition bot. The setting is kept and
+     * shown as a dash rather than hidden or guessed at: it says this robot has no such thing, which is
+     * a fact, where a number in that space would be a fiction about a robot that never declared it. */
+    line.append(el("div", "dmiss", "This robot does not publish it."));
+    return line;
+  }
+
+  const control = el("div", "dctl");
+  if (isSwitch) {
+    const tog = el("button", "tog");
+    tog.type = "button";
+    tog.setAttribute("role", "switch");
+    tog.setAttribute("aria-checked", String(value));
+    tog.setAttribute("aria-label", label);
+    tog.disabled = !linked;
+    tog.append(el("i"));
+    tog.onclick = () => {
+      const next = tog.getAttribute("aria-checked") !== "true";
+      tog.setAttribute("aria-checked", String(next));
+      readout.textContent = next ? "On" : "Off";
+      commitRobotSetting(driver, key, next, inUse, linked);
+    };
+    control.append(tog);
+  } else {
+    const slider = el("input");
+    slider.type = "range";
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(value);
+    slider.disabled = !linked;
+    slider.setAttribute("aria-label", label);
+    paintRange(slider);
+    slider.oninput = () => {
+      paintRange(slider);
+      readout.textContent = `${Number(slider.value).toFixed(places)}${unit}`;
+    };
+    /* On release rather than on every pixel: a drag from one end of a deadband to the other is two
+     * hundred values and only the one the driver stopped on is a setting. */
+    slider.onchange = () => commitRobotSetting(driver, key, Number(slider.value), inUse, linked);
+    control.append(slider);
+  }
+  line.append(control);
+
+  const now = el("div", "dnow");
+  now.dataset.robotNow = key;
+  now.textContent = robotNowText(key, entry);
+  line.append(now);
+  return line;
+}
+
+/** A control moved: the profile keeps it, and the robot gets it when this is the profile in use. */
+function commitRobotSetting(driver, key, value, inUse, linked) {
+  drivers = setRobotSetting(drivers, driver.id, key, value);
+  saveDrivers();
+  /* The profile in use is what the robot is set to, so moving one of its controls moves the robot -
+   * exactly as the same slider on the Tune sheet would, through the same write. A profile nobody is
+   * using waits its turn. */
+  if (inUse && linked) ntSet(key, value);
+  /* No repaint. The control is the one the driver is holding and it has already written its own
+   * readout; the signature is made of which settings a profile carries rather than of their values, so
+   * nothing here asks for the cards to be built again. */
+}
+
+/** What the robot holds for a setting, which is the only thing on this card that is about the robot
+ *  rather than about the profile. A dash when there is nothing to report, never a stand-in. */
+function robotNowText(key, entry) {
+  if (!robotLinked()) return "on the robot: —";
+  const value = liveTunable(key);
+  if (value === null) return "on the robot: —";
+  if (typeof value === "boolean") return `on the robot: ${value ? "On" : "Off"}`;
+  const { places } = tunableRange(entry);
+  return `on the robot: ${value.toFixed(places)}${entry?.unit ? ` ${entry.unit}` : ""}`;
+}
+
+/** The readings on the cards between rebuilds. Nothing here touches a control someone may be holding. */
+function syncRobotRows() {
+  const list = $("#driverList");
+  if (!list) return;
+  const entries = new Map(declaredTunables().map((t) => [t.key, t]));
+  for (const node of list.querySelectorAll("[data-robot-now]")) {
+    const text = robotNowText(node.dataset.robotNow, entries.get(node.dataset.robotNow));
+    if (node.textContent !== text) node.textContent = text;
+  }
+}
+
+/* ---- what the buttons do ---- */
+
+/**
+ * The robot's own account of its controls. Read-only, and the one part of this panel that is not about a
+ * profile at all: it is the same for everybody, and it is here because the question "what does B do"
+ * belongs next to who is driving.
+ */
+function paintControls() {
+  const host = $("#driverControls");
+  if (!host) return;
+  const bindings = controlBindings();
+  host.textContent = "";
+
+  if (!bindings.length) {
+    host.append(el("div", "dempty", robotLinked()
+      ? "This robot does not publish what its controls do."
+      : "No robot connected. What the controls do is read from the robot."));
+    const note = el("div", "note");
+    note.innerHTML =
+      "<b>How a robot says what its buttons do.</b> Publish a JSON string on " +
+      `<code>${CONTROLS_MANIFEST}</code> - an array of ` +
+      "<code>{ \"control\", \"action\", \"controller\", \"combo\" }</code>, of which only the first two " +
+      "are needed. The console prints that list and nothing else, and never writes to it: what a button " +
+      "does is the robot's to decide.";
+    host.append(note);
+    return;
+  }
+
+  const byController = new Map();
+  for (const binding of bindings) {
+    if (!byController.has(binding.controller)) byController.set(binding.controller, []);
+    byController.get(binding.controller).push(binding);
+  }
+  for (const [controller, rows] of byController) {
+    host.append(el("div", "dgroup", controller));
+    for (const binding of rows) {
+      const line = el("div", "dbind");
+      const control = el("b", null, binding.control);
+      if (binding.combo) control.dataset.combo = "true";
+      line.append(control, el("span", null, binding.action));
+      host.append(line);
+    }
   }
 }
 
@@ -5588,7 +5996,124 @@ function useDriver(id, { force = false } = {}) {
     } catch { /* the board still applies */ }
     buildBoard();
   }
+  applyRobotSettings(result.driver);
   paintDrivers();
+}
+
+/* ---- what a profile does to the robot ----
+ *
+ * The robot decides what this is allowed to be. It publishes a manifest of what it will let a dashboard
+ * change - the same one the Tune sheet works from - and a profile is a set of values for keys out of that
+ * list: a deadband, a slew limit, a speed cap, which events buzz the controller and how hard. Writing one
+ * goes through `ntSet`, the console's single write path, so this is a dashboard changing a tunable and
+ * nothing more. A key the robot did not declare is never written, however it got into storage.
+ *
+ * Rumble is worth being clear about, because it looks like something this program could do and is not.
+ * The Driver Station holds the controller; the console has no route to it and cannot buzz anything. The
+ * robot can, over the same protocol it drives on, so a per-driver rumble preference is only ever a robot
+ * setting: the robot declares "buzz when the hopper fills" as a tunable, and the profile carries a value
+ * for it like any other.
+ *
+ * It needs a robot. Choosing who is driving happens in the pit with the battery on a cart, so a profile
+ * picked with nothing connected is remembered and applied the moment a robot turns up, rather than being
+ * refused - and the panel says which of the two happened in one line, because being disconnected in the
+ * pit is the ordinary case and not an error.
+ */
+
+/** The profile waiting for a robot to apply it to. Deliberately not kept across a restart: a console that
+ *  wrote to the robot on launch would be writing without anyone having asked it to. */
+let pendingRobot = null;
+
+/** What the last apply did, and which card it belongs under. */
+let robotNote = null;
+
+const robotLinked = () => nt.status.connected || demo.on;
+
+/** What the robot holds for a key now, or null when it holds nothing this console could write back. */
+function liveTunable(key) {
+  const v = raw(key);
+  if (!v) return null;
+  if (v.t === "num") return v.v;
+  if (v.t === "bool") return v.v;
+  return null;
+}
+
+/**
+ * Put a profile's robot settings on the robot.
+ *
+ * Only what this robot declared, only what a write actually got through, and the count in the line
+ * afterwards is of writes that were made rather than of settings that were meant - a value that failed
+ * to write has not been applied and must not be described as if it had.
+ */
+async function applyRobotSettings(driver) {
+  if (!driver || !Object.keys(driver.robot ?? {}).length) {
+    pendingRobot = null;
+    robotNote = null;
+    return;
+  }
+  if (!robotLinked()) {
+    pendingRobot = driver.id;
+    robotNote = { id: driver.id, text: `Held: ${driver.name}'s settings go to the robot as soon as one connects.` };
+    schedulePaint();
+    return;
+  }
+  /* A profile picked by hand while the robot is enabled is that driver's own decision and goes out. One
+     that has been waiting for a link does not: rule two says nothing this console does may impede
+     driving, and a deadband that changes by itself half way through a match because the radio came back
+     is exactly that. It waits for the robot to be disabled, which is a few seconds away at worst. */
+
+  const declared = declaredTunables();
+  if (!declared.length) {
+    /* Either the manifest is a frame behind the link or this robot does not publish one. The two look
+     * identical from here, the line on the card answers both, and both are worth waiting through: the
+     * settings go out the moment the robot says what it will take. */
+    pendingRobot = driver.id;
+    schedulePaint();
+    return;
+  }
+
+  pendingRobot = null;
+  const plan = robotPlan(driver, declared);
+  const results = await Promise.all(plan.ready.map((r) => ntSet(r.key, r.value)));
+  const applied = results.filter(Boolean).length;
+  const failed = results.length - applied;
+
+  const words = [applied ? `Applied ${applied} ${applied === 1 ? "setting" : "settings"}.` : "Nothing was applied."];
+  if (plan.missing) {
+    words.push(`This robot does not publish ${plan.missing === 1 ? "one of them" : `${plan.missing} of them`}.`);
+  }
+  if (failed) words.push(`${failed} ${failed === 1 ? "write" : "writes"} did not go through.`);
+  const note = { id: driver.id, text: words.join(" ") };
+  robotNote = note;
+  /* An account of something that has finished happening, so it goes away on its own. The held note
+   * above does not: that one is a state, and it is true until a robot connects. */
+  setTimeout(() => {
+    if (robotNote !== note) return;
+    robotNote = null;
+    schedulePaint();
+  }, 9000);
+  schedulePaint();
+}
+
+/** A profile chosen before there was a robot, applied now there is one. */
+function tryPendingRobotSettings() {
+  if (!pendingRobot || !robotLinked()) return;
+  const driver = drivers.list.find((d) => d.id === pendingRobot);
+  if (!driver) { pendingRobot = null; return; }
+  /* Not until the robot has said what it will let a dashboard change. Writing before the manifest is
+   * here would be writing keys nobody has offered, which is the one thing this must never do. */
+  if (!declaredTunables().length) return;
+  /* And not while the robot is being driven. Nobody asked for this at this moment - it is a write that
+   * fell due because a link came up - and a match is not when a driver finds out their stick has a
+   * different deadband. It goes out at the next disable. */
+  if (ds.enabled) {
+    if (!robotNote || robotNote.id !== driver.id) {
+      robotNote = { id: driver.id, text: `Held: ${driver.name}'s settings go to the robot when it is next disabled.` };
+      schedulePaint();
+    }
+    return;
+  }
+  applyRobotSettings(driver);
 }
 
 function wireDrivers() {
@@ -7092,7 +7617,7 @@ function paintSettings() {
   const x = settingsRefs;
 
   if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
-  if (currentSection === "drivers") paintDrivers();
+  if (currentSection === "drivers") syncDrivers();
   if (currentSection === "core") paintCore();
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
@@ -7215,6 +7740,10 @@ function onFrame() {
     nt.keysDirty = false;
     refreshTopicList();
   }
+  /* Here rather than in the paint, because a profile chosen in the pit has to reach the robot whether or
+   * not anybody is looking at the Drivers panel when it comes up. Every frame runs through this
+   * function, demo frames included, and it costs one null test when nothing is waiting. */
+  tryPendingRobotSettings();
   schedulePaint();
 }
 

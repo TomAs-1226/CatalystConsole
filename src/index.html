@@ -881,7 +881,10 @@
           <h2 class="stitle">Drivers</h2>
           <p class="slead">Who is in front of this screen. Each profile keeps its own board, so a driver and
              an operator can lay the console out the way each of them wants and switch between the two
-             between matches. A profile is about this screen and nothing else — none of it reaches the robot.</p>
+             between matches. A profile also keeps the robot settings that driver likes — the deadband
+             their stick needs, the speed cap, which events buzz the controller — and choosing a profile
+             puts them on the robot, through the ordinary dashboard write to a tunable the robot itself
+             published. Nothing else about the robot is touched from here.</p>
 
           <div class="drivers">
             <div class="dstage">
@@ -891,12 +894,22 @@
             <div class="dlist" id="driverList"></div>
           </div>
 
+          <!-- Read-only, and the same for everyone: a binding is the robot's own wiring rather than
+               anybody's preference. It is here because the first thing a new driver asks is what the
+               buttons do, and the answer belongs beside who is driving. -->
+          <h3 class="dsh">What the controls do</h3>
+          <p class="cnote">As the robot reports them. The console never changes a binding: which button does
+             what is decided in robot code, and a dashboard that could rebind one would be a dashboard that
+             drives. A robot that lets a dashboard choose between control layouts declares that choice as a
+             tunable like any other, and it then appears in each profile's robot settings above.</p>
+          <div class="dcontrols" id="driverControls"></div>
+
           <div class="srows">
             <div class="srow">
               <div class="slab">
                 <b>Add a driver</b>
-                <span>Up to eight. A new profile starts with the board on screen now, and keeps whatever you
-                      do to it from then on.</span>
+                <span>Up to eight. A new profile starts with the board on screen now and no robot settings
+                      at all, and keeps whatever you do to either from then on.</span>
               </div>
               <div class="sctl"><button class="sbtn" id="driverAdd" type="button">Add driver</button></div>
             </div>
