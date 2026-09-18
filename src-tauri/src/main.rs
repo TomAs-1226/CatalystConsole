@@ -465,14 +465,41 @@ fn run_gui() {
 
             // One timer, one event per tick, only when something actually changed. The webview is
             // never asked to do work on a frame where the robot said nothing new.
+            //
+            // And a frame carries only the values that changed since the last one. Sending the whole
+            // store - every one of a robot's four or five hundred topics, manifests and health rows
+            // included - thirty times a second had the webview parsing megabytes of JSON a second, and
+            // when it fell behind the frames queued: the robot on the field view trailed the real one
+            // further and further. The page merges frames into its store, so a partial frame is all it
+            // needs. A whole frame still goes out when the link comes up or drops, and every two
+            // seconds, so nothing can be missed for longer than that.
             std::thread::spawn(move || {
                 let mut reported = false;
+                let mut sent: std::collections::HashMap<String, nt4::NtValue> = std::collections::HashMap::new();
+                let mut was_connected = false;
+                let mut last_full = std::time::Instant::now();
                 loop {
                     std::thread::sleep(nt4::flush_interval());
                     if !dirty.swap(false, Ordering::Relaxed) {
                         continue;
                     }
-                    let (values, status) = pump.snapshot();
+                    let (all, status) = pump.snapshot();
+                    let full = status.connected != was_connected
+                        || last_full.elapsed() >= std::time::Duration::from_secs(2);
+                    was_connected = status.connected;
+                    let values: std::collections::HashMap<String, nt4::NtValue> = if full {
+                        last_full = std::time::Instant::now();
+                        all.clone()
+                    } else {
+                        all.iter()
+                            .filter(|(key, value)| sent.get(*key) != Some(*value))
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect()
+                    };
+                    sent = all;
+                    if values.is_empty() && !full {
+                        continue;
+                    }
                     // A failure here means the dashboard is showing stale numbers with no way to know
                     // it. Say so once rather than swallowing it forever.
                     if let Err(e) = handle.emit("nt", Frame { values, status }) {

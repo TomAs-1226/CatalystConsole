@@ -28,12 +28,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
-/// How often decoded values are flushed to the UI. 20 Hz is smoother than the eye needs for numbers
-/// and an order of magnitude cheaper than the 50 Hz the robot publishes at.
-const FLUSH_HZ: u64 = 20;
+/// How often decoded values are flushed to the UI. 30 Hz keeps a driven robot's motion smooth on the
+/// field view; a frame carries only what changed (see main.rs), so it costs little more than 20 did.
+const FLUSH_HZ: u64 = 30;
 
 /// A value from the robot, flattened into something the webview can use directly.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "t", content = "v")]
 pub enum NtValue {
     #[serde(rename = "bool")]

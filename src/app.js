@@ -3880,9 +3880,8 @@ function paintHeader() {
    * off the charger; the thresholds are the battery tile's defaults, so the bar and the tile agree
    * about what "low" means. */
   // The same keys, in the same order, the battery tile reads, so the bar and the tile never disagree.
-  const voltKey = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"]
-    .find((k) => has(k));
-  const volts = linked && voltKey ? num(voltKey, null) : null;
+  /* Steadied the way Park's figure is (see batteryShown), so the bar and Park print the same tenth. */
+  const volts = linked ? batteryShown() : null;
   const batt = $("#batt");
   $("#battText").textContent = volts === null ? "— V" : `${volts.toFixed(1)} V`;
   $("#battFill").setAttribute("width", volts === null ? "0" : (19 * clamp01((volts - 10.5) / (12.8 - 10.5))).toFixed(1));
@@ -4338,6 +4337,35 @@ function batteryVolts() {
   const key = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"]
     .find((k) => has(k));
   return key ? num(key, null) : null;
+}
+
+/* The battery as it is printed, to a tenth of a volt.
+ *
+ * The measured voltage wanders by a few hundredths from one reading to the next, and printed to a tenth
+ * a resting robot's figure flickered between 12.7 and 12.8 several times a second. So the figure is the
+ * reading averaged over about a second, and the printed tenth only moves once that average is clearly
+ * past the rounding point - 0.015 V beyond it either way - so a value sitting on the boundary holds
+ * still. It is still the measurement, only steadier: a real sag under load pulls it down within a second,
+ * and the battery tile's trace keeps every raw reading. */
+const BATTERY_SHOWN_TAU_MS = 800;
+const BATTERY_SHOWN_HOLD_V = 0.065;
+const batteryShownState = { value: null, at: 0, tenth: null };
+
+function batteryShown() {
+  const raw = batteryVolts();
+  const s = batteryShownState;
+  const now = performance.now();
+  if (raw === null || !Number.isFinite(raw)) {
+    s.value = null;
+    s.tenth = null;
+    return null;
+  }
+  /* A first reading, or one after a gap long enough that averaging across it would lie, starts afresh. */
+  if (s.value === null || now - s.at > 3000) s.value = raw;
+  else s.value += (raw - s.value) * (1 - Math.exp(-(now - s.at) / BATTERY_SHOWN_TAU_MS));
+  s.at = now;
+  if (s.tenth === null || Math.abs(s.value - s.tenth) > BATTERY_SHOWN_HOLD_V) s.tenth = Math.round(s.value * 10) / 10;
+  return s.tenth;
 }
 
 /* What a disabled robot's battery says about the next match. Disabled, a robot draws only the couple
@@ -5168,7 +5196,8 @@ function paintParkInfo() {
       ? `${looking || "Not connected"} · last seen ${agoText(Date.now() - remembered.seen)}`
       : (looking || "No robot"));
 
-  const volts = linked ? batteryVolts() : null;
+  /* The steadied figure (see batteryShown): printed large, a reading that changed every frame flickered. */
+  const volts = linked ? batteryShown() : null;
   setText("#parkVolts", volts === null ? "—" : volts.toFixed(1));
   $("#parkVolts").dataset.empty = String(volts === null);
   const ready = batteryReadiness(volts);
