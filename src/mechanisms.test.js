@@ -11,6 +11,7 @@ import {
   isIntaking,
   launchAngleDeg,
   launchSpeed,
+  lobVelocity,
   PRELOAD_FUEL,
   readAim,
   readAlign,
@@ -155,6 +156,25 @@ test("the robot's own shot table is consistent with launching at the hood angle'
   // Read as the launch angle itself, the nearest entry could not reach the opening at all.
   assert.equal(speedToReach(1.42, 30, 0.5, 1.83), null);
   assert.equal(launchAngleDeg(30), 60);
+});
+
+test("a lob lands on the robot's spot after the robot's time of flight, however far it goes", () => {
+  // 581's feed table: 8.71 m in 1.276 s, 13.6 m in 1.531 s. Out of a shooter 0.5 m up, onto the carpet.
+  for (const [distance, tof] of [[8.71, 1.276], [13.6, 1.531]]) {
+    const from = [0, 0.5, 0];
+    const landing = [distance * 0.6, 0.075, -distance * 0.8];
+    const v = lobVelocity(from, landing, tof);
+    const at = ballAt(from, v, tof);
+    near(at[0], landing[0], 1e-9, `x at ${distance} m`);
+    near(at[1], landing[1], 1e-9, `on the carpet at ${distance} m`);
+    near(at[2], landing[2], 1e-9, `z at ${distance} m`);
+    // A lob, not a line drive: it climbs well above the shooter first.
+    const apex = from[1] + (v[1] * v[1]) / (2 * 9.81);
+    assert.ok(apex > 2, `apex ${apex.toFixed(2)} m at ${distance} m`);
+  }
+  // It lands where it is sent whatever the flywheel does: nothing here reads a wheel speed.
+  assert.equal(lobVelocity([0, 0.5, 0], [5, 0, 0], 0), null);
+  assert.equal(lobVelocity([0, 0.5, 0], [5, 0, 0], Number.NaN), null);
 });
 
 test("a ball launched at the speed to reach a target passes through it", () => {

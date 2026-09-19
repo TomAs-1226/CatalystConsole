@@ -331,6 +331,24 @@ export function launchSpeed(shooterRps, wheelRadiusM, keep) {
 }
 
 /**
+ * The launch that puts a lobbed ball on `landing` exactly `flightS` seconds after it leaves `from`, under
+ * gravity alone: `[vx, vy, vz]`, in the frame both points are in (y up). Null for a flight that is not a
+ * positive number of seconds.
+ *
+ * This is how the field view draws a lob to a feed spot: the ball lands where the robot says it is aiming,
+ * after the time of flight the robot says. It is the robot's own prediction drawn, not a flight worked out
+ * from the flywheel, so a lob lands on its spot however fast the wheel spins or the robot drives.
+ */
+export function lobVelocity(from, landing, flightS, g = GRAVITY) {
+  if (!(flightS > 0) || !Number.isFinite(flightS)) return null;
+  return [
+    (landing[0] - from[0]) / flightS,
+    (landing[1] - from[1] + 0.5 * g * flightS * flightS) / flightS,
+    (landing[2] - from[2]) / flightS,
+  ];
+}
+
+/**
  * The launch speed that carries a ball from `exitHeightM` to `targetHeightM`, `distanceM` away across the
  * floor, launched at `angleDeg`. Null when no speed can: the target is above the line the ball leaves on.
  */

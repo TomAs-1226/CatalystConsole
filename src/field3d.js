@@ -26,7 +26,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
-import { FEED_RATE, FEED_TRAVEL_S, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
+import { FEED_RATE, FEED_TRAVEL_S, FUEL_DIAMETER_M, LAUNCH_KEEP, launchSpeed, lobVelocity, SHOOTER_LANES } from "./mechanisms.js";
 import { createMotionFilter } from "./motion-filter.js";
 import { aimedAt, enterSquare, faceSpan, standoffPose, TAG_SIZE } from "./aim-target.js";
 /* OVERDRIVE's own duration (see overdrive.js), so the sweep drawn here can never run longer or shorter
@@ -972,11 +972,12 @@ export function createField(canvas, opts) {
     if (!mechanisms || !robot.visible || unplaced || !model.root.visible) return;
     const muzzle = model.muzzle(mechanisms.hoodDeg);
     if (!muzzle) return;
-    const speed = launchSpeed(mechanisms.shooterRps ?? 0, muzzle.wheelRadius, LAUNCH_KEEP) * shot.speed;
-    if (!(speed > 1)) return;
     model.root.updateMatrixWorld();
     const offset = (shot.lane - (shot.lanes - 1) / 2) * muzzle.laneSpacing;
     launchFrom.copy(muzzle.point).addScaledVector(muzzle.across, offset).applyMatrix4(model.root.matrixWorld);
+    if (lob(shot, now, offset)) return;
+    const speed = launchSpeed(mechanisms.shooterRps ?? 0, muzzle.wheelRadius, LAUNCH_KEEP) * shot.speed;
+    if (!(speed > 1)) return;
     launchAlong.copy(muzzle.direction).applyAxisAngle(muzzle.across, shot.pitch).applyAxisAngle(upward, shot.yaw)
       .transformDirection(model.root.matrixWorld);
     const vx = reported ? reported.vx : 0;
@@ -986,6 +987,32 @@ export function createField(canvas, opts) {
       [launchAlong.x * speed + vx, launchAlong.y * speed, launchAlong.z * speed + vz],
       now
     );
+  }
+  /* A lob to a feed spot (an aim at open carpet, not a HUB or a tag) lands on the spot: where the robot
+     says it aims, after the time of flight it says (see lobVelocity). Each ball comes down a little apart
+     from the others - four abreast as the lanes send them, spread along and across by the same small
+     differences in angle a real stream has, more the farther it goes. False when there is no lob to draw,
+     and the ball goes out the usual way. */
+  const LANDED_Y = FUEL_DIAMETER_M / 2;
+  function lob(shot, now, laneOffset) {
+    const aim = aimInfo;
+    if (!aim?.lob || !(aim.timeOfFlight > 0)) return false;
+    const [tx, tz] = aim.target;
+    const dx = tx - launchFrom.x;
+    const dz = tz - launchFrom.z;
+    const distance = Math.hypot(dx, dz);
+    if (!(distance > 0.5)) return false;
+    const ax = dx / distance;
+    const az = dz / distance;
+    const along = distance * shot.pitch * 0.8;
+    const across = laneOffset + distance * shot.yaw;
+    const landing = [tx + ax * along - az * across, LANDED_Y, tz + az * along + ax * across];
+    const flight = Math.min(3, Math.max(0.4, aim.timeOfFlight * shot.speed));
+    const from = [launchFrom.x, launchFrom.y, launchFrom.z];
+    const velocity = lobVelocity(from, landing, flight);
+    if (!velocity) return false;
+    shots.launch(from, velocity, now, { landS: flight });
+    return true;
   }
   model.onChange(() => { dirty = true; });
   let environment = null;
@@ -2217,7 +2244,13 @@ export function createField(canvas, opts) {
       if (state.aim !== undefined) {
         const toScene = ([fx, fy]) => [fx - poseLength / 2, -(fy - poseWidth / 2)];
         const next = state.aim
-          ? { ...state.aim, target: toScene(state.aim.target), aimPoint: toScene(state.aim.aimPoint) }
+          ? {
+              ...state.aim,
+              target: toScene(state.aim.target),
+              aimPoint: toScene(state.aim.aimPoint),
+              /* Open carpet, not a HUB or a tag: a feed spot, which a lob lands on. */
+              lob: aimedAt(state.aim.target).kind === "place",
+            }
           : null;
         if (Boolean(next) !== Boolean(aimInfo) || next?.state !== aimInfo?.state) dirty = true;
         aimInfo = next;
