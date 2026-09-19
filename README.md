@@ -13,7 +13,7 @@ The driver-station dashboard for a robot running **FrcCatalyst**: it sits next t
 Station and shows what the robot is doing — telemetry, alerts, live tuning, Physics Core state, a 3D
 field view, the robot's own spec sheet, and readable Driver Station logs.
 
-**Console 1.4.3** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
+**Console 2.0.0** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
 auto chooser tile pointed at that robot's chooser path. The spec sheet reads from 1.10 on, and every
 tile's topics are editable.
 
