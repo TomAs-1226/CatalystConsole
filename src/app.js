@@ -31,6 +31,9 @@ import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { aimCaption } from "./aim-target.js";
+/* OVERDRIVE's debounce - true has to hold before anything shows, and the warp plays once per engage.
+   Its own module so the state machine is tested without the field tile (see overdrive.js). */
+import { createOverdriveDebounce } from "./overdrive.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
 /* Every enabled stretch, written up for the run review on Park. Its own module so every number it prints is
    tested against X1's real topics. */
@@ -184,6 +187,12 @@ const demo = { on: false, t0: performance.now(), timer: null };
 const DEMO_PREMATCH_S = 20;
 const DEMO_MATCH_S = 160;
 const DEMO_CYCLE_S = 195;
+/* OVERDRIVE, held for one fast crossing mid-teleop so the effect has something to show in demo mode -
+   the driver reaching for it on a long run back to the pile, not tied to any one leg of SCRIPT. Demo
+   data owning up to being demo data, same as the rest of demoTick; a real robot decides this itself. */
+const DEMO_OVERDRIVE_FROM_S = 70;
+const DEMO_OVERDRIVE_TO_S = 73.2;
+const DEMO_OVERDRIVE_CAP_MPS = 6.0;
 
 /* The demo robot while it waits for the match, `s` seconds in: carried onto its auto's start from a metre
    and a half away, set down a little off, nudged square, and left there. [x, y, heading]. */
@@ -256,6 +265,11 @@ function demoTick() {
   set("/Catalyst/Drive/FrontRight/Velocity", "num", motorRps(play.modules[2]));
   set("/Catalyst/Drive/BackLeft/Velocity", "num", motorRps(play.modules[4]));
   set("/Catalyst/Drive/BackRight/Velocity", "num", motorRps(play.modules[6]));
+  /* OVERDRIVE (see DEMO_OVERDRIVE_FROM_S above): a driver-held boolean and the drive's own live cap,
+     NaN outside the window the same way SpeedCapMps is NaN whenever a real robot does not know it. */
+  const overdriving = enabled && cycle >= DEMO_OVERDRIVE_FROM_S && cycle < DEMO_OVERDRIVE_TO_S;
+  set("/Catalyst/Drive/Overdrive", "bool", overdriving);
+  set("/Catalyst/Drive/SpeedCapMps", "num", overdriving ? DEMO_OVERDRIVE_CAP_MPS : Number.NaN);
   set("/Catalyst/Shooter/Velocity", "num", shooterRps);
   set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
   set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
@@ -2118,13 +2132,16 @@ define("field", {
      * its attribution. */
     body.innerHTML = `
       <canvas class="fieldcanvas" data-x="canvas"></canvas>
-      <div class="car-head">
+      <div class="car-head" data-x="head">
         <div class="car-speed-row">
           <div class="car-power" title="Speed against the drivetrain's top speed"><i data-x="power"></i></div>
           <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
           <div class="car-signs">
             <div class="car-cap" data-x="cap" hidden title="Automation capping the drive speed to keep the aim up"><small>Max</small><b data-x="capN">—</b></div>
             <div class="car-limit" data-x="limit" hidden title="The drivetrain's top speed"><small>Top</small><b data-x="limitN">—</b></div>
+            <div class="car-od" data-x="od" hidden title="OVERDRIVE: the driver holding a higher speed cap">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><b>OVERDRIVE</b>
+            </div>
             <div class="car-ap" data-x="ap" data-on="false" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2.2"/><path d="M3.6 10.6c2.6-.9 5.4-1.2 8.4-1.2s5.8.3 8.4 1.2M10.2 13.8 7 19.6M13.8 13.8 17 19.6"/></svg>
             </div>
@@ -2226,7 +2243,14 @@ define("field", {
     x.speed.textContent = state.speed == null ? "—" : state.speed < 0.05 ? "0.0" : state.speed.toFixed(1);
     x.speed.dataset.empty = String(state.speed == null);
     // Tesla's power meter, the line beside the speed: how much of the drivetrain's top speed is in use.
-    const topSpeed = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null);
+    /* The drivetrain's current cap: OVERDRIVE.SpeedCapMps when the robot publishes a finite one - it is
+       the live figure, higher than the spec sheet's while OVERDRIVE holds it up - and the spec sheet's
+       own MaxSpeedMps otherwise. NaN is "unknown", not zero, so it falls through to the spec sheet
+       rather than reading as a stall. */
+    const driveCapRaw = num("/Catalyst/Drive/SpeedCapMps", null);
+    const driveCap = Number.isFinite(driveCapRaw) ? driveCapRaw : null;
+    const specTopSpeed = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null);
+    const topSpeed = driveCap ?? specTopSpeed;
     const top = topSpeed || 4.5;
     x.power.style.height = `${(clamp01((state.speed ?? 0) / top) * 100).toFixed(1)}%`;
 
@@ -2236,6 +2260,28 @@ define("field", {
     const limitText = topSpeed ? topSpeed.toFixed(1) : "";
     if (x.limit.hidden !== !topSpeed) x.limit.hidden = !topSpeed;
     if (x.limitN.textContent !== limitText) x.limitN.textContent = limitText;
+
+    /* OVERDRIVE, Tesla Plaid-style: the driver holding a higher speed cap (see overdrive.js for the
+       debounce - true has to hold ~100 ms before anything shows, so a flicker on the wire never plays
+       the warp, and a re-engage inside 2 s of letting go shows the badge only). Read only while linked,
+       like the rest of this tile's automation state: a cached value from a robot that has since gone
+       quiet must not keep the warp primed. */
+    const odKey = "/Catalyst/Drive/Overdrive";
+    const odPresent = linked && has(odKey);
+    const odRaw = odPresent && bool(odKey, false) === true;
+    state.overdrive ??= createOverdriveDebounce({ reducedMotion: reducedMotion() });
+    const odPhase = state.overdrive.next(odRaw, now);
+    if (x.od.hidden !== !odPresent) x.od.hidden = !odPresent;
+    if (odPresent) {
+      const odOn = odPhase !== "idle";
+      if (x.od.dataset.on !== String(odOn)) x.od.dataset.on = String(odOn);
+    }
+    /* The warp itself - two lane-line sweeps beside the robot - is field3d.js's (see placeSweep there):
+       real geometry on the field so it reads correctly from the chase camera and the overhead view
+       alike, rather than something drawn over the lens. `state.scene.update` below is where it is told;
+       this tile only brightens the speed figure to go with it. */
+    const warping = odPhase === "warp";
+    if (x.head.dataset.warp !== String(warping)) x.head.dataset.warp = String(warping);
     const routines = linked ? (arr("/Auto Selector/options") || []) : [];
     const driving = linked && ds.enabled && ds.auto && !ds.estop;
     const routine = str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", null);
@@ -2337,6 +2383,8 @@ define("field", {
       startGuide: guide,
       fired: mechanismState.fired,
       hopper: mechanismState.hopper.fill / mechanismState.hopper.capacity,
+      /* OVERDRIVE's warp (see placeSweep in field3d.js): on for exactly the debounce's warp phase. */
+      overdrive: warping,
     });
   },
   onShow(state) {

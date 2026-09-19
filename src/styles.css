@@ -1039,10 +1039,21 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
    from the panel's black, the way Tesla lets its road dissolve under the numbers, so text stays
    legible over any part of the field without a box behind it. */
 .t.pad0:has(.fieldcanvas) { background: #000000; }
+
 .car-head {
   position: absolute; left: 0; right: 0; top: 0; padding: 22px 24px 40px;
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.45) 60%, transparent);
   pointer-events: none;
+}
+/* The one moment the speed figure itself reacts: OVERDRIVE's warp brightening it the way Plaid's own
+   readout lifts on launch, in step with the lane-line sweep field3d.js draws on the ground beside the
+   robot (see placeSweep there - the sweep itself is real geometry, not CSS, so it reads correctly from
+   the chase camera and the overhead view alike). Transitions on var(--cat-dur-effect), which
+   prefers-reduced-motion already collapses to 1 ms (see identity.css), so this never needs its own
+   reduced-motion guard. */
+.car-head[data-warp="true"] .car-speed .n {
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.85), 0 0 44px rgba(255, 255, 255, 0.45);
+  transition: text-shadow var(--cat-dur-effect) var(--cat-ease-effect);
 }
 .car-speed-row { display: flex; align-items: stretch; gap: 14px; }
 .car-speed { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
@@ -1077,6 +1088,22 @@ table.mh td.mh-bar .track i { display: block; height: 100%; background: var(--ca
 .car-cap[hidden] { display: none; }
 .car-cap small { font-size: 8px; font-weight: var(--cat-w-semi); letter-spacing: 0.08em; text-transform: uppercase; }
 .car-cap b { margin-top: 2px; font-size: 16px; font-weight: var(--cat-w-semi); font-variant-numeric: tabular-nums; }
+/* OVERDRIVE's badge (see overdrive.js). Not automation - the driver is holding it, not the robot
+   deciding something - so it stays the panel's own white rather than borrowing the wheel's blue: a
+   pill like the aim and start read-outs below, because it says a state the car is in, not a sign like
+   Top and Max, which say something about the drive. app.js's debounce has already swallowed any
+   flicker before data-on ever flips, so the fade here is a flourish, not a filter. */
+.car-od {
+  display: flex; align-items: center; gap: 5px; min-width: 34px; padding: 4px 10px 5px;
+  border-radius: var(--cat-r-pill, 999px); border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #ffffff; line-height: 1; white-space: nowrap;
+  opacity: 0; transform: scale(0.92);
+  transition: opacity var(--cat-dur-effect) var(--cat-ease-effect), transform var(--cat-dur-effect) var(--cat-ease-effect);
+}
+.car-od[hidden] { display: none; }
+.car-od[data-on="true"] { opacity: 1; transform: none; }
+.car-od svg { width: 12px; height: 12px; flex: none; }
+.car-od b { font-size: 10px; font-weight: var(--cat-w-semi); letter-spacing: 0.06em; }
 .car-ap { display: grid; place-items: center; width: 30px; height: 30px; color: var(--cat-faint); transition: color var(--cat-dur-effect) var(--cat-ease-effect); }
 .car-ap[hidden] { display: none; }
 .car-ap svg { width: 26px; height: 26px; }

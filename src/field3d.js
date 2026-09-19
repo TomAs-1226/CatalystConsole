@@ -29,6 +29,9 @@ import { createShots } from "./shots3d.js";
 import { FEED_RATE, FEED_TRAVEL_S, LAUNCH_KEEP, launchSpeed, SHOOTER_LANES } from "./mechanisms.js";
 import { createMotionFilter } from "./motion-filter.js";
 import { aimedAt, enterSquare, faceSpan, standoffPose, TAG_SIZE } from "./aim-target.js";
+/* OVERDRIVE's own duration (see overdrive.js), so the sweep drawn here can never run longer or shorter
+   than the debounce that triggers it - one number, not copied. */
+import { OVERDRIVE_WARP_MS } from "./overdrive.js";
 
 /* The scene's palette, read from the stylesheet rather than written down twice.
  *
@@ -810,6 +813,116 @@ export function createField(canvas, opts) {
   robotScene.add(model.lights);
   model.setSpec({});
   robot.add(model.root);
+
+  /* OVERDRIVE's sweep (see overdrive.js): Tesla Plaid's own effect, not a warp screen - two bright
+     lines just outside the bumpers, lying flat on the field like lane markers, each carrying a comet of
+     light that runs from ahead of the robot to behind it and fades there. Children of `robot`, the same
+     reason the model itself is: they inherit its position and heading for free instead of this module
+     repeating that arithmetic, and they read correctly from the chase camera and the overhead view alike
+     because they are real geometry on the ground, not something drawn over the lens.
+     Never on the drive itself: OVERDRIVE is the driver holding a pedal down, not automation, so it is
+     drawn in the scene's own white (TRIM) rather than the path's signal blue. */
+  const SWEEP_LENGTH_M = 4.2;
+  const SWEEP_WIDTH_M = 0.16;
+  const SWEEP_MARGIN_M = 0.18;
+  const SWEEP_Y = 0.012;
+  const SWEEP_PASSES = 2;
+  const sweepTexture = (() => {
+    const w = 256;
+    const h = 32;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    const c = new THREE.Color(TRIM);
+    const rgb = `${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}`;
+    /* The tail: brightening the whole way from a bare hint to the head, rather than mostly transparent
+       with a short comet - Plaid's own stripe is a continuous line the whole pass, not a blip, and a
+       line that is lit for most of its length is also the one that still reads at a glance rather than
+       needing to be caught at the right instant. Only the last sliver past the head is transparent, so
+       the two passes still read as two rather than one continuous blur. */
+    const tail = ctx.createLinearGradient(0, 0, w, 0);
+    tail.addColorStop(0, `rgba(${rgb}, 0)`);
+    tail.addColorStop(0.05, `rgba(${rgb}, 0.08)`);
+    tail.addColorStop(0.5, `rgba(${rgb}, 0.4)`);
+    tail.addColorStop(0.86, `rgba(${rgb}, 0.85)`);
+    tail.addColorStop(1, `rgba(${rgb}, 0)`);
+    ctx.fillStyle = tail;
+    ctx.fillRect(0, h * 0.32, w, h * 0.36);
+    /* The head: the comet's bright leading edge. */
+    const headX = w * 0.86;
+    const head = ctx.createRadialGradient(headX, h / 2, 0, headX, h / 2, h * 0.95);
+    head.addColorStop(0, `rgba(${rgb}, 1)`);
+    head.addColorStop(0.45, `rgba(${rgb}, 0.55)`);
+    head.addColorStop(1, `rgba(${rgb}, 0)`);
+    ctx.fillStyle = head;
+    ctx.beginPath();
+    ctx.ellipse(headX, h / 2, w * 0.1, h * 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  })();
+  /* U=0 is the plane's own trailing edge and U=1 its leading edge (three's default UVs on an unrotated
+     PlaneGeometry). Local +X is the robot's forward here, the same as it is for `robot.rotation.y`
+     below: WPILib's heading turns the field's own x/y, field x is three's x unchanged and field y is
+     three's -z, so a rotation of `robot` by `heading` about y carries local +X to the robot's own
+     forward in the field - see the pose handling further down for the fuller version of that. So the
+     head at U=0.86 starts near the robot's nose, and `offset.x` counting up sweeps it toward the tail:
+     from ahead of the robot to behind it. */
+  function makeSweepLine() {
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(SWEEP_LENGTH_M, SWEEP_WIDTH_M),
+      /* fog: false and depthTest: false the same way the aim and start band overlays further down are
+         (see `overlay`): a HUD mark on the ground, not a lit object in the scene, so it has to read the
+         same beside the robot in the chase view and from well outside the fog's near distance in the
+         overhead one, rather than fading into the field the way distant geometry properly does. */
+      new THREE.MeshBasicMaterial({
+        map: sweepTexture, transparent: true, depthWrite: false, depthTest: false, toneMapped: false,
+        side: THREE.DoubleSide, fog: false,
+      })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.visible = false;
+    mesh.renderOrder = 1;
+    robot.add(mesh);
+    return mesh;
+  }
+  const sweepLeft = makeSweepLine();
+  const sweepRight = makeSweepLine();
+  let sweepOn = false;
+  let sweepStart = 0;
+
+  /** Runs the two passes while OVERDRIVE's warp is on; returns whether it is still animating. */
+  function placeSweep(now) {
+    if (!sweepOn) {
+      if (sweepLeft.visible) {
+        sweepLeft.visible = false;
+        sweepRight.visible = false;
+      }
+      return false;
+    }
+    const elapsed = now - sweepStart;
+    if (elapsed >= OVERDRIVE_WARP_MS) {
+      sweepOn = false;
+      sweepLeft.visible = false;
+      sweepRight.visible = false;
+      return false;
+    }
+    const shown = robot.visible && !unplaced;
+    sweepLeft.visible = shown;
+    sweepRight.visible = shown;
+    if (shown) {
+      const spec = model.spec;
+      const half = (spec ? spec.bumperWidth : 0.9) / 2 + SWEEP_MARGIN_M;
+      sweepLeft.position.set(0, SWEEP_Y, -half);
+      sweepRight.position.set(0, SWEEP_Y, half);
+      sweepTexture.offset.x = (elapsed / OVERDRIVE_WARP_MS) * SWEEP_PASSES;
+    }
+    return true;
+  }
 
   /* The robot shooting (see shots3d.js): drawn in the field's scene, like the field's own FUEL. The app
      counts the balls that leave the hopper (see mechanisms.js createHopper) and they go out here in
@@ -1981,6 +2094,7 @@ export function createField(canvas, opts) {
     const aimMoving = placeAim(dt, now);
     const trailMoving = fadeTrail(now);
     const startMoving = placeStart(dt);
+    const sweepMoving = placeSweep(now);
     if (!environment) {
       /* The studio reflections the robot's metal needs, rendered once for this renderer. */
       environment = studioEnvironment(renderer);
@@ -1990,7 +2104,7 @@ export function createField(canvas, opts) {
     while (launches.length && launches[0].at <= now) launchBall(launches.shift(), now);
     const shotsMoving = shots.step(now);
     draw();
-    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0 || aimMoving || trailMoving || startMoving;
+    moving = robotMoving || cameraMoving || modelMoving || clearingMoving || pathsMoving || shotsMoving || launches.length > 0 || queued > 0 || aimMoving || trailMoving || startMoving || sweepMoving;
     dirty = false;
   }
 
@@ -2034,6 +2148,7 @@ export function createField(canvas, opts) {
      * `state.pose` is `[x, y, theta]` in WPILib field coordinates, or null when unknown. `state.alliance`
      * colours the bumpers, `state.enabled` chooses between the parked and the driving camera, and
      * `state.spec` and `state.team` are the robot's spec sheet and number, as Park takes them.
+     * `state.overdrive` is true exactly while OVERDRIVE's warp should be sweeping (see overdrive.js).
      */
     update(state) {
       /* Sizing lives here as well as in the loop. `ResizeObserver` only delivers during a rendering
@@ -2046,6 +2161,17 @@ export function createField(canvas, opts) {
       if (state.team !== undefined) model.setTeamNumber(state.team);
       if (state.mechanisms !== undefined || state.hopper !== undefined) {
         if (model.setMechanisms(state.mechanisms ?? null, state.hopper ?? null)) dirty = true;
+      }
+      /* OVERDRIVE's sweep (see placeSweep, above): the debounce already keeps its warp phase off under
+         prefers-reduced-motion, and `!reduced` here is only the same belt-and-braces this file already
+         gives `setAlliance` on the line below. */
+      if (state.overdrive !== undefined) {
+        const on = Boolean(state.overdrive) && !reduced;
+        if (on !== sweepOn) {
+          if (on) sweepStart = performance.now();
+          sweepOn = on;
+          dirty = true;
+        }
       }
       if (model.setAlliance(state.alliance, !reduced && robot.visible)) dirty = true;
       if (typeof state.enabled === "boolean" && parked === state.enabled) {
@@ -2320,6 +2446,14 @@ export function createField(canvas, opts) {
       observer.disconnect();
       model.dispose();
       shots.dispose();
+      /* OVERDRIVE's sweep lines: children of `robot`, in robotScene rather than `scene`, so the
+         traversal below never reaches them - the same reason model.dispose() has to be called by hand
+         above rather than relying on it either. */
+      sweepLeft.geometry.dispose();
+      sweepRight.geometry.dispose();
+      sweepLeft.material.dispose();
+      sweepRight.material.dispose();
+      sweepTexture.dispose();
       scene.traverse((obj) => {
         obj.geometry?.dispose?.();
         if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
