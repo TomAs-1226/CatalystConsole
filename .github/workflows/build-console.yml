@@ -29,6 +29,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The 3D views import three from src/vendor, which is copied out of node_modules at build time
+      # rather than checked in. Without this the gate cannot even load driver3d, hopper3d or park3d,
+      # and a release tag fails here nine seconds in - which is how v2.0.0 first failed.
+      - name: Install
+        run: npm ci
+      - name: Vendor the browser dependencies
+        run: npm run vendor
       - name: Test
         run: npm test
 
