@@ -1,4 +1,12 @@
-//! Driver Station log reading.
+//! Driver Station log reading, for the NI Driver Station.
+//!
+//! **No longer the source of sessions.** Teams on Systemcore run the 2027 FIRST Driver Station,
+//! which writes one `.wpilog` per session in WPILib's documented DataLog format - see
+//! [`crate::wpilog`], which is what the `ds_*` commands call now.
+//!
+//! What survives here is the shared shape of a session, an event and a sample, plus the NI parsers
+//! themselves. They are kept rather than deleted because they still read every log a team recorded
+//! before the switch, and those files do not stop existing.
 //!
 //! The NI Driver Station writes two files per session into
 //! `C:\Users\Public\Documents\FRC\Log Files\`:
@@ -14,6 +22,22 @@
 //! written to fail closed: a file whose header does not match a version we understand is reported as
 //! unparsed rather than decoded into plausible nonsense. A dashboard that invents a battery voltage
 //! is worse than one that admits it cannot read the file.
+//!
+//! # The 2027 Driver Station
+//!
+//! WPILib 2027 ships its own Driver Station, replacing NI's. It is a different application and
+//! writes different logs — AdvantageScope had to add explicit support for the new formats, so they
+//! are not the files below under another name.
+//!
+//! This module still reads NI's, and nothing here has been changed to guess at the new ones. The
+//! path and format are not published anywhere that could be verified, and this file's whole
+//! premise is that inventing a decoder is worse than admitting it cannot read something. The
+//! fail-closed design means a 2027 log is reported unparsed rather than misread, which is the
+//! correct behaviour — but an empty session list looks like "no logs exist" rather than "these logs
+//! are a format I do not know", so [`support_note`] gives the UI something honest to say.
+//!
+//! The NI Driver Station still connects to Systemcore, so these logs remain useful; teams lose
+//! OpMode selection and Alerts by staying on it, and most will move.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -249,3 +273,7 @@ pub fn read_samples(path: &Path) -> DsSamples {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "dslog_tests.rs"]
+mod tests;

@@ -1,18 +1,31 @@
 {
   "name": "catalyst-console",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Driver station companion dashboard for FrcCatalyst",
+  "type": "module",
   "scripts": {
+    "test": "node scripts/check-identity.mjs && node --test \"src/**/*.test.js\" \"scripts/**/*.test.mjs\"",
+    "tauri": "tauri",
     "vendor": "node scripts/vendor.mjs",
     "field-cad": "node scripts/field-cad.mjs",
     "field-collision": "node scripts/field-collision.mjs",
+    "robot-cad": "node scripts/robot-cad.mjs",
+    "robot-cad-preview": "node scripts/robot-cad-preview.mjs",
+    "driver-cad": "node scripts/driver-cad.mjs",
+    "device-cad": "node scripts/device-cad.mjs",
     "serve": "node scripts/serve.mjs",
-    "dev": "tauri dev",
-    "build": "tauri build"
+    "dev": "node scripts/vendor.mjs && tauri dev",
+    "build": "node scripts/check-identity.mjs --write && node scripts/vendor.mjs && tauri build",
+    "identity": "node scripts/check-identity.mjs --write",
+    "check-identity": "node scripts/check-identity.mjs"
   },
   "devDependencies": {
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
     "@tauri-apps/cli": "^2",
+    "meshoptimizer": "^1.2.0",
     "three": "^0.170.0"
   }
 }

@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img"
+     aria-label="Catalyst Console - it reads, and it never writes.">
+<!-- REV 2 - THE DRAWING SET.  Catalyst Console sheet, 1280x640.
+
+     Sheet 3 of the assembly: the library is the part, CatalystApp is the tool that installs it,
+     and this is the instrument that reads it.
+
+     The drawing is a section through the data path, and it is the honest one. Console subscribes
+     to NetworkTables and draws what it finds; there is no publish path in the binary at all. So
+     the return leg is drawn as a phantom line with NO PATH noted against it - the same line type
+     the rest of the set uses for "present in the design, not engaged". A drawing can state an
+     absence. A paragraph of reassurance cannot. -->
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#C4CAC3" stroke-width="1" opacity="0.9"/>
+    </pattern>
+    <style>
+      .mono { font-family: Consolas,"DejaVu Sans Mono","Liberation Mono",ui-monospace,monospace; }
+      .sans { font-family: "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+      .lbl  { font-size:11px; letter-spacing:1.1px; fill:#5C635E; }
+      .val  { font-size:12px; fill:#1A1E1B; }
+      .zone { font-size:9px;  letter-spacing:.6px; fill:#5C635E; opacity:.75; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="640" fill="#E4E7E1"/>
+  <rect x="24" y="24" width="1232" height="592" fill="url(#grid)"/>
+  <rect x="24" y="24" width="1232" height="592" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+  <rect x="36" y="36" width="1208" height="568" fill="none" stroke="#5C635E" stroke-width="0.5" opacity="0.5"/>
+  <g class="mono zone">
+    <text x="29" y="128">A</text><text x="29" y="272">B</text><text x="29" y="416">C</text><text x="29" y="560">D</text>
+    <text x="176" y="34">1</text><text x="484" y="34">3</text><text x="792" y="34">5</text><text x="1100" y="34">7</text>
+  </g>
+  <g stroke="#1A1E1B" stroke-width="1"><path d="M640 24v12M640 616v-12M24 320h12M1256 320h-12"/></g>
+
+  <g transform="translate(64,74)">
+    <text class="mono lbl" x="0" y="5">REV</text>
+    <path d="M46 -12 L59 9 L33 9 Z" fill="none" stroke="#D6412A" stroke-width="1.6"/>
+    <text class="mono" x="46" y="7" font-size="12" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
+    <text class="mono lbl" x="74" y="5">DRIVER STATION COMPANION &#183; TEAM 5805</text>
+  </g>
+
+  <text class="sans" x="64" y="152" font-size="21" font-weight="500" fill="#5C635E">Enable, disable and E-stop stay the Driver Station&#8217;s, exclusively.</text>
+  <text class="sans" x="64" y="216" font-size="52" font-weight="800" fill="#1A1E1B"
+        letter-spacing="-1">It reads. It never writes.</text>
+  <path d="M64 244H1004" stroke="#C4CAC3" stroke-width="1"/>
+  <text class="sans" x="64" y="272" font-size="15.5" fill="#5C635E">Telemetry, alerts, live tuning, a 3D field view and readable Driver Station logs &#8212; drawn from what the robot publishes.</text>
+
+  <!-- ============ section through the data path ============ -->
+  <g transform="translate(64,330)">
+    <text class="mono lbl" x="0" y="0">SECTION B-B &#183; DATA PATH</text>
+
+    <rect x="0" y="26" width="150" height="62" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="75" y="52" font-size="12" fill="#1A1E1B" text-anchor="middle">ROBOT</text>
+    <text class="mono" x="75" y="70" font-size="10" fill="#5C635E" text-anchor="middle">Systemcore</text>
+
+    <rect x="440" y="26" width="150" height="62" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
+    <text class="mono" x="515" y="52" font-size="12" fill="#1A1E1B" text-anchor="middle">CONSOLE</text>
+    <text class="mono" x="515" y="70" font-size="10" fill="#5C635E" text-anchor="middle">under 4 MB</text>
+
+    <!-- read leg: continuous geometry, it exists -->
+    <g stroke="#1A1E1B" stroke-width="1.5">
+      <path d="M150 46h268"/>
+      <path d="M418 46l-9 -5v10z" fill="#1A1E1B" stroke="none"/>
+    </g>
+    <text class="mono" x="284" y="38" font-size="10.5" fill="#1A1E1B" text-anchor="middle">NetworkTables, subscribe</text>
+
+    <!-- write leg: phantom line, it does not -->
+    <g stroke="#D6412A" stroke-width="1.25" stroke-dasharray="5 4">
+      <path d="M440 74H160"/>
+    </g>
+    <text class="mono" x="300" y="92" font-size="10.5" fill="#D6412A" text-anchor="middle">NO PATH &#8212; NO PUBLISH CALL IN THE BINARY</text>
+
+    <text class="mono lbl" x="0" y="126" font-size="10">READ-ONLY BY CONSTRUCTION, NOT BY POLICY</text>
+  </g>
+
+  <g transform="translate(64,516)">
+    <text class="mono lbl" x="0" y="0">GENERAL NOTES</text>
+    <text class="mono" x="0" y="21" font-size="11.5" fill="#1A1E1B">1.  READS CATALYST 1.10+ AND 2.x. IT DOES NOT REQUIRE THE ROBOT TO RUN CATALYST 2.0.</text>
+    <text class="mono" x="0" y="40" font-size="11.5" fill="#1A1E1B">2.  NETWORK ACCESS IS AN UPDATE CHECK. NOTHING ELSE LEAVES THE MACHINE.</text>
+    <text class="mono" x="0" y="59" font-size="11.5" fill="#1A1E1B">3.  STATE IS NEVER COLOUR ALONE &#8212; EVERY FAULT CARRIES A SHAPE OR A WORD AS WELL.</text>
+  </g>
+
+  <g transform="translate(700,284)">
+    <rect x="0" y="0" width="516" height="72" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6"><path d="M0 24h516M0 48h516M36 0v72M250 0v72M382 0v72"/></g>
+    <g class="mono lbl" font-size="9">
+      <text x="9" y="16">REV</text><text x="46" y="16">READS</text><text x="260" y="16">FIELD VIEW</text><text x="392" y="16">DATE</text>
+    </g>
+    <g class="mono" font-size="10.5" fill="#B3BBB4">
+      <text x="14" y="40">1</text><text x="46" y="40">Catalyst 1.10+</text><text x="260" y="40">pose only</text><text x="392" y="40">2026-08</text>
+    </g>
+    <g class="mono" font-size="10.5" fill="#1A1E1B">
+      <text x="46" y="64">Catalyst 1.10+ and 2.x</text><text x="260" y="64">pose + IMU</text><text x="392" y="64">2026-09</text>
+    </g>
+    <path d="M18 51 L26 66 L10 66 Z" fill="none" stroke="#D6412A" stroke-width="1.3"/>
+    <text class="mono" x="18" y="65" font-size="9" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
+  </g>
+
+  <g transform="translate(700,372)">
+    <rect x="0" y="0" width="516" height="232" fill="none" stroke="#1A1E1B" stroke-width="1"/>
+    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6">
+      <path d="M0 46h516M0 80h516M0 114h516M0 148h516M0 182h516M0 214h516M196 46v168"/>
+    </g>
+    <text class="mono lbl" x="12" y="19" font-size="9">TITLE</text>
+    <text class="sans" x="12" y="38" font-size="24" font-weight="800" fill="#1A1E1B" letter-spacing="0.5">CATALYST CONSOLE</text>
+    <text class="mono" x="504" y="38" font-size="19" font-weight="700" fill="#D6412A" text-anchor="end">1.4</text>
+    <g class="mono lbl" font-size="9.5">
+      <text x="12" y="67">DWG NO</text><text x="12" y="101">PLATFORM</text><text x="12" y="135">NETWORK</text>
+      <text x="12" y="169">TESTED</text><text x="12" y="203">WRITES TO THE ROBOT</text>
+    </g>
+    <g class="mono val">
+      <text x="208" y="67" font-weight="700">1.4.3</text>
+      <text x="208" y="101">Windows x64 &#183; under 4 MB</text>
+      <text x="208" y="135">update check only</text>
+    </g>
+    <rect x="208" y="159" width="11" height="11" fill="#1A1E1B"/>
+    <text class="mono val" x="227" y="169">67 tests, 0 failures</text>
+    <rect x="208" y="193" width="11" height="11" fill="none" stroke="#D6412A" stroke-width="1.3" stroke-dasharray="2.5 2"/>
+    <text class="mono" x="227" y="203" font-size="12" fill="#5C635E">none &#8212; by construction</text>
+    <g class="mono lbl" font-size="9">
+      <text x="12" y="225">DRAWN BY TEAM 5805</text>
+      <text x="504" y="225" text-anchor="end">SHEET 3 OF 3</text>
+    </g>
+  </g>
+
+  <g transform="translate(64,604)" stroke="#5C635E" stroke-width="0.75" opacity="0.8"><path d="M-6 0h12M0 -6v12"/></g>
+  <text class="mono zone" x="78" y="607">0,0</text>
+</svg>

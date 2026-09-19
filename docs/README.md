@@ -6,6 +6,7 @@ A driver station companion for teams running [FrcCatalyst](https://github.com/To
 - **[Settings](settings.md)** — the panel, its seven sections, and searching it
 - **[The garage](robot-identity.md)** — the spec sheet a robot publishes about itself
 - **[Devices](settings.md#devices)** — the CAN tree by bus, and the power distribution panel
+- **[CAN buses](can-buses.md)** — five buses, three SPI controllers, and which pairs fight each other
 - **[Widgets](widgets.md)** — what each tile shows and how to write your own
 - **[The hub schedule](hub-schedule.md)** — REBUILT shifts, and where the console gets them
 - **[The diagnostics MCP server](mcp.md)** — `--mcp`, what it exposes, and why it cannot drive

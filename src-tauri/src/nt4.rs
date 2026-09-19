@@ -28,12 +28,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
-/// How often decoded values are flushed to the UI. 20 Hz is smoother than the eye needs for numbers
-/// and an order of magnitude cheaper than the 50 Hz the robot publishes at.
-const FLUSH_HZ: u64 = 20;
+/// How often decoded values are flushed to the UI. 30 Hz keeps a driven robot's motion smooth on the
+/// field view; a frame carries only what changed (see main.rs), so it costs little more than 20 did.
+const FLUSH_HZ: u64 = 30;
 
 /// A value from the robot, flattened into something the webview can use directly.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "t", content = "v")]
 pub enum NtValue {
     #[serde(rename = "bool")]
@@ -188,6 +188,12 @@ impl Nt4Client {
             };
             rt.block_on(async move {
                 let mut index = 0usize;
+                // The last failure logged for each address. With no robot on the network every
+                // address fails the same way every cycle, and a line per attempt buried everything
+                // else the app printed under five identical timeouts a second. A failure is logged
+                // when it is new for that address, and the slate is wiped by a real connection, so
+                // the first failure after a robot goes away is news again.
+                let mut logged: HashMap<String, String> = HashMap::new();
                 loop {
                     // Cycle the candidate addresses. A robot is reachable by mDNS at the field, by
                     // static IP in the pit, and by localhost in simulation - trying all of them in
@@ -214,13 +220,21 @@ impl Nt4Client {
                     let session = run_session(
                         &addr, &values, &status, &dirty, &rtt_us, &offset_us, &mut set_rx,
                     );
-                    if let Err(e) = session.await {
-                        eprintln!("[nt4] {addr}: {e}");
-                    }
+                    let result = session.await;
 
                     {
                         let mut s = status.lock().unwrap();
+                        if s.connected {
+                            logged.clear();
+                        }
                         s.connected = false;
+                    }
+                    if let Err(e) = result {
+                        let text = e.to_string();
+                        if logged.get(&addr) != Some(&text) {
+                            eprintln!("[nt4] {addr}: {text} (not repeated until it changes)");
+                            logged.insert(addr.clone(), text);
+                        }
                     }
                     dirty.store(true, Ordering::Relaxed);
                     tokio::time::sleep(Duration::from_millis(600)).await;
@@ -279,7 +293,9 @@ async fn run_session(
     }
     dirty.store(true, Ordering::Relaxed);
 
-    let mut topics: HashMap<i64, String> = HashMap::new();
+    // Announced topics by id: the name, and the type the server gave it, which is how a struct's bytes
+    // are told apart from any other binary value.
+    let mut topics: HashMap<i64, Topic> = HashMap::new();
     // Topics we have published on this connection, and the pubuid each was given. Publishing is
     // per-session: a reconnect starts over, which is correct because the server forgot us too.
     let mut published: HashMap<String, i64> = HashMap::new();
@@ -370,9 +386,16 @@ async fn run_session(
     }
 }
 
+/// A topic the server has announced.
+#[derive(Clone, Debug)]
+struct Topic {
+    name: String,
+    type_str: String,
+}
+
 /// JSON control frames. We only care about topic announcements — they are what turn an integer id in
-/// a binary frame into a name the dashboard can bind to.
-fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
+/// a binary frame into a name the dashboard can bind to, and a type it can decode by.
+fn handle_control(text: &str, topics: &mut HashMap<i64, Topic>) {
     let parsed: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => return,
@@ -388,7 +411,12 @@ fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
                     params.and_then(|p| p.get("name")).and_then(|n| n.as_str()),
                     params.and_then(|p| p.get("id")).and_then(|i| i.as_i64()),
                 ) {
-                    topics.insert(id, name.to_string());
+                    let type_str = params
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    topics.insert(id, Topic { name: name.to_string(), type_str });
                 }
             }
             "unannounce" => {
@@ -405,7 +433,7 @@ fn handle_control(text: &str, topics: &mut HashMap<i64, String>) {
 /// concatenated. Topic id -1 is the timestamp handshake reply rather than a value.
 fn handle_binary(
     bytes: &[u8],
-    topics: &HashMap<i64, String>,
+    topics: &HashMap<i64, Topic>,
     values: &Arc<Mutex<HashMap<String, NtValue>>>,
     rtt_us: &Arc<AtomicU64>,
     offset_us: &Arc<AtomicI64>,
@@ -442,16 +470,16 @@ fn handle_binary(
             continue;
         }
 
-        let Some(name) = topics.get(&topic_id) else { continue };
-        if let Some(decoded) = decode_value(&frame[3]) {
-            values.lock().unwrap().insert(name.clone(), decoded);
+        let Some(topic) = topics.get(&topic_id) else { continue };
+        if let Some(decoded) = decode_value(&frame[3], &topic.type_str) {
+            values.lock().unwrap().insert(topic.name.clone(), decoded);
             changed = true;
         }
     }
     changed
 }
 
-fn decode_value(v: &rmpv::Value) -> Option<NtValue> {
+fn decode_value(v: &rmpv::Value, type_str: &str) -> Option<NtValue> {
     match v {
         rmpv::Value::Boolean(b) => Some(NtValue::Bool(*b)),
         rmpv::Value::Integer(i) => i
@@ -480,7 +508,201 @@ fn decode_value(v: &rmpv::Value) -> Option<NtValue> {
                 )),
             }
         }
+        rmpv::Value::Binary(bytes) => decode_struct(type_str, bytes),
         _ => None,
+    }
+}
+
+/// The struct topics worth drawing, as plain numbers.
+///
+/// A struct travels as its fields packed little-endian in schema order, and a struct array as the
+/// structs end to end, so these three are doubles in a row. The schemas are the ones WPILib 2027's
+/// wpimath publishes (read from the alpha-6 jar): Pose2d is "Translation2d translation;Rotation2d
+/// rotation", Translation2d "double x;double y" and Rotation2d "double value". So a Pose2d[] such as
+/// PathPlanner's /PathPlanner/activePath arrives as [x, y, radians, x, y, radians, ...], the same
+/// shape as Catalyst's own PoseArray. Anything else binary is left out, as before.
+fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
+    let name = type_str.strip_prefix("struct:")?;
+    let (name, array) = match name.strip_suffix("[]") {
+        Some(inner) => (inner, true),
+        None => (name, false),
+    };
+    if name == "ControlWord" && !array {
+        return control_word(bytes).map(NtValue::Num);
+    }
+    /* Every struct here is a run of doubles, so the width in bytes is all that tells them apart. The
+       swerve and chassis ones are listed under both names WPILib has given them (2027 renamed speeds to
+       velocities); Pose3d is a translation and a quaternion (x y z, w x y z). */
+    let width = match name {
+        "Pose2d" => 24,
+        "Translation2d" => 16,
+        "Rotation2d" => 8,
+        "Twist2d" => 24,
+        "ChassisSpeeds" | "ChassisVelocities" => 24,
+        "SwerveModuleState" | "SwerveModuleVelocity" => 16,
+        "SwerveModulePosition" => 16,
+        "Translation3d" => 24,
+        "Quaternion" | "Rotation3d" => 32,
+        "Pose3d" => 56,
+        _ => return None,
+    };
+    if bytes.len() % width != 0 || (!array && bytes.len() != width) {
+        return None;
+    }
+    let nums: Vec<f64> = bytes
+        .chunks_exact(8)
+        .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+        .collect();
+    if !array && width == 8 {
+        return nums.first().copied().map(NtValue::Num);
+    }
+    Some(NtValue::Nums(nums))
+}
+
+/// WPILib 2027's control word, as the bits of the 2026 `/FMSInfo/FMSControlData` the page already reads.
+///
+/// 2027 stopped publishing FMSControlData. It publishes `/FMSInfo/ControlWord` instead, a
+/// `struct:ControlWord`: one little-endian uint64 whose schema (read off a Systemcore on image 13) is
+/// "uint64 opModeHash:56; robotMode:2 (0 unknown, 1 autonomous, 2 teleoperated, 3 utility); bool
+/// enabled:1; bool eStop:1; bool fmsAttached:1; bool dsAttached:1", with the masks HAL's ControlWord.java
+/// uses: robot mode at bits 56-57, then enabled 58, e-stop 59, FMS 60, DS 61. A console that did not
+/// read it saw every 2027 robot as disabled and left Park over the board while the robot drove.
+///
+/// Mapped onto the old word - enabled 1, autonomous 2, test 4, e-stop 8, FMS 16, DS 32 - with utility,
+/// 2027's name for test, on the test bit. The op mode's hash is dropped: its name is published beside
+/// it as /FMSInfo/OpMode.
+fn control_word(bytes: &[u8]) -> Option<f64> {
+    let raw: [u8; 8] = bytes.try_into().ok()?;
+    let word = u64::from_le_bytes(raw);
+    let mode = (word >> 56) & 0b11;
+    let bit = |shift: u32| (word >> shift) & 1 == 1;
+    let mut legacy = 0u32;
+    if bit(58) {
+        legacy |= 1;
+    }
+    if mode == 1 {
+        legacy |= 2;
+    }
+    if mode == 3 {
+        legacy |= 4;
+    }
+    if bit(59) {
+        legacy |= 8;
+    }
+    if bit(60) {
+        legacy |= 16;
+    }
+    if bit(61) {
+        legacy |= 32;
+    }
+    Some(f64::from(legacy))
+}
+
+#[cfg(test)]
+mod struct_tests {
+    use super::*;
+
+    fn packed(values: &[f64]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    fn nums(value: Option<NtValue>) -> Vec<f64> {
+        match value {
+            Some(NtValue::Nums(n)) => n,
+            other => panic!("expected numbers, got {other:?}"),
+        }
+    }
+
+    fn word(value: Option<NtValue>) -> f64 {
+        match value {
+            Some(NtValue::Num(n)) => n,
+            other => panic!("expected a number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_2027_control_word_reads_as_the_2026_bits() {
+        /* Captured from X1 (Systemcore, image 13): teleop, e-stopped, DS attached, op mode "X1 Drive". */
+        let captured = vec![0x63, 0x81, 0x07, 0x10, 0x00, 0x00, 0x00, 0x2a];
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(captured), "struct:ControlWord")), 8.0 + 32.0);
+        /* Enabled in autonomous with the FMS: 1 + 2 + 16 + 32. */
+        let auto: u64 = (1 << 56) | (1 << 58) | (1 << 60) | (1 << 61) | 0x1234;
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(auto.to_le_bytes().to_vec()), "struct:ControlWord")), 51.0);
+        /* Enabled in utility, which 2026 called test: 1 + 4 + 32. */
+        let utility: u64 = (3 << 56) | (1 << 58) | (1 << 61);
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(utility.to_le_bytes().to_vec()), "struct:ControlWord")), 37.0);
+        /* Teleop enabled: just the enabled and DS bits. */
+        let teleop: u64 = (2 << 56) | (1 << 58) | (1 << 61);
+        assert_eq!(word(decode_value(&rmpv::Value::Binary(teleop.to_le_bytes().to_vec()), "struct:ControlWord")), 33.0);
+        /* A word of the wrong width is nothing rather than a guess. */
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 7]), "struct:ControlWord").is_none());
+    }
+
+    #[test]
+    fn a_pose_array_decodes_to_triples() {
+        let bytes = packed(&[1.0, 2.0, 0.5, 3.5, -4.25, -1.0]);
+        let value = decode_value(&rmpv::Value::Binary(bytes), "struct:Pose2d[]");
+        assert_eq!(nums(value), vec![1.0, 2.0, 0.5, 3.5, -4.25, -1.0]);
+    }
+
+    #[test]
+    fn a_single_pose_decodes_to_one_triple() {
+        let bytes = packed(&[8.2, 4.1, 1.57]);
+        let value = decode_value(&rmpv::Value::Binary(bytes), "struct:Pose2d");
+        assert_eq!(nums(value), vec![8.2, 4.1, 1.57]);
+    }
+
+    #[test]
+    fn an_empty_pose_array_is_an_empty_list() {
+        let value = decode_value(&rmpv::Value::Binary(Vec::new()), "struct:Pose2d[]");
+        assert_eq!(nums(value), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn translations_decode_to_pairs_and_a_rotation_to_a_number() {
+        let pairs = decode_value(&rmpv::Value::Binary(packed(&[1.0, 2.0, 3.0, 4.0])), "struct:Translation2d[]");
+        assert_eq!(nums(pairs), vec![1.0, 2.0, 3.0, 4.0]);
+        match decode_value(&rmpv::Value::Binary(packed(&[0.25])), "struct:Rotation2d") {
+            Some(NtValue::Num(v)) => assert_eq!(v, 0.25),
+            other => panic!("expected a number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swerve_module_states_decode_to_speed_and_angle_pairs() {
+        let states = packed(&[1.5, 0.25, 1.4, -0.5, 1.5, 0.25, 1.4, -0.5]);
+        let value = decode_value(&rmpv::Value::Binary(states), "struct:SwerveModuleState[]");
+        assert_eq!(nums(value), vec![1.5, 0.25, 1.4, -0.5, 1.5, 0.25, 1.4, -0.5]);
+        let speeds = decode_value(&rmpv::Value::Binary(packed(&[1.0, -0.5, 0.2])), "struct:ChassisSpeeds");
+        assert_eq!(nums(speeds), vec![1.0, -0.5, 0.2]);
+    }
+
+    #[test]
+    fn game_piece_poses_decode_to_sevens() {
+        let pieces = packed(&[1.0, 2.0, 0.075, 1.0, 0.0, 0.0, 0.0, 3.0, 4.0, 0.075, 1.0, 0.0, 0.0, 0.0]);
+        let value = decode_value(&rmpv::Value::Binary(pieces), "struct:Pose3d[]");
+        assert_eq!(nums(value).len(), 14);
+    }
+
+    #[test]
+    fn a_ragged_or_unknown_struct_is_left_out() {
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 23]), "struct:Pose2d[]").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 48]), "struct:Pose2d").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "struct:SwerveModuleState").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "struct:SomethingElse").is_none());
+        assert!(decode_value(&rmpv::Value::Binary(vec![0; 24]), "raw").is_none());
+    }
+
+    #[test]
+    fn the_type_comes_from_the_announcement() {
+        let mut topics = HashMap::new();
+        handle_control(
+            r#"[{"method":"announce","params":{"name":"/PathPlanner/activePath","id":7,"type":"struct:Pose2d[]","properties":{}}}]"#,
+            &mut topics,
+        );
+        let topic = topics.get(&7).expect("announced");
+        assert_eq!(topic.name, "/PathPlanner/activePath");
+        assert_eq!(topic.type_str, "struct:Pose2d[]");
     }
 }
 

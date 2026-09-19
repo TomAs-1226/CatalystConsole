@@ -411,7 +411,10 @@ impl Server {
         const FMS: i64 = 16;
         const DS: i64 = 32;
 
-        let word = num_of(&values, "/FMSInfo/FMSControlData").map(|w| w as i64);
+        // 2027 publishes a ControlWord struct instead, which nt4.rs hands over in these same bits.
+        let word = num_of(&values, "/FMSInfo/FMSControlData")
+            .or_else(|| num_of(&values, "/FMSInfo/ControlWord"))
+            .map(|w| w as i64);
         let bit = |mask: i64| word.map(|w| (w & mask) != 0);
 
         // Without the control word there is no mode. "Disabled" would be a plausible answer and a
@@ -457,16 +460,23 @@ impl Server {
 
         // An empty game-specific message is a real, meaningful state — FMS has not sent it yet — and
         // is not the same as the topic being absent. The hub schedule depends on telling them apart.
-        const GSM: &str = "/FMSInfo/GameSpecificMessage";
-        let game_specific = match str_of(&values, GSM) {
+        // 2027 renamed the topic to GameData; whichever the robot publishes is the one reported.
+        let gsm: &str = if str_of(&values, "/FMSInfo/GameSpecificMessage").is_none()
+            && str_of(&values, "/FMSInfo/GameData").is_some()
+        {
+            "/FMSInfo/GameData"
+        } else {
+            "/FMSInfo/GameSpecificMessage"
+        };
+        let game_specific = match str_of(&values, gsm) {
             Some(s) if s.trim().is_empty() => json!({
                 "published": true,
                 "value": s,
-                "topic": GSM,
+                "topic": gsm,
                 "note": "published but empty — FMS sends this at the start of teleop",
             }),
-            Some(s) => json!({ "published": true, "value": s, "topic": GSM }),
-            None => json!({ "published": false, "value": Value::Null, "topic": GSM }),
+            Some(s) => json!({ "published": true, "value": s, "topic": gsm }),
+            None => json!({ "published": false, "value": Value::Null, "topic": gsm }),
         };
 
         let control_word = match word {

@@ -1,0 +1,470 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  clampToField,
+  countState,
+  deviceSummary,
+  drivePath,
+  engagedAutopilot,
+  limelightFix,
+  notices,
+  ROBOT_HALF_METERS,
+  robotPlacement,
+  matchReadiness,
+  START_NEAR_M,
+  startGuide,
+  VISION_FRESH_MS,
+} from "./devices.js";
+
+/** A fake read-only NetworkTables view. Values are {t, v} the way app.js stores them. */
+function view(values, { linked = true } = {}) {
+  const v = values;
+  return {
+    linked,
+    has: (k) => v[k] !== undefined,
+    keys: () => Object.keys(v),
+    num: (k, f = null) => (v[k] && v[k].t === "num" ? v[k].v : v[k] && v[k].t === "bool" ? (v[k].v ? 1 : 0) : f),
+    bool: (k, f = null) => (v[k] && v[k].t === "bool" ? v[k].v : v[k] && v[k].t === "num" ? v[k].v !== 0 : f),
+    str: (k, f = null) => (v[k] && v[k].t === "str" ? v[k].v : f),
+    arr: (k) => (v[k] && (v[k].t === "strs" || v[k].t === "nums") ? v[k].v : null),
+  };
+}
+
+/* ---- field clamp ---- */
+
+test("a pose inside the field is unchanged", () => {
+  const r = clampToField([8.0, 4.0, 1.0], 16.54, 8.07);
+  assert.deepEqual(r, { x: 8.0, y: 4.0, theta: 1.0, clamped: false });
+});
+
+test("a pose at the corner is pulled in by half a robot and flagged", () => {
+  const r = clampToField([0, 0, 0], 16.54, 8.07);
+  assert.equal(r.x, ROBOT_HALF_METERS);
+  assert.equal(r.y, ROBOT_HALF_METERS);
+  assert.equal(r.clamped, true);
+});
+
+test("a pose far outside is held to the far wall", () => {
+  const r = clampToField([40, -3, 2], 16.54, 8.07);
+  assert.equal(r.x, 16.54 - ROBOT_HALF_METERS);
+  assert.equal(r.y, ROBOT_HALF_METERS);
+  assert.equal(r.theta, 2);
+  assert.equal(r.clamped, true);
+});
+
+test("an unusable pose is null, not a guess", () => {
+  assert.equal(clampToField(null, 16.54, 8.07), null);
+  assert.equal(clampToField([1, NaN, 0], 16.54, 8.07), null);
+  assert.equal(clampToField([1, 2], 16.54, 8.07), null);
+});
+
+/* ---- device summary ---- */
+
+test("the roster wins when the robot publishes one", () => {
+  const r = deviceSummary(view({
+    "/Catalyst/Devices/Cameras/Expected": { t: "num", v: 4 },
+    "/Catalyst/Devices/Cameras/Connected": { t: "num", v: 3 },
+    "/Catalyst/Devices/Cameras/Rows": { t: "strs", v: ["limelight-left|true|Limelight", "limelight-right|false|Limelight"] },
+    "/Catalyst/Devices/Motors/Expected": { t: "num", v: 20 },
+    "/Catalyst/Devices/Motors/Connected": { t: "num", v: 20 },
+    "/Catalyst/Devices/Motors/Rows": { t: "strs", v: ["frontLeft|can_s0|3|true"] },
+    "/Catalyst/Devices/Controller/Kind": { t: "str", v: "Systemcore" },
+    "/Catalyst/Devices/Controller/Connected": { t: "bool", v: true },
+    "/limelight-ground/tv": { t: "num", v: 0 },   // must not double count
+  }));
+  assert.equal(r.cameras.expected, 4);
+  assert.equal(r.cameras.connected, 3);
+  assert.equal(r.cameras.source, "roster");
+  assert.deepEqual(r.cameras.rows[1], { name: "limelight-right", connected: false, detail: "Limelight" });
+  assert.equal(r.motors.connected, 20);
+  assert.deepEqual(r.motors.rows[0], { name: "frontLeft", connected: true, detail: "can_s0 · 3" });
+  assert.equal(r.controller.kind, "Systemcore");
+  assert.equal(r.controller.connected, true);
+  assert.equal(r.any, true);
+});
+
+test("without a roster, cameras are counted from their tables and say so", () => {
+  const r = deviceSummary(view({
+    "/limelight-shooter/tv": { t: "num", v: 1 },
+    "/limelight-shooter/hb": { t: "num", v: 9 },
+    "/limelight-left/tv": { t: "num", v: 0 },
+    "/CameraPublisher/limelight-shooter/streams": { t: "strs", v: [] },
+  }));
+  assert.equal(r.cameras.expected, 2);
+  assert.equal(r.cameras.connected, null);
+  assert.equal(r.cameras.source, "topics");
+  assert.deepEqual(r.cameras.rows.map((x) => x.name), ["limelight-left", "limelight-shooter"]);
+});
+
+test("without a roster, motors come from the spec sheet's device tree", () => {
+  const r = deviceSummary(view({
+    "/Catalyst/Robot/Hardware/Devices": { t: "strs", v: ["can_s0|3|TalonFX", "can_s0|23|Pigeon2", "can_s1|7|Kraken X60"] },
+    "/Catalyst/Robot/Identity/Controller": { t: "str", v: "Systemcore" },
+  }));
+  assert.equal(r.motors.expected, 2);
+  assert.equal(r.motors.connected, null);
+  assert.equal(r.motors.source, "spec");
+  assert.equal(r.controller.kind, "Systemcore");
+  assert.equal(r.controller.source, "identity");
+});
+
+test("nothing known is nothing shown", () => {
+  const r = deviceSummary(view({}, { linked: false }));
+  assert.equal(r.any, false);
+});
+
+test("count states colour the fraction", () => {
+  assert.equal(countState({ expected: 0, connected: null }), "none");
+  assert.equal(countState({ expected: 4, connected: null }), "seen");
+  assert.equal(countState({ expected: 4, connected: 4 }), "ok");
+  assert.equal(countState({ expected: 4, connected: 2 }), "warn");
+  assert.equal(countState({ expected: 4, connected: 0 }), "bad");
+});
+
+/* ---- notices ---- */
+
+test("a faulting camera becomes a warning with the robot's own detail", () => {
+  const n = notices(view({
+    "/Catalyst/Vision/Health/Level": { t: "num", v: 1 },
+    "/Catalyst/Vision/Health/Summary": { t: "str", v: "3 of 4 cameras healthy: limelight-left disconnected" },
+    "/Catalyst/Vision/Health/Rows": { t: "strs", v: [
+      "limelight-left|DISCONNECTED|no data from the camera|||false",
+      "limelight-shooter|OK|100% accepted|56.0|71.6|true",
+      "limelight-right|NO_TARGETS|no usable target|55.0|65.0|true",
+    ] },
+  }));
+  assert.deepEqual(n, [
+    { level: "warn", key: "vision:limelight-left", text: "limelight-left: no data from the camera", detail: "" },
+  ]);
+});
+
+test("blind vision is an error above the camera warnings, and robot errors come first", () => {
+  const n = notices(view({
+    "/Catalyst/Alerts/Errors": { t: "strs", v: ["[Drive] Front-left motor over temperature"] },
+    "/Catalyst/Vision/Health/Level": { t: "num", v: 2 },
+    "/Catalyst/Vision/Health/Summary": { t: "str", v: "0 of 2 cameras healthy: a disconnected, b disconnected" },
+    "/Catalyst/Vision/Health/Rows": { t: "strs", v: ["a|DISCONNECTED|no data|||false", "b|HOT|91 C, ceiling 80 C||91.0|true"] },
+  }));
+  assert.deepEqual(n.map((x) => [x.level, x.key]), [
+    ["error", "alert:[Drive] Front-left motor over temperature"],
+    ["error", "vision:blind"],
+    ["warn", "vision:a"],
+    ["warn", "vision:b"],
+  ]);
+  assert.equal(n[3].text, "b: running hot");
+  assert.equal(n[3].detail, "91 C, ceiling 80 C", "a detail that adds a number is kept");
+});
+
+test("the auto start check speaks only while disabled", () => {
+  const values = {
+    "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true },
+    "/Catalyst/Auto/StartCheck/Ready": { t: "bool", v: false },
+    "/Catalyst/Auto/StartCheck/DistanceMeters": { t: "num", v: 0.4213 },
+    "/Catalyst/Auto/StartCheck/HeadingErrorDeg": { t: "num", v: -12.4 },
+  };
+  const disabled = notices(view(values), { enabled: false });
+  assert.deepEqual(disabled, [{ level: "warn", key: "auto:start", text: "Not at the auto's starting pose", detail: "0.42 m, 12° off" }]);
+  assert.deepEqual(notices(view(values), { enabled: true }), []);
+  values["/Catalyst/Auto/StartCheck/Ready"] = { t: "bool", v: true };
+  assert.equal(notices(view(values), { enabled: false })[0].level, "info");
+});
+
+test("no health topics means no vision notices, not an error", () => {
+  assert.deepEqual(notices(view({})), []);
+});
+
+/* ---- where the robot is ---- */
+
+const nums = (v) => ({ t: "nums", v });
+/* A MegaTag solve as a Limelight publishes it: x, y, z, roll, pitch, yaw°, latency, tags, span, distance, area. */
+const solve = (x, y, yawDeg, tags, distance = 2.5) => nums([x, y, 0, 0, 0, yawDeg, 30, tags, 0.4, distance, 0.3]);
+const fresh = () => 0;
+
+test("an estimator pose that has left the origin is the robot's place", () => {
+  const read = view({ "/Catalyst/Physics/PoseArray": nums([5.2, 3.1, 0.4]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.deepEqual(place.pose, [5.2, 3.1, 0.4]);
+  assert.equal(place.source, "estimator");
+  assert.equal(place.placed, true);
+});
+
+test("a robot without Physics Core is placed from its swerve subsystem's own pose", () => {
+  const read = view({ "/Catalyst/Swerve/Pose": nums([11.2, 2.4, -1.1]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.deepEqual(place.pose, [11.2, 2.4, -1.1]);
+  assert.equal(place.source, "estimator");
+  // Physics Core's pose, when there is one, still comes first.
+  const both = view({ "/Catalyst/Physics/PoseArray": nums([5.2, 3.1, 0.4]), "/Catalyst/Swerve/Pose": nums([11.2, 2.4, -1.1]) });
+  assert.deepEqual(robotPlacement(both, { age: fresh }).pose, [5.2, 3.1, 0.4]);
+});
+
+test("an estimator still at the boot origin is not a place: the robot is unplaced, not in the corner", () => {
+  const read = view({ "/Catalyst/Physics/PoseArray": nums([0, 0, 1.2]) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, false);
+  assert.equal(place.pose, null);
+  assert.equal(place.heading, 1.2, "the gyro's heading is still known");
+});
+
+test("a live Limelight fix places a robot the estimator has not, with the estimator's heading", () => {
+  const read = view({
+    "/Catalyst/Physics/PoseArray": nums([0, 0, 1.2]),
+    "/limelight-ground/botpose_orb_wpiblue": solve(3.4, 5.6, 40, 2),
+    "/limelight-ground/botpose_orb": solve(-4.87, 1.57, 40, 2),
+  });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, true);
+  assert.equal(place.source, "vision");
+  assert.equal(place.camera, "limelight-ground");
+  assert.deepEqual(place.pose, [3.4, 5.6, 1.2]);
+});
+
+test("with no estimator at all, the fix's own heading is used", () => {
+  const read = view({ "/limelight-ground/botpose_wpiblue": solve(2, 2, 90, 1) });
+  const place = robotPlacement(read, { age: fresh });
+  assert.equal(place.placed, true);
+  assert.ok(Math.abs(place.pose[2] - Math.PI / 2) < 1e-9);
+});
+
+test("a camera that sees nothing publishes zeros, and zeros place nothing", () => {
+  const read = view({ "/limelight-ground/botpose_orb_wpiblue": nums([0, 0, 0, 0, 0, 0, 30, 0, 0, 0, 0]) });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("an unplaceable tag reads as the field's centre and is refused by its all-zero centre-origin twin", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": solve(8.27, 4.035, 0, 1),
+    "/limelight-ground/botpose_orb": nums([0, 0, 0, 0, 0, 0, 30, 1, 0, 0, 0]),
+  });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("a frozen camera's last solve is not a fix", () => {
+  const read = view({ "/limelight-ground/botpose_orb_wpiblue": solve(3, 3, 0, 2) });
+  assert.equal(limelightFix(read, { age: () => VISION_FRESH_MS + 1 }), null);
+  assert.ok(limelightFix(read, { age: () => VISION_FRESH_MS }));
+});
+
+test("a solve off the field is not a fix", () => {
+  const read = view({ "/limelight-ground/botpose_wpiblue": solve(22, 3, 0, 2) });
+  assert.equal(limelightFix(read, { age: fresh }), null);
+});
+
+test("MegaTag2 is preferred to MegaTag1 on the same camera", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": solve(3.0, 3.0, 0, 2),
+    "/limelight-ground/botpose_wpiblue": solve(3.3, 3.3, 0, 2),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).megatag, 2);
+});
+
+test("MegaTag1 stands in when MegaTag2 has nothing", () => {
+  const read = view({
+    "/limelight-ground/botpose_orb_wpiblue": nums([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    "/limelight-ground/botpose_wpiblue": solve(3.3, 3.3, 0, 1),
+  });
+  const fix = limelightFix(read, { age: fresh });
+  assert.equal(fix.megatag, 1);
+  assert.equal(fix.x, 3.3);
+});
+
+test("the camera seeing the most tags wins, then the nearer tags", () => {
+  const read = view({
+    "/limelight-left/botpose_orb_wpiblue": solve(3.0, 3.0, 0, 1, 1.0),
+    "/limelight-right/botpose_orb_wpiblue": solve(3.1, 3.1, 0, 3, 4.0),
+    "/limelight-shooter/botpose_orb_wpiblue": solve(3.2, 3.2, 0, 3, 2.0),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).camera, "limelight-shooter");
+});
+
+test("cameras named by Catalyst's vision health are looked in even before their tables are listed", () => {
+  const read = view({
+    "/Catalyst/Vision/Health/Names": { t: "strs", v: ["limelight-ground"] },
+    "/limelight-ground/botpose_orb_wpiblue": solve(4, 4, 0, 2),
+  });
+  assert.equal(limelightFix(read, { age: fresh }).camera, "limelight-ground");
+});
+
+/* ---- the path ahead ---- */
+
+const strs = (v) => ({ t: "strs", v });
+const str = (v) => ({ t: "str", v });
+
+test("no path published is no path", () => {
+  assert.equal(drivePath(view({})), null);
+});
+
+test("PathPlanner's active path is a planned path, as field points", () => {
+  const read = view({ "/PathPlanner/activePath": nums([1, 1, 0, 2, 1.5, 0.3, 3, 2, 0.6]) });
+  const path = drivePath(read);
+  assert.deepEqual(path.points, [[1, 1], [2, 1.5], [3, 2]]);
+  assert.deepEqual(path.end, [3, 2, 0.6], "where it ends, and facing which way");
+  assert.equal(path.style, "planned");
+  assert.equal(path.source, "pathplanner");
+});
+
+test("the same path while an Autopilot drives is improvised", () => {
+  const read = view({
+    "/PathPlanner/activePath": nums([1, 1, 0, 2, 1.5, 0.3]),
+    "/Catalyst/Behavior/Cycle/Phase": str("Acquire"),
+  });
+  const path = drivePath(read);
+  assert.equal(path.style, "improvised");
+  assert.equal(path.autopilot, "Cycle");
+});
+
+test("an Autopilot that has handed back is not driving", () => {
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("DriverControl") })), null);
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("") })), null);
+  assert.equal(engagedAutopilot(view({ "/Catalyst/Behavior/Cycle/Phase": str("Stalled: Score cannot start") })), "Cycle");
+});
+
+test("a team's own planner comes before PathPlanner, and says what kind of plan it is", () => {
+  const read = view({
+    "/Catalyst/Drive/PlannedPath": nums([5, 5, 0, 6, 5, 0]),
+    "/Catalyst/Drive/PlannedPathSource": str("MPC"),
+    "/PathPlanner/activePath": nums([1, 1, 0, 2, 2, 0]),
+  });
+  const path = drivePath(read);
+  assert.deepEqual(path.points, [[5, 5], [6, 5]]);
+  assert.equal(path.style, "planned");
+  assert.equal(path.source, "mpc");
+  const vision = drivePath(view({
+    "/Catalyst/Drive/PlannedPath": nums([5, 5, 0, 6, 5, 0]),
+    "/Catalyst/Drive/PlannedPathSource": str("Vision align"),
+  }));
+  assert.equal(vision.style, "improvised");
+});
+
+test("broken paths are refused: too short, ragged, or off the field", () => {
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0]) })), null);
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0, 2]) })), null);
+  assert.equal(drivePath(view({ "/PathPlanner/activePath": nums([40, 40, 0, 41, 41, 0]) })), null);
+  const partly = drivePath(view({ "/PathPlanner/activePath": nums([1, 1, 0, NaN, 2, 0, 3, 3, 0]) }));
+  assert.deepEqual(partly.points, [[1, 1], [3, 3]]);
+});
+
+/* ---- the auto's start ---- */
+
+test("the auto's start is shown while disabled, with how far off the robot is and which way to turn", () => {
+  const start = {
+    "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true },
+    "/Catalyst/Auto/StartCheck/Ready": { t: "bool", v: false },
+    "/Catalyst/Auto/StartCheck/DistanceMeters": { t: "num", v: 0.42 },
+    "/Catalyst/Auto/StartCheck/HeadingErrorDeg": { t: "num", v: 6.5 },
+    "/Catalyst/Auto/StartCheck/Expected": { t: "nums", v: [15.35, 6.5, 2.66] },
+    "/Catalyst/Auto/StartCheck/Current": { t: "nums", v: [15.0, 6.28, 2.77] },
+  };
+  const guide = startGuide(view(start));
+  assert.deepEqual(guide.expected, [15.35, 6.5, 2.66]);
+  assert.deepEqual(guide.current, [15.0, 6.28, 2.77]);
+  assert.equal(guide.ready, false);
+  assert.equal(guide.distance, 0.42);
+  assert.equal(guide.headingErrorDeg, 6.5);
+  assert.equal(guide.near, true);
+  assert.equal(startGuide(view(start), { enabled: true }), null, "enabled: the start is history");
+});
+
+test("no start is shown without an expected pose, and a far robot is not being placed", () => {
+  assert.equal(startGuide(view({ "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: false } })), null);
+  assert.equal(startGuide(view({ "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true } })), null, "no Expected");
+  const far = startGuide(view({
+    "/Catalyst/Auto/StartCheck/Available": { t: "bool", v: true },
+    "/Catalyst/Auto/StartCheck/Expected": { t: "nums", v: [1, 1, 0] },
+    "/Catalyst/Auto/StartCheck/Current": { t: "nums", v: [8, 5, 0] },
+  }));
+  assert.ok(far.distance > START_NEAR_M, "distance from the poses when the check does not say");
+  assert.equal(far.near, false);
+  assert.equal(far.headingErrorDeg, null);
+});
+
+/* ---- match readiness ---- */
+
+test("a robot is ready for its match only when every check it can be judged by passes", () => {
+  const good = matchReadiness({
+    volts: 12.9,
+    summary: { cameras: { expected: 4, connected: 4 }, motors: { expected: 20, connected: 20 } },
+    guide: { ready: true },
+    auto: "Two piece centre",
+    errors: 0,
+  });
+  assert.equal(good.ready, true);
+  assert.deepEqual(good.checks.map((c) => c.key), ["battery", "cameras", "motors", "auto", "start", "errors"]);
+
+  const bad = matchReadiness({
+    volts: 12.1,
+    summary: { cameras: { expected: 4, connected: 3 }, motors: { expected: 0 } },
+    guide: { ready: false },
+    auto: "",
+    errors: 2,
+  });
+  assert.equal(bad.ready, false);
+  assert.deepEqual(bad.checks.filter((c) => !c.ok).map((c) => c.text),
+    ["Battery at 12.1 V", "3 of 4 cameras", "No auto chosen", "Not on the auto's start", "2 errors"]);
+});
+
+test("checks with nothing to judge by are left out rather than failed", () => {
+  const bare = matchReadiness({});
+  assert.deepEqual(bare.checks.map((c) => c.key), ["errors"]);
+  assert.equal(bare.ready, true);
+});
+
+test("a system check reads in the order the robot declared it, with each failure's reason", async () => {
+  const { systemChecks } = await import("./devices.js");
+  const v = {
+    "/Catalyst/SystemCheck/X1 pre-drive/Pigeon on bus": "PASS",
+    "/Catalyst/SystemCheck/X1 pre-drive/Battery above 12.0 V": "FAIL: —",
+    "/Catalyst/SystemCheck/X1 pre-drive/All four wheels drive forward": "FAIL: condition not met after 1.0s",
+    "/Catalyst/SystemCheck/X1 pre-drive/Ready": false,
+    "/Catalyst/SystemCheck/X1 pre-drive/Report":
+      "NOT READY ✗\n  PASS  Pigeon on bus\n  FAIL  Battery above 12.0 V\n  FAIL  All four wheels drive forward  — condition not met after 1.0s\n",
+  };
+  const read = {
+    keys: () => Object.keys(v),
+    has: (k) => k in v,
+    str: (k, d) => (typeof v[k] === "string" ? v[k] : d),
+    bool: (k, d) => (typeof v[k] === "boolean" ? v[k] : d),
+  };
+  const [check] = systemChecks(read);
+  assert.equal(check.name, "X1 pre-drive");
+  assert.equal(check.running, false);
+  assert.equal(check.ready, false);
+  assert.deepEqual(check.tests.map((t) => t.test), ["Pigeon on bus", "Battery above 12.0 V", "All four wheels drive forward"]);
+  assert.deepEqual(check.tests.map((t) => t.pass), [true, false, false]);
+  /* "FAIL: —" is the library saying it has no reason, which is not a reason to print. */
+  assert.equal(check.tests[1].detail, "");
+  assert.equal(check.tests[2].detail, "condition not met after 1.0s");
+});
+
+test("a check still running has no verdict yet, and readiness does not count it as failed", async () => {
+  const { systemChecks, matchReadiness } = await import("./devices.js");
+  const v = {
+    "/Catalyst/SystemCheck/PreMatch/Pigeon on bus": "PASS",
+    "/Catalyst/SystemCheck/PreMatch/Ready": false,
+    "/Catalyst/SystemCheck/PreMatch/Report": "(running…)",
+  };
+  const read = { keys: () => Object.keys(v), has: (k) => k in v, str: (k, d) => v[k] ?? d, bool: (k, d) => v[k] ?? d };
+  const [check] = systemChecks(read);
+  assert.equal(check.running, true);
+  assert.equal(check.ready, null);
+  const readiness = matchReadiness({ systemCheck: check });
+  assert.equal(readiness.checks.some((c) => c.key === "systemCheck"), false);
+});
+
+test("a failed system check is the first thing readiness names", async () => {
+  const { matchReadiness } = await import("./devices.js");
+  const readiness = matchReadiness({
+    volts: 12.8,
+    systemCheck: { name: "PreMatch", running: false, ready: false, tests: [{ test: "a", pass: true }, { test: "b", pass: false, detail: "" }] },
+  });
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.checks[0].key, "systemCheck");
+  assert.equal(readiness.checks[0].text, "System check: 1 failing");
+});
+
+test("no system check published is no line at all, not a failure", async () => {
+  const { systemChecks, matchReadiness } = await import("./devices.js");
+  assert.deepEqual(systemChecks({ keys: () => ["/Catalyst/Other/Thing"], str: () => null, bool: () => null }), []);
+  assert.equal(matchReadiness({ volts: 12.8 }).checks.some((c) => c.key === "systemCheck"), false);
+});

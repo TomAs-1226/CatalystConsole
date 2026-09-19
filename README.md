@@ -4,15 +4,29 @@
 
 <p align="center">
   <a href="https://github.com/TomAs-1226/CatalystConsole/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/TomAs-1226/CatalystConsole?style=flat-square&color=e94560&label=release"></a>
-  <a href="https://github.com/TomAs-1226/FrcCatalyst"><img alt="FrcCatalyst" src="https://img.shields.io/badge/FrcCatalyst-1.12%2B-e94560?style=flat-square"></a>
+  <a href="https://github.com/TomAs-1226/FrcCatalyst"><img alt="FrcCatalyst" src="https://img.shields.io/badge/FrcCatalyst-1.10%2B%20and%202.x-e94560?style=flat-square"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-2c2e34?style=flat-square">
   <img alt="Runtime" src="https://img.shields.io/badge/Tauri%202-no%20framework-2c2e34?style=flat-square">
 </p>
 
-A driver station companion for teams running [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst).
-It sits next to the NI Driver Station and shows what the robot is doing — telemetry, alerts, live
-tuning, Physics Core state, a 3D field view, the robot's own spec sheet, and readable Driver Station
-logs.
+The driver-station dashboard for a robot running **FrcCatalyst**: it sits next to the NI Driver
+Station and shows what the robot is doing — telemetry, alerts, live tuning, Physics Core state, a 3D
+field view, the robot's own spec sheet, and readable Driver Station logs.
+
+**Console 2.0.0** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
+auto chooser tile pointed at that robot's chooser path. The spec sheet reads from 1.10 on, and every
+tile's topics are editable.
+
+**The Catalyst family.** [FrcCatalyst](https://github.com/TomAs-1226/FrcCatalyst) is the library that
+runs on the robot. [Catalyst App](https://github.com/TomAs-1226/CatalystApp) installs it and holds the
+design-time tools. **Catalyst Console** is the driver-station dashboard that watches it run.
+[Catalyst X1](https://github.com/TomAs-1226/CatalystX1) is team 5805's swerve test drivebase, where
+2.x is being brought up on hardware.
+
+A note on what it is watching: Catalyst **2.0.0-beta.1 is a pre-season beta**, pinned to a WPILib
+alpha, and it has never been driven on a robot — it has run on a bench. The console itself is not a
+beta and does not care which line the robot is on. If you are competing this season, run 1.x on the
+robot (tag `v1.12.0`, WPILib 2026, roboRIO) and point this at it.
 
 It is a Tauri app: a small Rust backend and a plain HTML/CSS/JS frontend running in the WebView2 that
 ships with Windows. There is no framework and no bundler, and nothing it draws comes off the network —
@@ -23,12 +37,35 @@ under four megabytes.
 
 ## Versions and compatibility
 
-**Console 1.0.0** (this branch, `main`; the latest GitHub release) is for a robot running Catalyst
-1.12 or later on a roboRIO. The Console for Catalyst 2.x on Systemcore is 1.4.3, on the
-`systemcore` branch, and is not a GitHub release yet. Which library, app, console and Systemcore
-image go together is on [Versions and compatibility](https://tomas-1226.github.io/FrcCatalyst/versions.html).
+| The robot runs | Console |
+|---|---|
+| Catalyst 1.12.0 on a roboRIO | **1.0.0** (branch `main`, the latest GitHub release), or this one with the auto chooser tile at `/SmartDashboard/Auto Selector` |
+| Catalyst 2.0.0-alpha.5 on Systemcore OS image 13 (WPILib alpha-6) | **2.0.0**, with the auto chooser tile at `/SmartDashboard/Auto Selector` |
+| Catalyst 2.0.0-beta.2 on Systemcore OS image 14 (WPILib alpha-7) | **2.0.0**; its defaults, `/Auto Selector` included, are the beta line's |
+
+Console 1.1.0 to 1.4.3 were on this branch, `systemcore`, and were never published; 2.0.0 is the
+first release from it. The whole map is on [Versions and compatibility](https://tomas-1226.github.io/FrcCatalyst/versions.html).
 
 ---
+
+## The auto chooser moved, and one look across all three (1.4.3)
+
+Catalyst 2.0.0-beta.1 publishes its auto chooser at `/Auto Selector`, not
+`/SmartDashboard/Auto Chooser`. WPILib 2027 alpha-7 deleted `SendableChooser`, so
+`AutoSelector` moved to `org.wpilib.tunable.Selectable`, whose paths are absolute.
+A console looking only at the old path finds nothing on any 2.x robot and says so
+confidently, which is worse than saying nothing. The default path and the garage
+demo data both moved.
+
+The Console, the app and the docs site now share one set of colours, spacing and
+type. Two rules do most of the work on a board read at a glance beside a field:
+status colours mean status and nothing else, and every number that changes is
+tabular so it does not shift width as it updates. Status also reads as shape, not
+only colour, so a tile survives a washed-out laptop screen in daylight.
+
+The sparklines and gauges drawn in JavaScript were still on an older palette
+entirely, which put two different greens on the same board - one meaning healthy
+in a tile heading, another meaning healthy in the chart beneath it.
 
 ## Install
 
@@ -50,6 +87,8 @@ the console finds the robot on its own.
 | **A board you build** | Tiles bound to NetworkTables keys you choose — gauges, graphs, alerts, a match clock, a 3D field. Nothing is hard-coded to a season. Drag to arrange, then export the layout as JSON and every laptop in the pit comes up the same. |
 | **The robot's spec sheet** | A robot on FrcCatalyst 1.10+ introduces itself: name, team, drivetrain geometry, mass, power, the Catalyst features it runs. Drawn to scale from its own published figures. |
 | **A device tree** | Every CAN device with its bus and id, and the power distribution as the board it is — so you can see which breaker feeds what and which slots are free. |
+| **What is answering** | Three counts in the top-right corner — cameras, motors, controller — as *connected / expected*, from the robot's device roster. `3/4` on the camera count is the whole diagnosis of a loose Ethernet cable. |
+| **Notices** | A bar over the board for the things a driver has to know now: a camera that has stopped, vision gone blind, any robot error, and — while disabled — whether the robot is at the selected auto's starting pose. |
 | **Live tuning** | Change a tunable and watch the robot respond, without a redeploy. |
 | **Physics Core** | Slip, tipping margin, traction usage and localisation confidence, when the robot publishes them. |
 | **Driver Station logs** | The `.dslog` and `.dsevents` files the DS already writes, parsed and readable — brownouts, radio drops, watchdog trips, with the timeline. |
@@ -98,8 +137,7 @@ npm install && npm run vendor && npm run dev
 ```
 
 `npm run vendor` copies three.js into `src/vendor/`. It has to exist before the first build: the
-webview runs under a strict CSP with `script-src 'self'`, so nothing loads from a CDN. A dashboard that
-needs the internet to draw a field is a dashboard that fails in exactly the venue it is meant for.
+webview runs under a strict CSP with `script-src 'self'`, so nothing loads from a CDN.
 
 To iterate on the UI without relinking the Rust binary:
 
@@ -212,8 +250,11 @@ All of `/FMSInfo` is read-only from the console's side, enforced in `nt_set`, no
 the game-specific message, and no time at all — so robot code has to publish one:
 
 ```java
-CatalystLog.log("Match/TimeLeft", DriverStation.getMatchTime());
+CatalystLog.log("Match/TimeLeft", MatchState.getMatchTime());
 ```
+
+`MatchState` is `org.wpilib.driverstation.MatchState`. WPILib 2027 moved match time off
+`DriverStation`, so the 1.x line `DriverStation.getMatchTime()` does not compile against 2.x.
 
 The console tries `/Catalyst/Match/TimeLeft`, then `/SmartDashboard/MatchTime`, then
 `/FMSInfo/MatchTime`, and takes the first that exists. With none of them the match timer and the hub
@@ -352,17 +393,44 @@ Neither WPILib nor Catalyst puts CAN utilisation or raw battery voltage on Netwo
 line each in `robotPeriodic()` if you want them without the monitors:
 
 ```java
-CatalystLog.log("Status/CanUtilization", RobotController.getCANStatus().percentBusUtilization);
+CatalystLog.log("Status/CanUtilization", RobotController.getCANStatus(0).percentBusUtilization);
 CatalystLog.log("Status/BatteryVolts", RobotController.getBatteryVoltage());
 ```
+
+`getCANStatus` takes a bus id in 2027 — Systemcore has five CAN buses and there is no single number
+for all of them, so pass the one the drivetrain is on and log a value per bus if you want the rest.
 
 Note the keys are relative — `CatalystLog`'s sink supplies the `Catalyst` root table, so they land at
 `/Catalyst/Status/...`. Then point the tiles at those keys instead.
 
+### Vision health and the device roster
+
+| Topic | Published by |
+| --- | --- |
+| `/Catalyst/Vision/Health/Level`, `/Summary`, `/Rows` | `VisionSubsystem`, every loop |
+| `/Catalyst/Devices/Cameras|Motors/Expected`, `/Connected`, `/Rows` | `DeviceRoster`, four times a second |
+| `/Catalyst/Devices/Controller/Kind`, `/Connected` | `DeviceRoster` |
+| `/Catalyst/Auto/StartCheck/Available`, `/Ready`, `/DistanceMeters`, `/HeadingErrorDeg` | `AutoStartCheck`, while disabled |
+
+The header strip reads the roster. Without one it falls back to what it can *see* — camera tables on
+the wire, motor types in the spec sheet's device tree, the identity's controller name — and shows a
+bare count rather than a fraction, because "four tables exist" and "four heartbeats are advancing"
+are different claims; the tooltip says which it is.
+
+The notice bar reads the health rows rather than the alert list, so it can say *what* is wrong with a
+camera (the detail the robot computed — `frames stopped 2.5 s ago`, `91 C, ceiling 80 C`) and not
+only that something is. Robot errors of any kind come through it too. It floats over the top of the
+board instead of pushing it down: a camera dropping out mid-match changes what the driver sees, not
+where their tiles are. Like the alerts tile, a notice that clears is held, dimmed, for the alert
+hold time before it goes.
+
 ### Auto chooser
 
-Standard `SendableChooser`. The console reads `options` and `selected` under the chooser path and
-writes `selected` when you pick one — the same key Shuffleboard writes.
+The console reads `options` and `selected` under a chooser path and writes `selected` when you pick
+one — the same keys Shuffleboard writes. The default path is `/Auto Selector`, where Catalyst 2.x's
+`AutoSelector` publishes. A 1.x robot puts its `SendableChooser` under `/SmartDashboard/Auto Chooser`;
+point the tile there instead. WPILib 2027 alpha-7 deleted `SendableChooser`, which is why 2.x has its
+own — see the 1.4.3 note at the top.
 
 ---
 
@@ -391,6 +459,9 @@ board somebody arranged.
 | **Battery** | voltage with rolling history and measured sag |
 | **Loop & bus** | loop time against budget, CAN utilisation, round-trip time |
 | **Physics Core** | slip, tip margin, traction headroom |
+| **Systemcore** | what the control system reports about itself: CPU, RAM, storage, brownout |
+| **Motor history** | every motor by serial: lifetime hours, revolutions, peaks, boots |
+| **Autonomy 2.0** | what the robot decided this loop, and why it did not do the other things |
 | **Alerts** | whatever the alert manager is raising |
 | **Auto chooser** | pick the routine |
 | **Graph** | rolling plot of one topic |
@@ -401,7 +472,12 @@ board somebody arranged.
 
 One tile takes one topic or several comma-separated. With several, labels are derived from the
 shortest path suffix that actually distinguishes them — four keys ending in `/Velocity` come out as
-FrontLeft / FrontRight / BackLeft / BackRight rather than "Velocity" four times.
+Front left / Front right / Back left / Back right rather than "Velocity" four times. A CamelCase
+segment is spaced into words for the label; the key itself is left alone.
+
+A figure of a thousand or more is written short, 2.4k for 2400 and 2k for 2000, with the whole value,
+its unit and the topic in the gauge's tooltip. `Large figures` sets a tile back to writing them in
+full.
 
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM. Set it to 1 for a
 raw value.
@@ -409,9 +485,25 @@ raw value.
 ### Hub activation
 
 In REBUILT your alliance HUB stops scoring for part of teleop, so the tile answers one question from
-across the drive station: **is ours active, and how long until that changes.** Colour carries it —
-green while active, amber in the last few seconds before a change, flat grey while inactive — with the
-countdown large underneath.
+across the drive station: **is ours active, and how long until that changes.** The whole card carries
+it — green while this alliance's hub scores, the plain dark card while it does not — with "Active" or
+"Inactive" as large as the tile allows and a lamp beside it (solid green when active, a hollow ring
+when not). Before the game data arrives during a shift the word is "Waiting"; with no match it is "No
+match". The header names the hub — "Red hub", "Blue hub", or "No alliance".
+
+The countdown runs to the moment this alliance's hub actually changes, not to the end of the segment
+it is in: an alliance active in shift 4 stays active through end game, so its countdown runs to the end
+of the match rather than warning that the hub closes at 0:30, and an alliance active in shift 1 counts
+straight through from the transition into it. Before the game data arrives, the transition counts down
+to shift 1 without saying which way it goes. In auto there is no countdown — both hubs score by rule,
+and the tile says so. The countdown turns amber only in the last few seconds (`Warn at`, default 5)
+before a real change.
+
+A strip along the bottom of the card shows auto and the six teleop segments, each as wide as it runs:
+green where this alliance's hub scores, the grey track where it does not, fainter where FMS has not
+said yet. Segments that have already run are dimmed; the current one is taller and darkened up to where
+the match actually is. A ring flashes once around the card when the state changes during a match (not
+with reduced motion).
 
 Terminology, because the manual is specific and it matters here: the **HUB** is the fuel goal, and it
 is the thing that goes active and inactive. The **TOWER** is the climbing structure in the alliance
@@ -439,7 +531,8 @@ depends on an auto result nothing else can infer. Auto, the transition shift and
 data at all: both hubs are active by rule, and the tile says that.
 
 If your robot would rather compute it itself, publish a boolean and a countdown and configure the tile
-to read them — a robot-published answer always wins.
+to read them — a robot-published answer always wins, and the caption underneath the strip then says
+"From the robot".
 
 ### The field view
 
@@ -471,6 +564,12 @@ lightness come right down and the field recedes behind the thing you are actuall
 carpet, perimeter, driver station glass, centre and alliance lines. That is not a placeholder to
 apologise for: it is what renders on a machine that has never seen the CAD, and it is the version that
 always works.
+
+The robot is drawn *inside* the walls whatever the estimator says. A camera-only pose on a bench,
+a wrong transform, or an estimator that has not converged can all put the estimate off the carpet,
+and the view used to draw the robot there — half through a wall, or off the slab. The x / y readouts
+still show the real numbers; the drawing is held to the field with a "drawn at the wall" chip saying
+so.
 
 Either way dimensions default to the REBUILT carpet — 651.2 in × 317.7 in, or 16.54 m × 8.07 m, from
 the
@@ -506,6 +605,29 @@ shown, because inventing a battery voltage would be worse than admitting the fil
 
 ---
 
+## CAN buses
+
+Systemcore's five CAN buses are not five independent lanes. They are MCP2518FD controllers on three
+shared SPI hosts — `can_s0` and `can_s1` on one, `can_s2` alone, `can_s3` and `can_s4` on a third — so
+two buses on the same host throttle each other and two on different hosts do not.
+
+Nothing else in the FRC toolchain draws that distinction. A team moving half a drivetrain off a loaded
+bus can pick the pair that buys them nothing and find out on a field. So the CAN tab groups the five
+buses by the controller they hang off, and draws one combined utilisation figure per shared pair —
+against what that one SPI host can carry, not against two free wires.
+
+Each bus lists what is on it, and says whether its number came from the OS's own measurement or from
+Phoenix. Warnings the console works out live from the wire are kept apart from what the robot said the
+last time anything called `Preflight.run()`, because the second is a snapshot nothing republishes. A
+bus nobody measured shows a dash and *not measured*; a bus measured at nothing shows `0%` and *idle*.
+The layout is drawn with no robot attached at all — which buses share a controller is a fact about the
+Systemcore rather than a reading from one, and an empty bus is the most useful thing on the page.
+
+See [CAN buses](docs/can-buses.md) for the thresholds, the four topics it reads, and why the
+frames-per-second estimate the library makes is deliberately not drawn here.
+
+---
+
 ## Layout of the source
 
 ```
@@ -517,7 +639,19 @@ src/index.html            the shell: top strip, views, dock, the two component m
 src/styles.css            the design system
 src/app.js                NT store, component registry, layout, every component
 src/field3d.js            the procedural 3D field
+src/can-model.js          CAN topology: which buses share an SPI controller, and what counts as trouble
+src/core-format.js        the Systemcore page's rules: what is trouble, and how a reading is worded
+src/board-format.js       how the board words a large figure (2.4k) and a topic path's segment (Front left)
+src/devices.js            the roster, the notices worth showing a driver, and holding a pose on the field
+src/motion.js             the springs the identity moves with, where CSS cannot carry a gesture
 ```
+
+`can-model.js`, `core-format.js`, `board-format.js` and `devices.js` are split out of `app.js` so
+they can be tested. `app.js` touches the DOM at import time; none of those rules need a DOM to be
+wrong, and they decide things nobody can reproduce on a robot without breaking it — a bus past its
+controller's budget, a pose off the carpet, a storage sensor that stopped answering. Each has a
+`.test.js` beside it and `npm test` runs them under `node --test`. `motion.js` is split out for a
+different reason: it is copied verbatim into Catalyst App, so both move the identity the same way.
 
 `nt4.rs` batches values into a map and flushes on a fixed cadence rather than emitting at wire rate.
 The robot publishes at 50 Hz across hundreds of topics; pushing each change straight into the webview
@@ -533,6 +667,7 @@ would spend the whole frame budget in IPC. UI cost is independent of how chatty 
 | [Settings](docs/settings.md) | Every section and every row, plus search and where each setting is stored. |
 | [The robot's spec sheet](docs/robot-identity.md) | What a robot publishes about itself, and the one line of robot code that starts it. |
 | [Components](docs/widgets.md) | Every tile, what it binds to, and how to configure it. |
+| [CAN buses](docs/can-buses.md) | Five buses on three SPI controllers, which pairs fight each other, and what the page will and will not claim. |
 | [Hub activation](docs/hub-schedule.md) | How the REBUILT hub schedule is derived from the rules and the FMS game data. |
 | [Diagnostics MCP](docs/mcp.md) | The read-only tool surface, for agents. |
 
@@ -543,3 +678,38 @@ CAD; the game rules it encodes come from the season manual, and the manual is al
 
 If something here disagrees with what your robot is actually doing, trust the robot — and please open
 an issue, because a dashboard that is confidently wrong is worse than one that says it does not know.
+
+## Motor history (1.3.0)
+
+A **Motor history** tile (Health group) shows what the robot program's `MotorHistory` publishes:
+every motor by serial number with its lifetime powered and turning hours, revolutions, peak
+current and temperature, hot time and boots, sorted by whichever column matters today. With
+`catalyst-agent` 2.0.3 on the Systemcore, the Systemcore page also carries the full table read
+from the file the robot keeps, and says where the file is. Added for FrcCatalyst 2.0.0-alpha.2-a9; current on 2.0.0-beta.1.
+
+## Autonomy 2.0 tile (1.4.0)
+
+An **Autonomy 2.0** tile (Health group) shows what the robot's autonomy layer decided this loop:
+the authority scale and which limiter is holding it, which tasks are running and which were held
+and why, what the chaser is going after, what was shed to stay inside the power budget, and the
+intention system's guess with its running hit rate. It reads `/Catalyst/Autonomy/*`, which an
+`AutonomyBoard` publishes; rows for power and intent stay hidden until something is actually
+publishing them, so an unmeasured robot never shows a reassuring zero.
+Added for FrcCatalyst 2.0.0-alpha.2; current on 2.0.0-beta.1.
+
+## Controller keys, and a 2027 demo robot (1.4.2)
+
+The spec sheet read `Identity/RioSerial`, `Identity/RioComment` and `Software/RioImage`.
+Catalyst 2.x renamed those to say *controller* and publishes the Rio-named keys alongside for
+one season, so reading only the old names worked today and would have gone blank the moment
+the aliases were dropped. It now reads the canonical key and falls back to the alias.
+
+The **FPGA** row is gone. Systemcore has no FPGA and 2027 removed
+`RobotController.getFPGAVersion()` with the rest of that surface, so `Software/FpgaVersion` is
+no longer published by anything and the row could only ever have been empty.
+
+The demo robot in the garage was a 2026 robot - season 2026, Catalyst 1.10.0, WPILib 2026.1.1,
+a 6.8 V brownout floor and devices on a `rio` bus. It is now what a 2027 robot looks like:
+Systemcore, Catalyst 2.0.0-alpha.2, WPILib 2027 alpha-6, the 6.75 V floor Systemcore actually
+publishes, and devices on `can_s0`.
+

@@ -17,6 +17,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dslog;
+mod wpilog;
 mod mcp;
 mod nt4;
 
@@ -43,10 +44,30 @@ struct Frame {
 /// Covers every situation the same build has to work in: simulation on this machine, the field's
 /// mDNS name, the pit's static IP, and the USB tether.
 fn candidate_addresses(team: u16) -> Vec<String> {
+    // Systemcore addresses, measured on a board running OS beta 13 rather than adapted from the
+    // roboRIO list:
+    //
+    //   * `robot.local` is the mDNS name. Not `roborio-TEAM-frc.local` - that name is the roboRIO's
+    //     and resolves to nothing on a Systemcore, so a console that only tried it would sit at
+    //     "no robot" next to a robot that was answering.
+    //   * `172.26.0.1` is the USB tether. The roboRIO used 172.22.11.2; a laptop plugged into a
+    //     Systemcore gets 172.26.0.x and the board is .1. A Mac or Linux laptop is handed the other
+    //     USB gadget and lands on 172.27.0.x instead.
+    //   * `172.30.0.1` is the Systemcore's own Wi-Fi. A laptop driving over it gets 172.30.0.x, and
+    //     mDNS across a Windows Wi-Fi link is the least reliable of these, so the address is tried
+    //     directly rather than left to `robot.local`.
+    //
+    // The team static IP is unchanged - that addressing is a field convention, not a roboRIO one -
+    // and the roboRIO names stay at the end. They cost one failed connection attempt each and mean a
+    // team with both robots on the bench does not have to know which console to open.
     vec![
         "127.0.0.1".to_string(),
-        format!("roborio-{team}-frc.local"),
+        "robot.local".to_string(),
+        "172.26.0.1".to_string(),
+        "172.30.0.1".to_string(),
+        "172.27.0.1".to_string(),
         format!("10.{}.{}.2", team / 100, team % 100),
+        format!("roborio-{team}-frc.local"),
         "172.22.11.2".to_string(),
     ]
 }
@@ -132,20 +153,44 @@ fn set_team_number(
     Ok(())
 }
 
+/// Sessions from the 2027 Driver Station.
+///
+/// The NI Driver Station's own logs are no longer read. Its `.dslog`/`.dsevents` pair was
+/// community-reverse-engineered and only ever described a roboRIO's session; the 2027 Driver Station
+/// writes one `.wpilog` per session in WPILib's documented DataLog format, and that is what teams
+/// on Systemcore have. [`dslog`] survives for its shared types, not its parsers.
 #[tauri::command]
 fn ds_sessions(dir: Option<String>) -> Vec<dslog::DsSession> {
-    let path = dir.map(PathBuf::from).unwrap_or_else(dslog::default_log_dir);
-    dslog::list_sessions(&path, 40)
+    let path = dir.map(PathBuf::from).unwrap_or_else(wpilog::default_log_dir);
+    wpilog::list_sessions(&path, 40)
 }
 
+/// What the log reader supports, so an empty session list can explain itself.
 #[tauri::command]
-fn ds_events(path: String) -> Vec<dslog::DsEvent> {
-    dslog::read_events(&PathBuf::from(format!("{path}.dsevents")))
+fn ds_support_note() -> &'static str {
+    "Reads the 2027 FIRST Driver Station's .wpilog sessions from \
+     C:\\Users\\Public\\Documents\\FIRSTDriverStation\\Logs. Battery, round-trip time and processor \
+     load are graphed. The console and error lines are protobuf and are not decoded yet, so a \
+     session shows no events."
+}
+
+/// Console and error lines.
+///
+/// Empty for now. The 2027 Driver Station records these as protobuf
+/// (`mrc.proto.ProtobufConsoleLineTimestamp`), and decoding them needs the `MrcComm.proto`
+/// descriptor - which the log does carry, in its own first entry, so this is a job rather than a
+/// dead end. Returning nothing is the honest answer until it is done; half-decoding a protobuf into
+/// text that looks like a robot message would be worse than silence.
+#[tauri::command]
+fn ds_events(_path: String) -> Vec<dslog::DsEvent> {
+    Vec::new()
 }
 
 #[tauri::command]
 fn ds_samples(path: String) -> dslog::DsSamples {
-    dslog::read_samples(&PathBuf::from(format!("{path}.dslog")))
+    // A whole path now, not a stem with an extension bolted on: one file per session rather than
+    // NI's pair.
+    wpilog::read_samples(&PathBuf::from(path))
 }
 
 #[tauri::command]
@@ -398,6 +443,7 @@ fn run_gui() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             ds_sessions,
+            ds_support_note,
             ds_events,
             ds_samples,
             ds_log_dir,
@@ -419,14 +465,41 @@ fn run_gui() {
 
             // One timer, one event per tick, only when something actually changed. The webview is
             // never asked to do work on a frame where the robot said nothing new.
+            //
+            // And a frame carries only the values that changed since the last one. Sending the whole
+            // store - every one of a robot's four or five hundred topics, manifests and health rows
+            // included - thirty times a second had the webview parsing megabytes of JSON a second, and
+            // when it fell behind the frames queued: the robot on the field view trailed the real one
+            // further and further. The page merges frames into its store, so a partial frame is all it
+            // needs. A whole frame still goes out when the link comes up or drops, and every two
+            // seconds, so nothing can be missed for longer than that.
             std::thread::spawn(move || {
                 let mut reported = false;
+                let mut sent: std::collections::HashMap<String, nt4::NtValue> = std::collections::HashMap::new();
+                let mut was_connected = false;
+                let mut last_full = std::time::Instant::now();
                 loop {
                     std::thread::sleep(nt4::flush_interval());
                     if !dirty.swap(false, Ordering::Relaxed) {
                         continue;
                     }
-                    let (values, status) = pump.snapshot();
+                    let (all, status) = pump.snapshot();
+                    let full = status.connected != was_connected
+                        || last_full.elapsed() >= std::time::Duration::from_secs(2);
+                    was_connected = status.connected;
+                    let values: std::collections::HashMap<String, nt4::NtValue> = if full {
+                        last_full = std::time::Instant::now();
+                        all.clone()
+                    } else {
+                        all.iter()
+                            .filter(|(key, value)| sent.get(*key) != Some(*value))
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect()
+                    };
+                    sent = all;
+                    if values.is_empty() && !full {
+                        continue;
+                    }
                     // A failure here means the dashboard is showing stale numbers with no way to know
                     // it. Say so once rather than swallowing it forever.
                     if let Err(e) = handle.emit("nt", Frame { values, status }) {

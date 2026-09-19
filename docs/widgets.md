@@ -9,7 +9,7 @@ robot. Add, remove, resize and rearrange from the dock; the layout is remembered
 | Widget | What it shows |
 | --- | --- |
 | **Match timer** | phase, shift name, countdown, and the shape of the match as three bars |
-| **Hub activation** | whether your alliance hub is scoring, and how long until that changes |
+| **Hub activation** | whether your alliance hub is scoring now, how long until that changes, and the rest of the match |
 | **Auto chooser** | pick the routine — writes the key `SendableChooser` reads |
 
 The hub tile works the schedule out from the rules plus the FMS game-specific message rather than
@@ -28,8 +28,13 @@ needing the robot to tell it. See [the hub schedule](hub-schedule.md).
 ### The gauge
 
 One tile takes one topic or several comma-separated. With several, labels come from the shortest path
-suffix that actually distinguishes them — four keys ending in `/Velocity` come out as FrontLeft /
-FrontRight / BackLeft / BackRight rather than "Velocity" four times.
+suffix that actually distinguishes them — four keys ending in `/Velocity` come out as Front left /
+Front right / Back left / Back right rather than "Velocity" four times. A CamelCase segment is spaced
+into words for the label; the key itself is left alone, and each gauge carries it in its tooltip.
+
+A figure of a thousand or more is written short, 2.4k for 2400 and 2k for 2000, keeping its sign and
+its one decimal only where the decimal says something. The whole value and its unit are in the
+tooltip, and `Large figures` sets a tile back to writing them in full.
 
 `Multiply by` exists because Phoenix 6 reports rotations per second; ×60 gives RPM.
 
@@ -43,6 +48,15 @@ FrontRight / BackLeft / BackRight rather than "Velocity" four times.
 | **Physics Core** | slip, tipping and traction headroom |
 | **Impacts** | contacts Physics Core detected, how hard and how long ago |
 
+The **notice bar** is not a widget: it floats over the top of whichever view is showing, and
+carries what a driver has to know now — a camera that has stopped or is running hot, vision gone
+blind, any robot error, and while the robot is disabled whether it is at the selected auto's
+starting pose. It reads the robot's per-camera vision health rows, so each line says what is wrong
+and not only that something is.
+
+The **header strip**, top right, is three counts — cameras, motors, controller — as connected over
+expected, coloured by how many answer. Click one to open the Devices page (the controller opens the Systemcore page).
+
 Alerts are held for a couple of seconds after they clear, dimmed. Anything edge-triggered on a
 measurement sitting near its threshold raises and clears repeatedly, and rendering that verbatim gives
 a tile that strobes next to a driver.
@@ -53,6 +67,9 @@ a tile that strobes next to a driver.
 trail, and bumpers in your alliance colour. Three cameras: chase, overhead, free orbit. The chase
 camera swings around field elements that block the line of sight rather than leaving you looking at
 the back of a truss.
+
+The robot is always drawn inside the walls. When the pose estimate is off the carpet the readouts
+still show it, and a "drawn at the wall" chip says the picture has been held back.
 
 The camera, the trail length and whether the baked field CAD is drawn are in
 **Settings → Field view**. The camera buttons in the tile's own corner move the same setting — there

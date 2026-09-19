@@ -3,41 +3,158 @@
 <head>
   <meta charset="utf-8" />
   <title>Catalyst Console</title>
+  <!-- The house stylesheet first, then this app's own. `identity.css` is a verbatim copy of the one
+       in FrcCatalyst's docs and is never edited here: it declares the tokens and the primitives, and
+       styles.css below re-points what an instrument needs differently — the radii, and its own
+       long-standing token names. Order matters: the second :root wins. -->
+  <link rel="stylesheet" href="styles/identity.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app" id="app" data-live="false" data-edit="false" data-linked="false" data-estop="false">
 
+    <!-- The status bar, after the one along the top of Tesla's screen. Two halves on the board's own
+         columns: over the car panel, the drive-mode letters and the battery, exactly where Tesla puts
+         P R N D and its charge; over the rest, the quiet line of link state, time and hardware that
+         Tesla floats over its map. Nothing up here has a ground of its own. -->
     <header class="top">
-      <!-- The wordmark opens Settings on About. A discreet target rather than a dock button: the board
-           and the dock are working surfaces and neither has room for vanity. -->
-      <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog">
-        <svg class="bolt" viewBox="0 0 24 24" fill="#e94560" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
-        <span class="idt" id="ident">Catalyst<span> · no robot</span></span>
-      </button>
-      <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
-      <span class="chip"><i class="d" id="dDs"></i>Driver Station</span>
-      <span class="chip"><i class="d" id="dFms"></i>FMS</span>
-      <span class="chip"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
-      <div class="grow"></div>
-      <!-- A tablist is one tab stop with arrow keys inside it, not four tab stops in a row. The roving
-           tabindex is maintained by showView; the arrows are wired by wireTablist. -->
-      <nav class="tabs" role="tablist" aria-label="Views">
-        <button class="tab" role="tab" id="tab-board" aria-controls="board" data-view="board" aria-selected="true" tabindex="0">Dashboard</button>
-        <button class="tab" role="tab" id="tab-tune" aria-controls="view-tune" data-view="tune" aria-selected="false" tabindex="-1">Tune</button>
-        <button class="tab" role="tab" id="tab-logs" aria-controls="view-logs" data-view="logs" aria-selected="false" tabindex="-1">Logs</button>
-        <button class="tab" role="tab" id="tab-topics" aria-controls="view-topics" data-view="topics" aria-selected="false" tabindex="-1">Topics</button>
-      </nav>
-      <button class="gear" id="settingsBtn" title="Settings  ·  S" aria-haspopup="dialog" aria-label="Settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3.1"/>
-          <path d="M19.1 14.6a1.5 1.5 0 0 0 .3 1.65l.05.06a1.85 1.85 0 1 1-2.62 2.62l-.06-.06a1.5 1.5 0 0 0-1.65-.3 1.5 1.5 0 0 0-.91 1.37v.16a1.85 1.85 0 1 1-3.7 0v-.09a1.5 1.5 0 0 0-.98-1.37 1.5 1.5 0 0 0-1.65.3l-.06.06a1.85 1.85 0 1 1-2.62-2.62l.06-.06a1.5 1.5 0 0 0 .3-1.65 1.5 1.5 0 0 0-1.38-.91H4a1.85 1.85 0 1 1 0-3.7h.09a1.5 1.5 0 0 0 1.37-.98 1.5 1.5 0 0 0-.3-1.65l-.06-.06a1.85 1.85 0 1 1 2.62-2.62l.06.06a1.5 1.5 0 0 0 1.65.3h.07a1.5 1.5 0 0 0 .91-1.38V4a1.85 1.85 0 1 1 3.7 0v.09a1.5 1.5 0 0 0 .91 1.37 1.5 1.5 0 0 0 1.65-.3l.06-.06a1.85 1.85 0 1 1 2.62 2.62l-.06.06a1.5 1.5 0 0 0-.3 1.65v.07a1.5 1.5 0 0 0 1.38.91H20a1.85 1.85 0 1 1 0 3.7h-.09a1.5 1.5 0 0 0-1.37.91z"/>
-        </svg>
-      </button>
+      <div class="sb-car">
+        <!-- The mark opens Settings on About, the one piece of identity the bar keeps. -->
+        <button class="mark" id="aboutBtn" title="About Catalyst Console  ·  ?" aria-haspopup="dialog" aria-label="About Catalyst Console">
+          <svg class="bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
+        </button>
+        <!-- Tesla's P R N D, for a robot: Disabled, Autonomous, Teleop and Utility, the last being what
+             WPILib 2027 calls test mode. One letter lit; paintHeader sets which through data-mode. -->
+        <div class="gears" id="gears" data-mode="none" role="status" aria-label="Robot mode: no robot">
+          <span data-g="disabled" title="Disabled">D</span><span data-g="auto" title="Autonomous">A</span><span data-g="teleop" title="Teleop">T</span><span data-g="test" title="Utility">U</span>
+          <span class="estop" title="Emergency stop">E-STOP</span>
+        </div>
+        <div class="grow"></div>
+        <!-- The robot's battery where Tesla shows its charge: a figure and a cell drawn to its level. -->
+        <div class="batt" id="batt" data-level="none" title="Robot battery">
+          <span id="battText">— V</span>
+          <svg class="batt-cell" viewBox="0 0 28 13" aria-hidden="true">
+            <rect x="0.8" y="0.8" width="23.4" height="11.4" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <rect id="battFill" x="3" y="3" width="19" height="7" rx="1.4" fill="currentColor"/>
+            <path d="M26.2 4.6v3.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+      <div class="sb-map">
+        <!-- Tesla's profile, for a robot: the team the controller answers to. -->
+        <span class="profile" id="profile" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20c.9-3.6 3.8-5.6 7.2-5.6s6.3 2 7.2 5.6"/></svg>
+          <span id="profileName"></span>
+        </span>
+        <span class="idt" id="ident"><span class="idstate">no robot</span></span>
+        <!-- "Is anything on the other end of this", in the status bar's own voice: a glyph and a word
+             each, no pills. -->
+        <div class="statgroup" role="group" aria-label="Link">
+          <button class="chip" id="linkChip" title="Robot settings"><i class="d" id="dLink"></i><span id="linkText">Robot</span></button>
+          <span class="chip" title="Driver Station"><i class="d" id="dDs"></i><span class="long">Driver Station</span><span class="short">DS</span></span>
+          <span class="chip" title="FMS"><i class="d" id="dFms"></i><span>FMS</span></span>
+          <span class="chip loop"><i class="d" id="dLoop"></i><span id="loopText">— ms</span></span>
+        </div>
+        <div class="grow"></div>
+        <!-- What the robot is made of and how much of it is answering: cameras, motors, controller.
+             Counts come from the robot's device roster when it publishes one, and from what can be
+             seen on the wire when it does not; the tooltip says which. -->
+        <div class="devstrip" id="devStrip" role="status" aria-label="Connected hardware" hidden></div>
+        <!-- Tesla's alert triangle, top right: where an alert goes once its pop-up has had its few
+             seconds. Present only while something is active; it opens the list of them. -->
+        <button class="alert-ind" id="alertInd" data-level="warn" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="alertPop" title="Alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6 21.6 20.2H2.4z"/><path d="M12 9.8v4.6" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></svg>
+          <b id="alertCount">0</b>
+        </button>
+        <span class="clock" id="clock" aria-label="Time"></span>
+      </div>
     </header>
 
     <div class="views">
+      <!-- Floats over the top of whatever view is showing rather than pushing it down, so a camera
+           dropping out mid-match changes what the driver sees and not where their tiles are. -->
+      <!-- The HUB's heads-up: a countdown to the alliance HUB changing in teleop. Not an alert. -->
+      <div class="cue" id="matchCue" role="status" aria-live="polite" hidden><i class="cue-lamp" aria-hidden="true"></i><span class="cue-text"></span><span class="cue-n"></span></div>
+      <div class="notices" id="notices" role="status" aria-live="polite" hidden></div>
       <div class="view board" role="tabpanel" aria-labelledby="tab-board" data-view="board" data-active="true" id="board"></div>
+
+      <!-- Park. Tesla's screen when the car is not being driven: the car's own model, alone on a dark
+           stage, large enough to fill the view, and free to be turned with a finger. Console shows the
+           robot the same way whenever it is disabled or there is no robot, and steps aside the moment it
+           is enabled. Callouts name the parts that matter, joined to the model by hairlines that follow
+           it as it turns; cards along the bottom carry what a pit wants to know before a match. -->
+      <section class="park" id="park" hidden aria-label="Robot">
+        <div class="park-ground" id="parkGround" aria-hidden="true"></div>
+        <canvas class="park-canvas" id="parkCanvas"></canvas>
+        <svg class="park-lines" id="parkLines" aria-hidden="true"></svg>
+        <div class="park-head">
+          <div class="park-name" id="parkName">Robot</div>
+          <div class="park-sub" id="parkSub">No robot</div>
+          <div class="park-batt"><span class="n" id="parkVolts">—</span><span class="u">V</span></div>
+          <div class="park-charge" id="parkCharge" hidden>
+            <span class="park-charge-bar" aria-hidden="true"><i id="parkChargeFill"></i></span>
+            <span id="parkChargeText"></span>
+          </div>
+          <div class="park-ready" id="parkReady" data-ready="false" hidden><i aria-hidden="true"></i><span id="parkReadyText"></span></div>
+        </div>
+        <!-- Each callout opens a page about that part of the robot: what it is, what the number beside it
+             means, and what it is reading right now. Buttons rather than labels, because they do something. -->
+        <div class="park-callouts" id="parkCallouts">
+          <button type="button" class="callout" data-on="false" data-anchor="top" data-part="vision" aria-expanded="false"><small>Vision</small><b data-c="vision">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="battery" data-part="battery" aria-expanded="false"><small>Battery</small><b data-c="battery">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="drivetrain" data-part="drivetrain" aria-expanded="false"><small>Drivetrain</small><b data-c="drivetrain">—</b></button>
+          <button type="button" class="callout" data-on="false" data-anchor="controller" data-part="controller" aria-expanded="false"><small data-c="controllerName">Controller</small><b data-c="controller">—</b></button>
+        </div>
+        <aside class="park-part" id="parkPart" hidden aria-live="polite">
+          <header>
+            <div><small id="parkPartKind">Part</small><b id="parkPartTitle">—</b></div>
+            <button type="button" class="park-part-close" id="parkPartClose" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </header>
+          <p id="parkPartLede"></p>
+          <dl id="parkPartRows"></dl>
+        </aside>
+        <!-- The run review, opened from the Last drive card: one run's numbers and traces, and the runs
+             before it down the side. Filled by paintRuns in app.js; a panel like the part pages, and closed
+             the same ways. -->
+        <aside class="park-part park-runs" id="parkRuns" hidden aria-label="Run review">
+          <header>
+            <div><small>Run review</small><b id="runTitle">—</b><span class="run-sub" id="runSub"></span></div>
+            <div class="run-actions">
+              <button type="button" class="run-export" id="runExport" hidden>Export CSV</button>
+              <button type="button" class="park-part-close" id="parkRunsClose" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          </header>
+          <div class="run-body">
+            <div class="run-main" id="runMain"></div>
+            <div class="run-side">
+              <div class="run-side-head"><span>Recent runs</span><small id="runListKey"></small></div>
+              <ol class="run-list" id="runList"></ol>
+            </div>
+          </div>
+        </aside>
+        <div class="park-cards">
+          <div class="pcard"><small>Match</small><b id="parkMatch">—</b><span id="parkMatchSub"></span></div>
+          <div class="pcard"><small>Autonomous</small><b id="parkAuto">—</b><span id="parkAutoSub"></span></div>
+          <div class="pcard"><small>Health</small><b id="parkHealth">—</b><span id="parkHealthSub"></span></div>
+          <!-- The latest run, and the way into the run review. -->
+          <button type="button" class="pcard" id="parkDriveCard" aria-expanded="false" aria-controls="parkRuns">
+            <small>Last drive</small><b id="parkDrive">—</b><span id="parkDriveSub"></span>
+          </button>
+          <!-- The robot's own pre-match check, when it has one: the result, and a page with every test. -->
+          <button type="button" class="pcard pcheck" id="parkCheck" data-part="check" hidden aria-expanded="false">
+            <small>Pre-match check</small><b id="parkCheckState">—</b><span id="parkCheckSub"></span>
+          </button>
+        </div>
+        <button class="park-dash" id="parkDash" title="Show the dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="9" rx="1.6"/><rect x="13" y="4" width="7" height="5" rx="1.6"/><rect x="13" y="11" width="7" height="9" rx="1.6"/><rect x="4" y="15" width="7" height="5" rx="1.6"/></svg>
+          Dashboard
+        </button>
+        <div class="park-hint" id="parkHint">Drag to look around · double-click to reset</div>
+      </section>
 
       <div class="view sheetwrap" role="tabpanel" id="view-tune" aria-labelledby="tab-tune" data-view="tune">
         <div class="sheet" id="tuneSheet"></div>
@@ -50,23 +167,80 @@
       <div class="view sheetwrap" role="tabpanel" id="view-topics" aria-labelledby="tab-topics" data-view="topics">
         <div class="sheet" id="topicSheet"></div>
       </div>
+
+      <!-- Systemcore has five CAN buses on three SPI controllers, and the grouping is the whole
+           reason this is a view rather than a row on the Systemcore page: two buses on one
+           controller throttle each other, two on different controllers do not, and every other
+           tool in FRC draws all five as equals. -->
+      <div class="view sheetwrap" role="tabpanel" id="view-can" aria-labelledby="tab-can" data-view="can">
+        <div class="sheet" id="canSheet"></div>
+      </div>
     </div>
 
+    <!-- The dock, after Tesla's bottom bar: black, edge to edge, with the robot button at the left that
+         opens Settings, as Tesla's car opens Controls, the robot's state where Tesla keeps the cabin temperature, and the apps in the
+         middle as coloured tiles. The views are those apps. -->
     <div class="dock">
+      <button class="dk dk-car" id="settingsBtn" title="Settings  ·  S" aria-haspopup="dialog" aria-label="Settings">
+        <!-- A robot seen from above, drawn the way Tesla draws its car in this corner. -->
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <rect x="7" y="6" width="18" height="20" rx="3.2"/>
+          <path d="M11 6V4.5M21 6V4.5M11 26v1.5M21 26v1.5"/>
+          <path d="M11.5 11h9M11.5 21h9" stroke-linecap="round"/>
+          <path d="M4.5 9.5v4M4.5 18.5v4M27.5 9.5v4M27.5 18.5v4" stroke-width="2.6" stroke-linecap="round"/>
+        </svg>
+      </button>
       <div class="state">
         <i class="lamp"></i>
         <div class="txt">
-          <b id="stateName">No robot</b>
           <small id="stateSrc">Searching…</small>
+          <b id="stateName">No robot</b>
         </div>
       </div>
-      <button class="dk" id="editBtn" aria-pressed="false">
+      <!-- The autonomous routine, set the way Tesla sets the cabin temperature: a chevron either side
+           of the value. It writes the same key the chooser tile writes, and it locks while the robot
+           is enabled, since a routine is only read when auto begins. Hidden until a chooser exists. -->
+      <div class="dock-auto" id="dockAuto" hidden>
+        <button class="chev" id="autoPrev" aria-label="Previous auto routine">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg>
+        </button>
+        <div class="dock-auto-txt"><small>Auto</small><b id="autoName">—</b></div>
+        <button class="chev" id="autoNext" aria-label="Next auto routine">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="grow"></div>
+      <!-- A tablist is one tab stop with arrow keys inside it, not five tab stops in a row. The roving
+           tabindex is maintained by showView; the arrows are wired by wireTablist. Each app has its own
+           colour the way Tesla's do, and the one on screen carries the bar beneath it. -->
+      <nav class="tabs apps" role="tablist" aria-label="Views">
+        <button class="tab" role="tab" id="tab-board" aria-controls="board" data-view="board" aria-selected="true" tabindex="0" title="Dashboard">
+          <span class="app-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="7" height="9" rx="1.6"/><rect x="13" y="4" width="7" height="5" rx="1.6"/><rect x="13" y="11" width="7" height="9" rx="1.6"/><rect x="4" y="15" width="7" height="5" rx="1.6"/></svg></span>
+          <span class="app-name">Dashboard</span>
+        </button>
+        <button class="tab" role="tab" id="tab-tune" aria-controls="view-tune" data-view="tune" aria-selected="false" tabindex="-1" title="Tune">
+          <span class="app-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/><circle cx="6" cy="14" r="2.4" fill="currentColor"/><circle cx="12" cy="8" r="2.4" fill="currentColor"/><circle cx="18" cy="16" r="2.4" fill="currentColor"/></svg></span>
+          <span class="app-name">Tune</span>
+        </button>
+        <button class="tab" role="tab" id="tab-logs" aria-controls="view-logs" data-view="logs" aria-selected="false" tabindex="-1" title="Logs">
+          <span class="app-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 16.5 8.5 11l3.5 3.5 7.5-8"/><path d="M15 6.5h4.5V11"/></svg></span>
+          <span class="app-name">Logs</span>
+        </button>
+        <button class="tab" role="tab" id="tab-topics" aria-controls="view-topics" data-view="topics" aria-selected="false" tabindex="-1" title="Topics">
+          <span class="app-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.3" fill="currentColor"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor"/><circle cx="4.5" cy="17.5" r="1.3" fill="currentColor"/></svg></span>
+          <span class="app-name">Topics</span>
+        </button>
+        <button class="tab" role="tab" id="tab-can" aria-controls="view-can" data-view="can" aria-selected="false" tabindex="-1" title="CAN">
+          <span class="app-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M6.5 12V7.5M12 12V6M17.5 12V8"/><path d="M9 12v5M15 12v4.5"/></svg></span>
+          <span class="app-name">CAN</span>
+        </button>
+      </nav>
+      <span class="dock-rule" aria-hidden="true"></span>
+      <button class="dk dk-icon" id="editBtn" aria-pressed="false" title="Edit layout  ·  E" aria-label="Edit layout">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-        Edit layout
       </button>
-      <button class="dk" id="addBtn">
+      <button class="dk dk-icon" id="addBtn" title="Add component" aria-label="Add component">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add component
       </button>
       <div class="grow"></div>
       <!-- Appears only once the link has actually dropped. Silence is the normal state. -->
@@ -80,31 +254,50 @@
         Demo data
       </button>
     </div>
+
+    <!-- The alert list, opened from the triangle in the status bar: what is active now, then what has
+         cleared this session. A pop-up over the board rather than a page, the way Tesla opens its
+         alerts over the map, and never modal - nothing here may stand between a driver and the
+         board. -->
+    <div class="alertpop" id="alertPop" role="dialog" aria-label="Alerts" hidden>
+      <div class="alertpop-head">
+        <b>Alerts</b>
+        <button class="alertpop-close" id="alertPopClose" aria-label="Close alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="alertpop-body" id="alertPopBody"></div>
+    </div>
   </div>
 
+  <!-- The pop-ups, after Tesla's: the screen dims and a dark sheet sits over it. Each is a title, a body
+       that scrolls under it, and a foot holding the one blue button, so the button stays in reach
+       however long the body is. -->
   <!-- component palette -->
   <div class="modal" id="pickModal">
-    <div class="picker">
-      <h3>Add a component</h3>
+    <div class="picker" role="dialog" aria-labelledby="pickTitle">
+      <h3 id="pickTitle">Add a component</h3>
       <p>Each one binds to NetworkTables keys you choose, so nothing here is hard-coded to a season or a robot.</p>
-      <div id="pickBody"></div>
-      <button class="close" id="pickClose">Done</button>
+      <div class="pbody" id="pickBody"></div>
+      <div class="pfoot"><button class="close" id="pickClose">Done</button></div>
     </div>
   </div>
 
   <!-- per-component configuration -->
   <div class="modal" id="cfgModal">
-    <div class="picker" style="max-width:560px">
+    <div class="picker narrow" role="dialog" aria-labelledby="cfgTitle">
       <h3 id="cfgTitle">Configure</h3>
       <p id="cfgDesc"></p>
-      <div id="cfgBody"></div>
-      <button class="close" id="cfgClose">Done</button>
+      <div class="pbody" id="cfgBody"></div>
+      <div class="pfoot"><button class="close" id="cfgClose">Done</button></div>
     </div>
   </div>
 
-  <!-- Settings: a mode of the instrument rather than a window floating over it. Full bleed, a quiet
-       rail of categories, one column of tall rows. About is the last section rather than a
-       destination of its own, because a product explaining itself is the end of the manual. -->
+  <!-- Settings: a mode of the instrument rather than a window floating over it, drawn after Tesla's
+       Controls screen. Full bleed, the categories down the left with the search at their head, and the
+       open one to the right as a large title, a row of quick controls where it has them, and one
+       column of tall rows. About is the last section rather than a destination of its own, because a
+       product explaining itself is the end of the manual. -->
   <!-- No aria-modal. There is no focus trap and the dashboard behind is not inert, and that is the
        design rather than an oversight: rule two says nothing may impede driving, so this is a mode you
        step out of and not a window that holds you. Claiming modality would have been the markup saying
@@ -113,24 +306,27 @@
 
     <div class="srail">
       <div class="srailhead">
-        <span>Settings</span>
+        <!-- Fifteen settings across seven sections is past the point where remembering which one
+             holds what is free. Typing here filters every row in every section at once and leaves
+             them where they are, so a match is changed in place rather than in a copy of itself. -->
+        <div class="ssearch">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off"
+                 spellcheck="false" aria-label="Search settings" />
+        </div>
         <button class="sclose" id="settingsClose" title="Close  ·  Esc" aria-label="Close settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
-      </div>
-      <!-- Fifteen settings across seven sections is past the point where remembering which one holds
-           what is free. Typing here filters every row in every section at once and leaves them
-           where they are, so a match is changed in place rather than in a copy of itself. -->
-      <div class="ssearch">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off"
-               spellcheck="false" aria-label="Search settings" />
       </div>
 
       <div class="snavlist" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
         <button class="snav" role="tab" id="snav-robot" aria-controls="ssec-robot" data-sec="robot" aria-selected="true" tabindex="0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="3"/><circle cx="8.5" cy="10.5" r="1.1"/><circle cx="15.5" cy="10.5" r="1.1"/><path d="M9 14.5h6"/></svg>
           Robot
+        </button>
+        <button class="snav" role="tab" id="snav-core" aria-controls="ssec-core" data-sec="core" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/></svg>
+          Systemcore
         </button>
         <button class="snav" role="tab" id="snav-devices" aria-controls="ssec-devices" data-sec="devices" aria-selected="false" tabindex="-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="8" width="10" height="8" rx="1.6"/><path d="M12 3v5M4 12h3M17 12h3M9 21v-5M15 21v-5"/></svg>
@@ -143,6 +339,10 @@
         <button class="snav" role="tab" id="snav-dashboard" aria-controls="ssec-dashboard" data-sec="dashboard" aria-selected="false" tabindex="-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
           Dashboard
+        </button>
+        <button class="snav" role="tab" id="snav-drivers" aria-controls="ssec-drivers" data-sec="drivers" aria-selected="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.8 20.5c.6-3.7 3.5-6 7.2-6s6.6 2.3 7.2 6"/></svg>
+          Drivers
         </button>
         <button class="snav" role="tab" id="snav-data" aria-controls="ssec-data" data-sec="data" aria-selected="false" tabindex="-1">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"/><path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3"/></svg>
@@ -165,10 +365,212 @@
         <!-- Only ever seen while searching, and only when nothing matched. -->
         <p class="snohits" id="setNoHits" hidden>Nothing here matches <b id="setNoHitsQ"></b>.</p>
 
+        <!-- ---------------------------------------------------------------- systemcore -->
+        <!--
+          What the control system reports about itself.
+
+          None of this existed on a roboRIO, which is why the failures it covers used to be
+          undiagnosable from the driver's station: a robot that browned out because four seasons of
+          match logs filled the eMMC failed pointing at nothing at all.
+
+          Every figure here is measured by the OS and published on its own NetworkTables server;
+          Catalyst mirrors them under /Catalyst/Systemcore/ so they arrive on the same connection as
+          everything else. Nothing on this page is computed by the console, and nothing is filled in
+          with a default - a reading the machine did not send is shown as absent, because "0%" and
+          "no answer" are different facts and only one of them is good news.
+        -->
+        <section class="ssec" role="tabpanel" id="ssec-core" aria-labelledby="snav-core" data-sec="core">
+          <h2 class="stitle">Systemcore</h2>
+          <p class="slead">What the computer running your robot says about itself.</p>
+
+          <!-- The machine itself: the model its own web interface draws, read out of the OS image at
+               build time (npm run device-cad). Hidden when the build had no image to read. -->
+          <figure class="corehero" id="coreHero" hidden>
+            <canvas id="coreCanvas" aria-hidden="true"></canvas>
+            <figcaption class="gpartwho"><b>Systemcore</b><span id="coreHeroNote"></span></figcaption>
+          </figure>
+
+          <div class="core" id="core" data-live="false">
+
+            <!-- The four that change second to second. Big, because these are read at a glance from
+                 a driver's station and not studied. -->
+            <div class="cvitals">
+              <div class="cvital" data-x="cpuCell">
+                <div class="cvk">Processor</div>
+                <div class="cvn"><b data-x="cpu">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="cpuBar"></i></div>
+              </div>
+              <div class="cvital" data-x="tempCell">
+                <div class="cvk">Temperature</div>
+                <div class="cvn"><b data-x="temp">—</b><span>&deg;C</span></div>
+                <div class="ctrack"><i data-x="tempBar"></i></div>
+              </div>
+              <div class="cvital" data-x="ramCell">
+                <div class="cvk">Memory</div>
+                <div class="cvn"><b data-x="ram">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="ramBar"></i></div>
+                <div class="cvsub" data-x="ramSub"></div>
+              </div>
+              <div class="cvital" data-x="diskCell">
+                <div class="cvk">Storage</div>
+                <div class="cvn"><b data-x="disk">—</b><span>%</span></div>
+                <div class="ctrack"><i data-x="diskBar"></i></div>
+                <div class="cvsub" data-x="diskSub"></div>
+              </div>
+            </div>
+
+            <!-- Per-core load. The summary figure hides the shape of the problem: one core pinned
+                 while three idle averages to 25% and reads as a quiet machine, but it is a thread
+                 stuck in a loop and the robot program is on that core. Agent only - NetworkTables
+                 carries one number for the whole SoC. -->
+            <div class="ccard" data-x="coresCard" hidden>
+              <h3>Processor cores</h3>
+              <p class="cnote">Each core separately, with the clock it is running at. A single
+                 pinned core is invisible in the average.</p>
+              <div class="ccores" data-x="cores"></div>
+              <div class="cfaults" data-x="throttle"></div>
+            </div>
+
+            <!-- The robot program as a process, which is the one thing NetworkTables can never
+                 report about - least of all after it has crashed, which is exactly when somebody
+                 wants to know what it said. -->
+            <div class="ccard" data-x="programCard" hidden>
+              <h3>Robot program</h3>
+              <p class="cnote">How the program itself is doing, from the machine rather than from
+                 the program. A robot that crashes and comes straight back looks fine from a
+                 driver&rsquo;s station and looks like this from here.</p>
+              <div class="crows" data-x="program"></div>
+              <details class="clog" data-x="logWrap">
+                <summary>Recent output</summary>
+                <pre data-x="log"></pre>
+              </details>
+            </div>
+
+            <!-- What is using the machine, and what is using the disk. "Storage is at 94%" is not
+                 actionable; "your logs are 22 GB of it" is. -->
+            <!-- From the Systemcore's own vision aggregator joined with each camera's REST status
+                 by the agent: exists without robot code, which is when a hot or unplugged camera is
+                 easiest to fix. -->
+            <div class="ccard" data-x="camCard" hidden>
+              <h3>Cameras</h3>
+              <div class="gcams" data-x="cams"></div>
+            </div>
+
+            <!-- The robot program's motor history, served by the agent from the file it keeps on the
+                 Systemcore: every motor by serial number, with its hours, revolutions, peaks, and
+                 every id and name it has ever had. A motor that is renumbered keeps its past. -->
+            <div class="ccard" data-x="motorCard" hidden>
+              <h3>Motor history</h3>
+              <div class="mhist" data-x="motorHist"></div>
+              <div class="cap" data-x="motorCap"></div>
+            </div>
+
+            <div class="ccard" data-x="loadCard" hidden>
+              <h3>What is using it</h3>
+              <div class="csplit">
+                <div>
+                  <h4>Processes</h4>
+                  <div class="crows tight" data-x="procs"></div>
+                </div>
+                <div>
+                  <h4>Storage</h4>
+                  <div class="crows tight" data-x="dirs"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CAN, per bus, grouped by the SPI controller each hangs off. The grouping is the
+                 point: two buses at 55% each look fine alone and can still saturate the controller
+                 they share, and nothing else on the robot will tell you that. -->
+            <div class="ccard" data-x="canCard">
+              <h3>CAN buses</h3>
+              <p class="cnote">Measured by the machine, not estimated from a device list. Buses on
+                 one controller share its bandwidth &mdash; a split across a pair buys less than a
+                 split across two controllers.</p>
+              <div class="cbuses" data-x="buses"></div>
+              <div class="cfaults" data-x="canFaults"></div>
+              <!-- Frame-level counters, agent only. Utilisation says how busy a bus is; these say
+                   whether it is healthy, and a bus dropping frames at a comfortable 30% shows up in
+                   exactly one of the two. -->
+              <div class="ccounters" data-x="canCounters"></div>
+            </div>
+
+            <!-- Flash wear. Slow, and the only thing here that does not recover: deleting logs frees
+                 space and gives back none of the write life already spent. -->
+            <div class="ccard" data-x="wearCard">
+              <h3>Storage health</h3>
+              <p class="cnote">The eMMC wears out as it is written to, and unlike a full disk it does
+                 not come back when you delete something. Four seasons of match logs is exactly the
+                 workload that spends it.</p>
+              <div class="cwear">
+                <div class="ctrack big"><i data-x="wearBar"></i></div>
+                <div class="cwearrow"><span data-x="wearText">&mdash;</span><b data-x="wearState"></b></div>
+              </div>
+            </div>
+
+            <!-- Power, including the two thresholds that used to be roboRIO constants in code and
+                 are now numbers the device itself holds. -->
+            <div class="ccard" data-x="powerCard">
+              <h3>Power</h3>
+              <div class="crows" data-x="power"></div>
+            </div>
+
+            <!-- Identity, and the one question a pit crew asks constantly: is it on the radio, or
+                 only on USB? -->
+            <div class="ccard" data-x="idCard">
+              <h3>Machine</h3>
+              <div class="crows" data-x="ident"></div>
+            </div>
+
+            <div class="cagent" data-x="agentNote"></div>
+
+            <div class="cempty" data-x="empty">
+              <b>No Systemcore is reporting</b>
+              <span>This fills in on its own from a robot running Catalyst 2.x on Systemcore, the
+                    moment it connects. Blank here means the console is talking to a simulation, or
+                    to a robot whose code has not called <code>SystemCoreStatus.publish()</code> in
+                    its periodic loop.</span>
+            </div>
+          </div>
+        </section>
+
         <!-- ---------------------------------------------------------------- robot -->
         <section class="ssec" role="tabpanel" id="ssec-robot" aria-labelledby="snav-robot" data-sec="robot" data-active="true">
           <h2 class="stitle">Robot</h2>
           <p class="slead">Which robot the console looks for, and how it is finding it.</p>
+
+          <!-- Tesla's quick controls, the row of big square buttons at the top of its Controls screen.
+               None is a setting of its own: each presses a control that already exists - the demo
+               switch, the team field below, the field camera, the field model, the units, the reset -
+               through the same code that control runs, and paintQuick reads each state back from the
+               same place, so a tile and its control cannot disagree. The grey line under each name is
+               how it is set now. -->
+          <div class="squick" role="group" aria-label="Quick controls">
+            <button type="button" class="qtile" id="qDemo" aria-pressed="false" title="Demo data on or off  ·  D">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg>
+              <b>Demo data</b><small aria-hidden="true">Off</small>
+            </button>
+            <button type="button" class="qtile" id="qTeam" title="Change the team number the console looks for">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="6" width="18" height="20" rx="3.2"/><path d="M11.5 11h9M11.5 21h9" stroke-linecap="round"/><path d="M4.5 9.5v4M4.5 18.5v4M27.5 9.5v4M27.5 18.5v4" stroke-width="2.6" stroke-linecap="round"/></svg>
+              <b>Team</b><small>&mdash;</small>
+            </button>
+            <button type="button" class="qtile" id="qCamera" title="Next field camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/></svg>
+              <b>Camera</b><small>Chase</small>
+            </button>
+            <button type="button" class="qtile" id="qModel" aria-pressed="true" title="Draw the baked field model">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><path d="M4.5 7.8 12 12l7.5-4.2M12 12v8.5"/></svg>
+              <b>Field model</b><small aria-hidden="true">On</small>
+            </button>
+            <button type="button" class="qtile" id="qUnits" title="Units on the spec sheet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.8 15.6 15.6 3.8l4.6 4.6L8.4 20.2z"/><path d="m7.6 11.8 2 2M10.4 9l1.4 1.4M13.2 6.2l2 2"/></svg>
+              <b>Units</b><small>Metric</small>
+            </button>
+            <button type="button" class="qtile" id="qReset" title="Reset the board to the default tiles">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.6 13.5A7.5 7.5 0 1 0 6.8 6.7"/><path d="M6.4 3v4h4"/></svg>
+              <b>Reset board</b><small>Press twice</small>
+            </button>
+          </div>
 
           <!-- The robot's own account of itself, published by FrcCatalyst under Catalyst/Robot. The
                plan is drawn from the frame and module figures on the wire rather than from a stock
@@ -177,7 +579,7 @@
                the empty state, and a group whose keys are absent does not appear at all. -->
           <div class="garage" id="garage" data-known="false">
             <figure class="gplan">
-              <canvas id="garagePlan" width="600" height="420" aria-labelledby="gName"></canvas>
+              <canvas id="garagePlan" aria-labelledby="gName"></canvas>
               <figcaption id="gPlanNote"></figcaption>
             </figure>
 
@@ -257,6 +659,17 @@
               <div class="gpower" id="gPower"></div>
               <div class="gpowerkey" id="gPowerKey"></div>
             </section>
+
+            <section class="gcard" id="gCamCard" hidden>
+              <h4>Cameras <b id="gCamCount"></b></h4>
+              <!-- The camera the robot has, drawn as the object it is, from the vendor's own CAD. It
+                   appears only when one of the robot's cameras is a model this console has. -->
+              <div class="gpart" id="gCamPart" hidden>
+                <canvas id="gCamCanvas" aria-hidden="true"></canvas>
+                <div class="gpartwho"><b id="gCamPartName">—</b><span id="gCamPartNote"></span></div>
+              </div>
+              <div class="gcams" id="gCams"></div>
+            </section>
           </div>
 
           <div class="gempty" id="devEmpty">
@@ -333,13 +746,24 @@
                 <span>Which view the console launches into.</span>
               </div>
               <div class="sctl">
-                <div class="choice" id="setStartView" style="--n:4" role="radiogroup" aria-label="Opening view">
+                <div class="choice" id="setStartView" style="--n:5" role="radiogroup" aria-label="Opening view">
                   <i class="choicesel" aria-hidden="true"></i>
                   <button type="button" role="radio" data-v="board" aria-checked="true">Dashboard</button>
                   <button type="button" role="radio" data-v="tune" aria-checked="false">Tune</button>
                   <button type="button" role="radio" data-v="logs" aria-checked="false">Logs</button>
                   <button type="button" role="radio" data-v="topics" aria-checked="false">Topics</button>
+                  <button type="button" role="radio" data-v="can" aria-checked="false">CAN</button>
                 </div>
+              </div>
+            </div>
+
+            <div class="srow">
+              <div class="slab">
+                <b>Park view</b>
+                <span>While the robot is disabled, show it on its own stage instead of the board.</span>
+              </div>
+              <div class="sctl">
+                <button class="tog" id="setPark" role="switch" aria-checked="true" aria-label="Show the park view while the robot is disabled"><i></i></button>
               </div>
             </div>
 
@@ -390,7 +814,7 @@
                 <span>Back to the default tiles.</span>
               </div>
               <div class="sctl">
-                <button class="sbtn" id="resetBoard">Reset</button>
+                <button class="sbtn danger" id="resetBoard">Reset</button>
               </div>
             </div>
 
@@ -422,7 +846,8 @@
                 <b>Demo data</b>
                 <span>Invented telemetry, for a board with no robot.</span>
               </div>
-              <!-- Amber rather than blue, alone among the switches. See .tog.hazard in styles.css. -->
+              <!-- An ordinary switch. What marks it as the hazard is the small amber mark .tog.hazard
+                   puts beside the row's name while it is on; see styles.css. -->
               <div class="sctl">
                 <button class="tog hazard" id="setDemoTog" role="switch" aria-checked="false" aria-label="Demo data"><i></i></button>
               </div>
@@ -430,10 +855,11 @@
           </div>
 
           <p class="sprose">
-            Demo data is a match on repeat: twenty seconds of auto, then teleop counting down, with a
-            drivetrain, a battery under load and a pose driving a circle. It exists for setting a board
-            up in the hotel the night before, and for showing someone what a tile does without a robot
-            on the cart.
+            Demo data is a match on repeat: twenty seconds of auto, then teleop counting down to the end
+            of a 160-second match, then forty seconds standing disabled before the next one starts, which
+            is long enough to watch the board hand over to Park. There is a drivetrain, a battery under
+            load and a pose driving a circle. It exists for setting a board up in the hotel the night
+            before, and for showing someone what a tile does without a robot on the cart.
           </p>
           <p class="sprose">
             <b>It is off by default and it is never remembered.</b> A dashboard that quietly invents
@@ -479,7 +905,10 @@
             <pre id="relNotesBody"></pre>
           </section>
 
-          <button class="sbtn below" id="installUpdate" hidden>Install</button>
+          <!-- The one primary action in the panel, and its one blue button: it appears only when
+               there is a release to take, under a note that says what it is, and it is the decision
+               the section exists to put. -->
+          <button class="sbtn primary below" id="installUpdate" hidden>Install</button>
 
           <p class="sprose">
             A driver station is usually on a field network with no route to the internet, so a check that
@@ -488,16 +917,58 @@
           </p>
         </section>
 
+        <!-- ---------------------------------------------------------------- drivers -->
+        <section class="ssec" role="tabpanel" id="ssec-drivers" aria-labelledby="snav-drivers" data-sec="drivers">
+          <h2 class="stitle">Drivers</h2>
+          <p class="slead">Who is in front of this screen. Each profile keeps its own board, so a driver and
+             an operator can lay the console out the way each of them wants and switch between the two
+             between matches. A profile also keeps the robot settings that driver likes — the deadband
+             their stick needs, the speed cap, which events buzz the controller — and choosing a profile
+             puts them on the robot, through the ordinary dashboard write to a tunable the robot itself
+             published. Nothing else about the robot is touched from here.</p>
+
+          <div class="drivers">
+            <div class="dstage">
+              <canvas id="driverCanvas" aria-hidden="true"></canvas>
+              <div class="dstage-who"><b data-x="driverName">—</b><span data-x="driverNote">in use</span></div>
+            </div>
+            <div class="dlist" id="driverList"></div>
+          </div>
+
+          <!-- Read-only, and the same for everyone: a binding is the robot's own wiring rather than
+               anybody's preference. It is here because the first thing a new driver asks is what the
+               buttons do, and the answer belongs beside who is driving. -->
+          <h3 class="dsh">What the controls do</h3>
+          <p class="cnote">As the robot reports them. The console never changes a binding: which button does
+             what is decided in robot code, and a dashboard that could rebind one would be a dashboard that
+             drives. A robot that lets a dashboard choose between control layouts declares that choice as a
+             tunable like any other, and it then appears in each profile's robot settings above.</p>
+          <div class="dcontrols" id="driverControls"></div>
+
+          <div class="srows">
+            <div class="srow">
+              <div class="slab">
+                <b>Add a driver</b>
+                <span>Up to eight. A new profile starts with the board on screen now and no robot settings
+                      at all, and keeps whatever you do to either from then on.</span>
+              </div>
+              <div class="sctl"><button class="sbtn" id="driverAdd" type="button">Add driver</button></div>
+            </div>
+          </div>
+        </section>
+
         <!-- ---------------------------------------------------------------- about -->
         <section class="ssec" role="tabpanel" id="ssec-about" aria-labelledby="snav-about" data-sec="about">
           <header class="mast">
             <svg class="mastbolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z"/></svg>
             <div class="mastname">
-              <h1>Catalyst<span>Console</span></h1>
+              <h1><span>Catalyst</span> Console</h1>
               <p>A driver station companion for teams running FrcCatalyst.</p>
             </div>
             <div class="mastver">
-              <b data-x="version2">—</b>
+              <!-- The identity's version badge, in the grey capsule Controls draws it in: a version is
+                   not a state, so the signal colour and the lit dot come off in styles.css. -->
+              <b class="cat-pill" data-x="version2">—</b>
               <small data-x="versionSrc">reading version…</small>
             </div>
           </header>

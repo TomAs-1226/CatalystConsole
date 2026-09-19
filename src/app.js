@@ -15,6 +15,40 @@
  * persisted locally. Nothing is hard-coded to one robot or one season.
  */
 
+import * as coreFmt from "./core-format.js";
+import * as canModel from "./can-model.js";
+import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide, systemChecks } from "./devices.js";
+/* What a calibration routine (WheelRadius, X1's slip current, ...) is saying about itself right now,
+   as the same grey capsule the alerts use. Its own module so the parsing is tested without a robot. */
+import { calibrationNotices } from "./calibration.js";
+/* The house motion module, copied verbatim from FrcCatalyst's docs and never edited here. CSS covers
+   every transition in this program; this is the one thing it cannot do — answer a press at the point
+   it was pressed. */
+import { stateLayer } from "./motion.js";
+/* How the board words a large figure and a topic path's segment; its own module so the rules can be
+   tested without a DOM. */
+import { compactFigure, spacedLabel } from "./board-format.js";
+import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
+import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
+import { aimCaption } from "./aim-target.js";
+/* OVERDRIVE's debounce - true has to hold before anything shows, and the warp plays once per engage.
+   Its own module so the state machine is tested without the field tile (see overdrive.js). */
+import { createOverdriveDebounce } from "./overdrive.js";
+import { demoMatch, START_POSE } from "./demo-match.js";
+/* Every enabled stretch, written up for the run review on Park. Its own module so every number it prints is
+   tested against X1's real topics. */
+import {
+  addRun, createRunRecorder, describeChanges, loadRuns, modeLabel, runCard, runClock, runCsv, runFigures,
+  runFileName, runWhen, RUNS_STORE_KEY, storeRuns, traceSegments, tunableChanges, valueRange,
+} from "./runs.js";
+import { createDeviceStage, deviceById, loadDevices } from "./device3d.js";
+import { createRobotModel, normalizeRobot } from "./robot3d.js";
+import {
+  addDriver, activeDriver, capture, captureRobot, cleanName, CONTROLS_MANIFEST, DRIVER_COLOURS, driverHex,
+  DRIVERS_MAX, makeDriver, readControlBindings, readDeclaredTunables, readDrivers, readTunables, removeDriver,
+  robotPlan, ROBOT_MAX, setRobotSetting, switchDriver, TUNABLE_MANIFEST, updateDriver, writeDrivers,
+} from "./drivers.js";
+
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
 
@@ -85,8 +119,21 @@ function has(key) {
 /* --------------------------------------------------------- driver station state */
 
 /* WPILib packs the control word into /FMSInfo/FMSControlData. The bit layout is part of the DS
- * protocol and has been stable for years, but we only ever read it. */
+ * protocol and has been stable for years, but we only ever read it. 2027 publishes a struct at
+ * /FMSInfo/ControlWord instead, and the backend hands that over in these same bits (see control_word in
+ * nt4.rs); whichever of the two the robot publishes is the one read. */
 const BIT = { enabled: 1, auto: 2, test: 4, estop: 8, fms: 16, ds: 32 };
+
+/** The robot's control word, from whichever topic its WPILib publishes it on; null when neither. */
+function controlWord() {
+  return num("/FMSInfo/ControlWord", null) ?? num("/FMSInfo/FMSControlData", null);
+}
+
+/** What the FMS says about the match - the hub schedule's first inactive alliance - from 2026's topic
+ *  or 2027's. */
+function gameMessage() {
+  return str("/FMSInfo/GameData", null) ?? str("/FMSInfo/GameSpecificMessage", "");
+}
 
 const ds = {
   word: 0,
@@ -99,7 +146,8 @@ const ds = {
   get mode() {
     if (this.estop) return "E-STOP";
     if (!this.enabled) return "Disabled";
-    if (this.test) return "Test";
+    /* 2027 calls it utility, and a robot on 2027 publishes the struct word. */
+    if (this.test) return has("/FMSInfo/ControlWord") ? "Utility" : "Test";
     if (this.auto) return "Autonomous";
     return "Teleop";
   },
@@ -133,16 +181,74 @@ function matchTime() {
 /* A synthetic robot, for looking at the dashboard without one. It is off by default and the dock
  * button stays lit while it runs, because a dashboard that quietly makes up telemetry is a hazard. */
 const demo = { on: false, t0: performance.now(), timer: null };
+/* The demo match and the whole cycle it repeats on, in seconds: the robot waiting on the field, disabled,
+   long enough for the board to step aside for Park and be looked at; the match; and the robot disabled
+   again after it, with the Field Management System still attached. */
+const DEMO_PREMATCH_S = 20;
+const DEMO_MATCH_S = 160;
+const DEMO_CYCLE_S = 195;
+/* OVERDRIVE, held for one fast crossing mid-teleop so the effect has something to show in demo mode -
+   the driver reaching for it on a long run back to the pile, not tied to any one leg of SCRIPT. Demo
+   data owning up to being demo data, same as the rest of demoTick; a real robot decides this itself. */
+const DEMO_OVERDRIVE_FROM_S = 70;
+const DEMO_OVERDRIVE_TO_S = 73.2;
+const DEMO_OVERDRIVE_CAP_MPS = 6.0;
+
+/* The demo robot while it waits for the match, `s` seconds in: carried onto its auto's start from a metre
+   and a half away, set down a little off, nudged square, and left there. [x, y, heading]. */
+function demoCarried(s) {
+  const [x, y, heading] = START_POSE;
+  const smooth = (a, b, v) => {
+    const u = Math.min(1, Math.max(0, (v - a) / (b - a)));
+    return u * u * (3 - 2 * u);
+  };
+  const walk = smooth(0.5, 4.5, s);
+  const nudge = smooth(5.5, 6.8, s);
+  const lerp = (from, to, u) => from + (to - from) * u;
+  const setDown = [x + 0.14, y - 0.07, heading + 0.2];
+  const from = [x - 1.1, y - 0.95, heading + 0.9];
+  return [0, 1, 2].map((i) => lerp(lerp(from[i], setDown[i], walk), [x, y, heading][i], nudge));
+}
 
 function demoTick() {
   const t = (performance.now() - demo.t0) / 1000;
-  /* A REBUILT match on repeat: 20 s auto, then teleop counting 140 down to 0. */
-  const cycle = t % 175;
-  const auto = cycle < 20;
-  const matchT = auto ? 20 - cycle : Math.max(0, 160 - cycle);
+  /* A REBUILT match on repeat. The robot waits on the field first, disabled, so the demo opens on Park and
+   * then shifts into Drive as the match starts; then 20 s auto and teleop counting 140 down to 0; then
+   * disabled again until the next one, long enough to watch the board park and the drive be written up.
+   * `cycle` is the time from the start of the match, negative while the robot waits for it. */
+  const cycle = (t % DEMO_CYCLE_S) - DEMO_PREMATCH_S;
+  const waiting = cycle < 0;
+  const auto = cycle >= 0 && cycle < 20;
+  const enabled = cycle >= 0 && cycle < DEMO_MATCH_S;
+  const matchT = waiting ? 0 : auto ? 20 - cycle : Math.max(0, DEMO_MATCH_S - cycle);
+  /* The robot, from the scripted match (see demo-match.js): at its start while it waits for the match, and
+   * where the match left it afterwards. */
+  const play = demoMatch(Math.min(DEMO_MATCH_S, Math.max(0, cycle)));
+  const { vx, vy, omega } = enabled ? play.fieldVelocity : { vx: 0, vy: 0, omega: 0 };
+  const speed = Math.hypot(vx, vy);
+  /* How hard it is being pushed about: the change in its velocity since the last tick, smoothed over a
+   * quarter of a second, in m/s². */
+  const last = demo.motion;
+  const since = last ? t - last.t : Infinity;
+  const push = since > 0 && since < 0.5
+    ? last.push + (Math.min(8, Math.hypot(vx - last.vx, vy - last.vy) / since) - last.push) * Math.min(1, since / 0.25)
+    : 0;
+  demo.motion = { t, vx, vy, push };
+  const m = play.mechanisms;
+  /* Disabled, everything that spins stops; the hood and the intake stay where they are. */
+  const running = (value) => (enabled ? value : 0);
+  const shooterRps = running(m.shooterRps);
+  /* The battery sags with the drivetrain and the flywheel and drains through the match, recovers a little
+   * once the robot is disabled, and is swapped for a charged one before the next match. */
+  const volts = waiting
+    ? 12.86 + 0.01 * Math.sin(t * 0.5)
+    : enabled
+      ? 12.72 - 0.16 * speed - 0.05 * push - 0.004 * shooterRps - cycle * 0.0018
+      : 12.64 - DEMO_MATCH_S * 0.0018 + 0.1 * (1 - Math.exp(-(cycle - DEMO_MATCH_S) / 10));
   const set = (k, tag, v) => { nt.v[k] = { t: tag, v }; };
 
-  set("/FMSInfo/FMSControlData", "num", BIT.enabled | BIT.ds | BIT.fms | (auto ? BIT.auto : 0));
+  /* Waiting for the match the robot is on the Driver Station alone; the field attaches as the match starts. */
+  set("/FMSInfo/FMSControlData", "num", (enabled ? BIT.enabled : 0) | BIT.ds | (waiting ? 0 : BIT.fms) | (auto ? BIT.auto : 0));
   set("/FMSInfo/IsRedAlliance", "bool", true);
   set("/FMSInfo/EventName", "str", "Demo");
   set("/FMSInfo/MatchNumber", "num", 7);
@@ -153,41 +259,154 @@ function demoTick() {
   // seconds after auto — exactly as FMS sends it. Red here, so the red hub sits out shifts 1 and 3.
   set("/FMSInfo/GameSpecificMessage", "str", auto || cycle < 23 ? "" : "R");
 
-  const drive = 2400 + 900 * Math.sin(t * 1.7) + 180 * Math.sin(t * 11);
-  set("/Catalyst/Drive/FrontLeft/Velocity", "num", drive / 60);
-  set("/Catalyst/Drive/FrontRight/Velocity", "num", (drive + 120) / 60);
-  set("/Catalyst/Drive/BackLeft/Velocity", "num", (drive - 90) / 60);
-  set("/Catalyst/Drive/BackRight/Velocity", "num", (drive + 40) / 60);
-  set("/Catalyst/Shooter/Velocity", "num", (4900 + 700 * Math.sin(t * 0.6)) / 60);
+  /* Each drive motor from its module: a 6.03:1 reduction onto a 4 in wheel. */
+  const motorRps = (mps) => running(Math.abs(mps) / (2 * Math.PI * 0.0508) * 6.03);
+  set("/Catalyst/Drive/FrontLeft/Velocity", "num", motorRps(play.modules[0]));
+  set("/Catalyst/Drive/FrontRight/Velocity", "num", motorRps(play.modules[2]));
+  set("/Catalyst/Drive/BackLeft/Velocity", "num", motorRps(play.modules[4]));
+  set("/Catalyst/Drive/BackRight/Velocity", "num", motorRps(play.modules[6]));
+  /* OVERDRIVE (see DEMO_OVERDRIVE_FROM_S above): a driver-held boolean and the drive's own live cap,
+     NaN outside the window the same way SpeedCapMps is NaN whenever a real robot does not know it. */
+  const overdriving = enabled && cycle >= DEMO_OVERDRIVE_FROM_S && cycle < DEMO_OVERDRIVE_TO_S;
+  set("/Catalyst/Drive/Overdrive", "bool", overdriving);
+  set("/Catalyst/Drive/SpeedCapMps", "num", overdriving ? DEMO_OVERDRIVE_CAP_MPS : Number.NaN);
+  set("/Catalyst/Shooter/Velocity", "num", shooterRps);
   set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
   set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
-  set("/Catalyst/Brownout/MeasuredVoltage", "num", 12.7 - 0.85 * Math.abs(Math.sin(t * 1.3)) - t * 0.002);
+  set("/Catalyst/Brownout/MeasuredVoltage", "num", volts);
 
-  set("/Catalyst/Physics/Slip/Factor", "num", Math.max(0, 0.42 * Math.sin(t * 2.1)));
-  set("/Catalyst/Physics/TippingUsage", "num", 0.29 + 0.16 * Math.sin(t * 0.8));
-  set("/Catalyst/Physics/TractionUsage", "num", 0.5 + 0.35 * Math.abs(Math.sin(t * 1.9)));
+  /* Physics Core's advisories follow how hard the robot is driven: slip only under hard acceleration,
+   * tipping and traction rising with it, and turning taking some traction too. */
+  set("/Catalyst/Physics/Slip/Factor", "num", running(Math.min(0.6, Math.max(0, (push - 3.2) * 0.18))));
+  set("/Catalyst/Physics/TippingUsage", "num", running(Math.min(0.9, 0.12 + push * 0.09)));
+  set("/Catalyst/Physics/TractionUsage", "num", running(Math.min(0.95, 0.2 + push * 0.12 + Math.abs(omega) * 0.04)));
   set("/Catalyst/Physics/Quality/Confidence", "num", 0.86 + 0.09 * Math.sin(t * 0.4));
 
-  const radius = 2.4;
-  set("/Catalyst/Physics/PoseArray", "nums", [
-    8.2 + radius * Math.cos(t * 0.42),
-    4.1 + radius * Math.sin(t * 0.42) * 0.7,
-    (t * 0.42 + Math.PI / 2) % (Math.PI * 2),
+  const pose = waiting ? demoCarried(cycle + DEMO_PREMATCH_S) : play.pose;
+  set("/Catalyst/Physics/PoseArray", "nums", pose);
+  /* The chassis velocity SwerveSubsystem publishes: robot-relative, from the wheels and the gyro. */
+  {
+    const c = Math.cos(pose[2]);
+    const s = Math.sin(pose[2]);
+    set("/Catalyst/Swerve/ChassisVelocities", "nums", [vx * c + vy * s, -vx * s + vy * c, omega]);
+  }
+  /* The modules as SwerveModuleState[] decodes, speed then angle, and as the swerve tile reads them, angle
+   * then speed. Disabled, the wheels stop where they point. */
+  const modules = play.modules.map((v, i) => (i % 2 === 0 ? running(v) : v));
+  set("/Catalyst/Swerve/ModuleStates", "nums", modules);
+  set("/Catalyst/Drive/ModuleVelocities", "nums", [0, 1, 2, 3].flatMap((i) => [modules[i * 2 + 1], modules[i * 2]]));
+
+  /* Systemcore, as a machine in good order under load.
+   *
+   * Deliberately not a perfect machine. The processor and temperature move with the drivetrain
+   * because that is what they do on a robot, the eMMC is a season and a half in rather than fresh,
+   * and can_s0 carries the drivetrain while can_s2 carries the mechanisms - a plan the CAN page
+   * approves of, so the demo shows the layout worth copying rather than the one worth warning
+   * about. Nobody should have to connect a robot to find out whether this page works. */
+  const load = enabled ? 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7)) : 0.2;
+  set("/Catalyst/Systemcore/CpuPercent", "num", 22 + 34 * load);
+  set("/Catalyst/Systemcore/TempCelsius", "num", 46 + 12 * load);
+  set("/Catalyst/Systemcore/RamFraction", "num", 0.31 + 0.05 * Math.sin(t * 0.3));
+  set("/Catalyst/Systemcore/RamUsedBytes", "num", 2.6e9);
+  set("/Catalyst/Systemcore/RamTotalBytes", "num", 8.0e9);
+  set("/Catalyst/Systemcore/StorageFraction", "num", 0.47);
+  set("/Catalyst/Systemcore/StorageUsedBytes", "num", 15.0e9);
+  set("/Catalyst/Systemcore/StorageTotalBytes", "num", 32.0e9);
+  set("/Catalyst/Systemcore/BatteryVolts", "num", volts);
+  set("/Catalyst/Systemcore/BrownedOut", "bool", false);
+  set("/Catalyst/Systemcore/BrownoutVolts", "num", 6.75);
+  set("/Catalyst/Systemcore/RecoveryVolts", "num", 7.5);
+  set("/Catalyst/Systemcore/Rail3v3Amps", "num", 0.38 + 0.06 * Math.sin(t * 1.1));
+  set("/Catalyst/Systemcore/CanUtilization", "nums", [
+    0.38 + 0.10 * Math.sin(t * 0.9), 0, 0.14 + 0.04 * Math.sin(t * 1.4), 0, 0,
   ]);
+  set("/Catalyst/Systemcore/CanDown", "bool", false);
+  set("/Catalyst/Systemcore/CanDownCount", "num", 0);
+  set("/Catalyst/Systemcore/CanUnavailCount", "num", 0);
+  set("/Catalyst/Systemcore/EmmcLifeUsed", "num", 0.15);
+  set("/Catalyst/Systemcore/EmmcPreEol", "num", 1);
+  set("/Catalyst/Systemcore/TeamNumber", "num", 5805);
+  set("/Catalyst/Systemcore/HardwareSubRev", "num", 2);
+  set("/Catalyst/Systemcore/NetworkInterfaces", "strs", ["eth0", "wlan0"]);
+
+  /* What is on each wire, in CANRegistry's own format — bus|canId|type|name. This is the plan the
+     paragraph above describes, written out: the drivetrain together on can_s0, the mechanisms on
+     can_s2 which shares its controller with nothing, and a CANivore carrying the two devices that
+     came with a bought mechanism. Twelve on can_s0 is the most a bus takes before the CAN page
+     objects, so the demo sits right against the line rather than comfortably inside it — the point
+     of the page is that the line is where it is, and a layout nowhere near it demonstrates nothing. */
+  set("/Catalyst/CAN/Devices", "strs", [
+    "can_s0|1|Kraken X60|Front left drive", "can_s0|2|Kraken X60|Front left steer",
+    "can_s0|3|CANcoder|Front left encoder",
+    "can_s0|4|Kraken X60|Front right drive", "can_s0|5|Kraken X60|Front right steer",
+    "can_s0|6|CANcoder|Front right encoder",
+    "can_s0|7|Kraken X60|Back left drive", "can_s0|8|Kraken X60|Back left steer",
+    "can_s0|9|CANcoder|Back left encoder",
+    "can_s0|10|Kraken X60|Back right drive", "can_s0|11|Kraken X60|Back right steer",
+    "can_s0|12|CANcoder|Back right encoder",
+    "can_s2|20|Pigeon 2|Gyro", "can_s2|21|Kraken X60|Shooter left",
+    "can_s2|22|Kraken X60|Shooter right", "can_s2|23|Kraken X60|Feeder",
+    "canivore|30|Kraken X60|Elevator", "canivore|31|CANcoder|Elevator encoder",
+  ]);
+  /* Phoenix's view of the CANivore. The OS array cannot reach it — it covers the Systemcore's own
+     five buses and nothing else — so this is the one bus on the demo robot whose reading the page
+     attributes to Phoenix rather than to the OS, which is the distinction it is there to make. */
+  set("/Catalyst/CAN/Health/canivore/OK", "bool", true);
+  set("/Catalyst/CAN/Health/canivore/Utilization", "num", 0.11 + 0.03 * Math.sin(t * 1.1));
+  set("/Catalyst/CAN/Health/canivore/BusOffCount", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/TxFullCount", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/REC", "num", 0);
+  set("/Catalyst/CAN/Health/canivore/TEC", "num", 0);
+
+  /* The mechanisms, under the names team 5805's REBUILT robot publishes them (see mechanisms.js), as the
+   * scripted match plays them: the intake slid out and eating only where there is FUEL, the hood and the
+   * flywheel chasing the shot, the hopper's state from 5805's own manager. */
+  set("/Catalyst/Hood/AngleDegrees", "num", m.hoodDeg);
+  set("/Catalyst/Hood/GoalAngle", "num", m.hoodGoalDeg);
+  set("/Catalyst/Deploy/Homed", "bool", true);
+  set("/Catalyst/Deploy/LengthInches", "num", m.deployInches);
+  set("/Catalyst/Deploy/GoalInches", "num", m.deployGoalInches);
+  set("/Catalyst/HopperManager/DeployPose", "str", m.deployPose);
+  set("/Catalyst/Intake/Speed", "num", running(m.intakeSpeed));
+  set("/Catalyst/Intake/CurrentAmps", "num", running(m.intakeCurrentAmps));
+  set("/Catalyst/Conveyor/Speed", "num", running(m.conveyorSpeed));
+  set("/Catalyst/Feeder/Speed", "num", running(m.feederSpeed));
+  set("/Catalyst/Shooter/VelocityRPS", "num", shooterRps);
+  set("/Catalyst/Shooter/SetpointRPS", "num", running(m.shooterGoalRps));
+  set("/Catalyst/Shooter/AtSpeed", "bool", enabled && Math.abs(m.shooterRps - m.shooterGoalRps) < 1);
+  set("/Catalyst/RobotManager/State", "str", enabled ? m.robotState : "IDLE");
+  set("/Catalyst/HopperManager/State", "str", enabled ? m.hopperState : m.deployInches > 8 ? "IDLE_DEPLOYED" : "IDLE_STOWED");
+  set("/Catalyst/HopperManager/IsFull", "bool", m.hopperFull);
+
+  /* The aim: aligning onto the HUB, locked on, shooting on the move - or, while the HUB is off, lobbing
+   * FUEL at a point in the alliance zone. */
+  const aim = play.aim;
+  set("/Catalyst/Aim/State", "str", enabled ? aim.state : "IDLE");
+  set("/Catalyst/Aim/Target", "nums", aim.target);
+  set("/Catalyst/Aim/AimPoint", "nums", aim.aimPoint);
+  set("/Catalyst/Aim/HeadingErrorDeg", "num", aim.headingErrorDeg);
+  set("/Catalyst/Aim/DistanceMeters", "num", aim.distanceMeters);
+  set("/Catalyst/Aim/TimeOfFlightSeconds", "num", aim.timeOfFlightSeconds);
+  /* Turret mode's own three (see demo-match.js): only real while enabled, the same as the rest of the aim
+     above - a disabled robot has nothing to be shooting on the move about. */
+  set("/Catalyst/Aim/Ready", "bool", enabled && aim.ready);
+  set("/Catalyst/Aim/SpeedCapMps", "num", enabled ? aim.speedCap : Number.NaN);
+  set("/Catalyst/Aim/Mode", "str", enabled ? aim.mode : "");
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
 
-  /* The demo robot's spec sheet, in the shape FrcCatalyst 1.10 publishes. Named so nobody mistakes
+  /* The demo robot's spec sheet, in the shape FrcCatalyst 2.x publishes on Systemcore. Named so nobody mistakes
    * it for their own: a team looking at the garage before they have adopted the library should be
    * able to see what it will show them, and should be in no doubt that this is not their robot.
    * Deliberately an incomplete sheet — no camera list, no drive ratio — because that is the ordinary
    * case, and the panel leaving those lines out is the behaviour worth demonstrating. */
   set("/Catalyst/Robot/Identity/Name", "str", "Demo robot");
   set("/Catalyst/Robot/Identity/TeamNumber", "num", 0);
-  set("/Catalyst/Robot/Identity/Season", "num", 2026);
-  set("/Catalyst/Robot/Software/CatalystVersion", "str", "1.10.0");
-  set("/Catalyst/Robot/Software/WPILibVersion", "str", "2026.1.1");
+  set("/Catalyst/Robot/Identity/Season", "num", 2027);
+  set("/Catalyst/Robot/Identity/Controller", "str", "Systemcore");
+  set("/Catalyst/Robot/Software/CatalystVersion", "str", "2.0.0-alpha.2");
+  set("/Catalyst/Robot/Software/WPILibVersion", "str", "2027.0.0-alpha-6");
   set("/Catalyst/Robot/Drivetrain/Type", "str", "Swerve");
   set("/Catalyst/Robot/Drivetrain/Modules", "num", 4);
   set("/Catalyst/Robot/Drivetrain/MaxSpeedMps", "num", 4.73);
@@ -210,7 +429,9 @@ function demoTick() {
   set("/Catalyst/Robot/Power/Channels", "num", 24);
   set("/Catalyst/Robot/Power/ChannelsInUse", "strs",
     ["0|Front left drive", "1|Front left steer", "2|Front right drive", "3|Front right steer", "8|Shooter"]);
-  set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.8);
+  /* Systemcore's own default, not the roboRIO's 6.8 V. The device publishes this and Catalyst
+   * reads it rather than carrying a constant. */
+  set("/Catalyst/Robot/Power/BrownoutVolts", "num", 6.75);
   set("/Catalyst/Robot/Hardware/CanDevices", "num", 11);
   set("/Catalyst/Robot/Hardware/Inventory", "strs", ["Kraken X60|8", "CANcoder|4", "Pigeon 2|1"]);
   set("/Catalyst/Robot/Hardware/Devices", "strs", [
@@ -218,7 +439,7 @@ function demoTick() {
     "canivore|4|Kraken X60", "canivore|5|Kraken X60", "canivore|6|CANcoder",
     "canivore|7|Kraken X60", "canivore|8|Kraken X60", "canivore|9|CANcoder",
     "canivore|10|Kraken X60", "canivore|11|Kraken X60", "canivore|12|CANcoder",
-    "rio|20|Kraken X60", "rio|30|Pigeon 2",
+    "can_s0|20|Kraken X60", "can_s0|30|Pigeon 2",
   ]);
   set("/Catalyst/Robot/Hardware/Gyro", "str", "Pigeon 2");
   /* What the demo robot is made to do. A real robot's list is written by the library as each piece
@@ -237,24 +458,120 @@ function demoTick() {
     num("/Catalyst/Brownout/MeasuredVoltage") < 11.8 ? ["[Power] Battery sagging under load"] : []);
   set("/Catalyst/Alerts/Info", "strs", ["Demo data — not a real robot"]);
 
+  /* The device roster, vision health and the auto start check, so the corner strip, the notice bar
+     and the cameras card have something to show. The left camera drops out for eight seconds in
+     every thirty-two, which is what a loose cable looks like from the driver's seat. */
+  const leftDown = t % 32 >= 12 && t % 32 < 20;
+  set("/Catalyst/Devices/Cameras/Expected", "num", 4);
+  set("/Catalyst/Devices/Cameras/Connected", "num", leftDown ? 3 : 4);
+  set("/Catalyst/Devices/Cameras/Rows", "strs", [
+    "limelight-shooter|true|Limelight", `limelight-left|${!leftDown}|Limelight`,
+    "limelight-right|true|Limelight", "limelight-ground|true|Limelight"]);
+  set("/Catalyst/Devices/Motors/Expected", "num", 20);
+  set("/Catalyst/Devices/Motors/Connected", "num", 20);
+  set("/Catalyst/Devices/Motors/Rows", "strs", [
+    "frontLeftDrive|can_s0|1|true", "frontLeftSteer|can_s0|2|true", "frontRightDrive|can_s0|3|true",
+    "frontRightSteer|can_s0|4|true", "backLeftDrive|can_s0|5|true", "backLeftSteer|can_s0|6|true",
+    "backRightDrive|can_s0|7|true", "backRightSteer|can_s0|8|true", "shooterLead|can_s2|11|true",
+    "shooterFollower12|can_s2|12|true", "intake|can_s2|13|true", "feeder|can_s2|14|true",
+    "elevatorLead|can_s3|21|true", "elevatorFollower22|can_s3|22|true", "arm|can_s3|23|true",
+    "wrist|can_s3|24|true", "climberLead|can_s4|31|true", "climberFollower32|can_s4|32|true",
+    "hopper|can_s4|33|true", "indexer|can_s4|34|true"]);
+  set("/Catalyst/Devices/Controller/Kind", "str", "Systemcore");
+  set("/Catalyst/Devices/Controller/Connected", "bool", true);
+  set("/Catalyst/Vision/Health/Level", "num", leftDown ? 1 : 0);
+  set("/Catalyst/Vision/Health/Summary", "str",
+    leftDown ? "3 of 4 cameras healthy: limelight-left disconnected" : "all 4 cameras healthy");
+  set("/Catalyst/Vision/Health/Rows", "strs", [
+    `limelight-shooter|OK|100% accepted|56.0|${(70 + 3 * Math.sin(t * 0.2)).toFixed(1)}|true`,
+    leftDown ? "limelight-left|DISCONNECTED|no data from the camera|||false"
+             : "limelight-left|OK|97% accepted|55.0|68.0|true",
+    "limelight-right|NO_TARGETS|no usable target|57.0|66.0|true",
+    "limelight-ground|OK|91% accepted|54.0|71.0|true"]);
+  /* The path ahead while something other than the driver has the robot: PathPlanner's through auto, and in
+   * teleop an Autopilot's own, with the phase of the cycle it is running. Empty otherwise, as both leave it
+   * between paths. */
+  const path = enabled ? play.path : null;
+  const planned = path && path.source === "pathplanner";
+  set("/PathPlanner/activePath", "nums", planned ? path.points : []);
+  set("/Catalyst/Drive/PlannedPath", "nums", path && !planned ? path.points : []);
+  set("/Catalyst/Drive/PlannedPathSource", "str", path && !planned ? path.source : "");
+  set("/Catalyst/Behavior/Cycle/Phase", "str", enabled ? play.autopilotPhase : "DriverControl");
+
+  /* The auto start check, as AutoStartCheck publishes it: the demo robot is carried onto its start while it
+   * waits for the match. */
+  const fromStart = Math.hypot(pose[0] - START_POSE[0], pose[1] - START_POSE[1]);
+  const startTurn = Math.atan2(Math.sin(pose[2] - START_POSE[2]), Math.cos(pose[2] - START_POSE[2]));
+  set("/Catalyst/Auto/StartCheck/Available", "bool", true);
+  set("/Catalyst/Auto/StartCheck/Ready", "bool", fromStart <= 0.3 && Math.abs(startTurn) <= (10 * Math.PI) / 180);
+  set("/Catalyst/Auto/StartCheck/DistanceMeters", "num", fromStart);
+  set("/Catalyst/Auto/StartCheck/HeadingErrorDeg", "num", (startTurn * 180) / Math.PI);
+  set("/Catalyst/Auto/StartCheck/Expected", "nums", [...START_POSE]);
+  set("/Catalyst/Auto/StartCheck/Current", "nums", pose);
+
   if (!has(TUNABLE_MANIFEST)) {
     set(TUNABLE_MANIFEST, "str", JSON.stringify([
       { key: "/Catalyst/Tunables/shooter.kP", name: "Shooter kP", group: "Shooter", min: 0, max: 2, step: 0.001 },
       { key: "/Catalyst/Tunables/shooter.target", name: "Target speed", group: "Shooter", min: 0, max: 6000, step: 25, unit: "RPM" },
       { key: "/Catalyst/Tunables/drive.slew", name: "Slew limit", group: "Drivetrain", min: 0.5, max: 12, step: 0.1, unit: "m/s²" },
       { key: "/Catalyst/Tunables/physics.enabled", name: "Physics advisories", group: "Physics Core" },
+      /* The driver-feel end of the same manifest, which is what a driver profile is made of. A deadband
+       * that stopped at 0.1 would be no use to whoever has the DualSense whose right stick wanders 0.1
+       * to 0.2, so the range a demo robot declares goes to 0.3 - the number has to be able to cover the
+       * controller the team actually drives with. */
+      { key: "/Catalyst/Tunables/drive.deadband", name: "Deadband", group: "Driver feel", min: 0, max: 0.3, step: 0.005 },
+      { key: "/Catalyst/Tunables/drive.maxSpeed", name: "Speed cap", group: "Driver feel", min: 0.2, max: 1, step: 0.05 },
+      { key: "/Catalyst/Tunables/drive.slowMode", name: "Slow mode", group: "Driver feel", min: 0.1, max: 1, step: 0.05 },
+      /* Rumble is the robot's to do - the Driver Station holds the controller and this console has no
+       * route to it at all - so a per-driver rumble is a switch per event and a strength, declared by
+       * the robot like any other tunable and written back the same way. */
+      { key: "/Catalyst/Tunables/rumble.strength", name: "Strength", group: "Rumble", min: 0, max: 1, step: 0.05 },
+      { key: "/Catalyst/Tunables/rumble.hopperFull", name: "Buzz when the hopper fills", group: "Rumble" },
+      { key: "/Catalyst/Tunables/rumble.atSpeed", name: "Buzz when the shooter is at speed", group: "Rumble" },
+      { key: "/Catalyst/Tunables/rumble.collision", name: "Buzz on a collision", group: "Rumble" },
     ]));
     set("/Catalyst/Tunables/shooter.kP", "num", 0.34);
     set("/Catalyst/Tunables/shooter.target", "num", 4900);
     set("/Catalyst/Tunables/drive.slew", "num", 6.5);
     set("/Catalyst/Tunables/physics.enabled", "bool", true);
+    set("/Catalyst/Tunables/drive.deadband", "num", 0.07);
+    set("/Catalyst/Tunables/drive.maxSpeed", "num", 0.9);
+    set("/Catalyst/Tunables/drive.slowMode", "num", 0.3);
+    set("/Catalyst/Tunables/rumble.strength", "num", 0.6);
+    set("/Catalyst/Tunables/rumble.hopperFull", "bool", true);
+    set("/Catalyst/Tunables/rumble.atSpeed", "bool", true);
+    set("/Catalyst/Tunables/rumble.collision", "bool", false);
+
+    /* What the demo robot's buttons do. Read, never written: a binding is the robot's own wiring, and
+     * the console shows it so somebody who has not driven this robot can find out what the sticks do
+     * without reading RobotContainer. */
+    set(CONTROLS_MANIFEST, "str", JSON.stringify([
+      { control: "Right trigger", action: "Intake", controller: "Driver" },
+      { control: "Left bumper", action: "Eject", controller: "Driver" },
+      { control: "Left trigger", action: "Prepare to score", controller: "Driver" },
+      { control: "A", action: "Shoot now", controller: "Driver" },
+      { control: "B", action: "Stand down", controller: "Driver" },
+      { control: "X", action: "Hold still", controller: "Driver" },
+      { control: "Start", action: "Reset heading", controller: "Driver" },
+      { control: "Y", action: "Unjam", controller: "Operator" },
+      { control: "X", action: "Home the hood and the intake", controller: "Operator" },
+      { control: "Left bumper + Start", action: "Re-home everything", controller: "Operator", combo: true },
+    ]));
+
+    /* The demo robot's pre-match check, as Catalyst's SystemCheck publishes a finished run. */
+    const checks = ["Front left drive on bus", "Front right drive on bus", "Back left drive on bus",
+      "Back right drive on bus", "Pigeon on bus", "Battery above 12.0 V", "limelight-shooter on NetworkTables",
+      "PathPlanner configured", "All four wheels drive forward"];
+    for (const test of checks) set(`/Catalyst/SystemCheck/PreMatch/${test}`, "str", "PASS");
+    set("/Catalyst/SystemCheck/PreMatch/Ready", "bool", true);
+    set("/Catalyst/SystemCheck/PreMatch/Report", "str", `READY ✓\n${checks.map((t) => `  PASS  ${t}`).join("\n")}\n`);
   }
 
-  set("/SmartDashboard/Auto Chooser/options", "strs",
+  set("/Auto Selector/options", "strs",
     ["Do nothing", "Leave line", "Two piece centre", "Three piece amp side"]);
-  if (!has("/SmartDashboard/Auto Chooser/selected")) {
-    set("/SmartDashboard/Auto Chooser/selected", "str", "Two piece centre");
-    set("/SmartDashboard/Auto Chooser/active", "str", "Two piece centre");
+  if (!has("/Auto Selector/selected")) {
+    set("/Auto Selector/selected", "str", "Two piece centre");
+    set("/Auto Selector/active", "str", "Two piece centre");
   }
 
   /* The address and the topic count are true of the demo — that is where these values came from and
@@ -269,6 +586,9 @@ function demoTick() {
 }
 
 function setDemo(on) {
+  /* The robot being recorded is about to be replaced on screen, by the demo or by nothing: its run ends here,
+     as a link that went away, rather than running on into data that is not its own. */
+  if (runRecorder.recording) recordRun(false);
   demo.on = on;
   $("#demoBtn").setAttribute("aria-pressed", String(on));
   /* Two controls, one state. The dock button is the one that has to be visible while it runs; the
@@ -276,6 +596,7 @@ function setDemo(on) {
   $("#setDemoTog").setAttribute("aria-checked", String(on));
   if (on) {
     demo.t0 = performance.now();
+    demo.motion = null;
     /* The mirror of the branch below, and it was missing. Everything in the store belonged to the link
      * that was there a moment ago, status included, and switching to demo did not disown any of it —
      * so the first paint could print the real robot's round trip beside "demo data — not a robot", and
@@ -301,27 +622,43 @@ function setDemo(on) {
     nt.status = { connected: false, address: "", rtt_ms: 0, topics: 0 };
     nt.keysDirty = true;
     onFrame();
+    /* The demo's runs go with it: left in the list they would sit beside the team's own as if they happened. */
+    runLog.runs = runLog.runs.filter((r) => !r.demo);
+    runLog.sig = "";
   }
 }
 
 /* --------------------------------------------------------------- tunable writes */
 
-/* The robot declares what it will let a dashboard change, in a JSON manifest on one topic. The console
- * shows exactly that and nothing more — it never guesses that a topic looks tunable. The schema is in
- * README.md under "The contract with the robot". */
-const TUNABLE_MANIFEST = "/Catalyst/Tunables/.manifest";
-
+/* The robot's two manifests - what it lets a dashboard change, and what its controls do - are parsed in
+ * drivers.js, where the tests hold them to a real robot's output (see x1-contract.test.js). These read
+ * the live store. */
 function tunables() {
-  const src = str(TUNABLE_MANIFEST, null);
-  if (!src) return [];
-  try {
-    const parsed = JSON.parse(src);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return readTunables({ str });
 }
 
+function declaredTunables() {
+  return readDeclaredTunables({ str, raw });
+}
+
+function controlBindings() {
+  return readControlBindings({ str });
+}
+
+/** The range and the decimals a manifest entry's slider works in. The step decides the decimals: a 25 RPM
+ *  step printed to three places is noise, and a 0.001 gain printed to one is unusable. */
+function tunableRange(t) {
+  const step = Number(t?.step ?? 0.01) || 0.01;
+  return {
+    min: Number(t?.min ?? 0),
+    max: Number(t?.max ?? 1),
+    step,
+    places: step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step))),
+  };
+}
+
+/** Whether the write went out. Callers that report to the driver need this: saying a setting was applied
+ *  when the write threw would be the console inventing a fact about the robot. */
 async function ntSet(key, value) {
   /* Demo mode has no robot to write to, so the write lands in the local store instead. Otherwise a
    * slider would snap back and the demo would look broken rather than convincing. */
@@ -331,13 +668,15 @@ async function ntSet(key, value) {
       : { t: "str", v: String(value) };
     if (key.endsWith("/selected")) nt.v[key.replace(/\/selected$/, "/active")] = nt.v[key];
     schedulePaint();
-    return;
+    return true;
   }
-  if (!invoke) return;
+  if (!invoke) return false;
   try {
     await invoke("nt_set", { key, value });
+    return true;
   } catch (e) {
     console.warn("nt_set failed", key, e);
+    return false;
   }
 }
 
@@ -349,7 +688,12 @@ function fmt(v, decimals = 1) {
 }
 
 function clock(seconds) {
-  if (seconds === null || seconds === undefined) return "—:—";
+  // Minus signs in the shape of the reading they stand in for, m:ss, the way a clock that has not been
+  // set shows it. A minus is drawn on the figures' centre line, where the colon between them sits.
+  // Every other mark tried read wrong at 52px in the light display face: em dashes are long hairlines,
+  // hyphens sit at lowercase height below the colon, and the mono em dash that draws a large reading's
+  // lone placeholder (see "Catalyst Readout Dash" in styles.css) fuses with its neighbour into a bar.
+  if (seconds === null || seconds === undefined) return "−:−−";
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
@@ -388,6 +732,22 @@ function distinctLabels(keys) {
     }
   }
   return keys.map((k) => leaf(k));
+}
+
+/**
+ * The path a set of topics share, whole segments only: `/Catalyst/Drive` for the four module
+ * velocities. Empty when they share nothing but the root, which the caller words around.
+ */
+function commonPrefix(keys) {
+  const parts = keys.map((k) => String(k).split("/").filter(Boolean));
+  if (!parts.length) return "";
+  const shared = [];
+  for (let i = 0; i < parts[0].length; i++) {
+    const seg = parts[0][i];
+    if (!parts.every((p) => p.length > i + 1 && p[i] === seg)) break;
+    shared.push(seg);
+  }
+  return shared.length ? "/" + shared.join("/") : "";
 }
 
 function clamp01(x) {
@@ -441,17 +801,79 @@ function wireTablist(list) {
   });
 }
 
-function sparkline(values, w, h, color) {
+/**
+ * The design tokens, for the marks this file draws rather than styles.
+ *
+ * Everything styled in CSS reads --cat-* directly. These few are SVG presentation attributes built
+ * into template strings - sparkline strokes, gauge arcs - and canvas fills in the robot plan, and
+ * neither can be a custom property in every renderer.
+ *
+ * They used to be a hand-copied list of hexes under a comment asking the next person to keep them in
+ * step with `:root`. They are read from `:root` now, so there is nothing left to keep in step: this
+ * is the same mirror, held up to the stylesheet instead of transcribed from it. Before that they
+ * were an older palette entirely (#30d158, #ff9f0a, #ff453a, #4d90fe), which put two different
+ * greens on the same dashboard - one meaning "healthy" in a tile heading and another meaning
+ * "healthy" in the sparkline right beneath it. A transcription drifts; a reading cannot.
+ *
+ * Read once, not per use. The stylesheets are render-blocking and in <head>, so the values are there
+ * by the time a module in <body> evaluates; the console has one world and never switches theme; and
+ * getComputedStyle forces style resolution, which has no business running inside a 10 Hz paint.
+ */
+function readTokens(props) {
+  const style = getComputedStyle(document.documentElement);
+  const out = {};
+  for (const [name, prop] of Object.entries(props)) out[name] = style.getPropertyValue(prop).trim();
+  return out;
+}
+
+/** Semantic only - never decorative - plus the three inks a mark is labelled and ruled with. */
+const TOK = readTokens({
+  ok: "--cat-ok",
+  warn: "--cat-warn",
+  bad: "--cat-bad",
+  info: "--cat-info",
+  dim: "--cat-muted",
+  faint: "--cat-faint",
+  rule: "--cat-hair-str",
+  // A magnitude rather than a state: the trace under a reading that is behaving. It has to be
+  // neutral, because painting data in --cat-ok spends the colour that is supposed to mean healthy.
+  data: "--cat-data",
+});
+
+/* A rolling trace, drawn the way Tesla draws its energy graph: a thin line, a wash under it that is
+ * gone well before the floor, and a light on the newest sample so the eye lands where the reading is.
+ *
+ * The trace keeps clear of the box's edges - a peak drawn against the top edge had half its stroke cut
+ * off, and a graph filled from edge to edge read as the heaviest thing on the board. The stroke does
+ * not scale with the box, so a trace stretched across a wide panel is as fine as one in a tile.
+ * `dot` is for a box drawn at its own pixel size; stretched, a circle would become an ellipse. */
+function sparkline(values, w, h, color, { dot = false } = {}) {
   if (values.length < 2) return "";
   let lo = Infinity, hi = -Infinity;
   for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
   if (hi - lo < 1e-9) { hi = lo + 1; }
-  const step = w / (values.length - 1);
-  const y = (v) => h - ((v - lo) / (hi - lo)) * h;
+  const top = Math.max(4, h * 0.14);
+  const bottom = Math.max(2, h * 0.06);
+  const right = dot ? 6 : 0;
+  const step = (w - right) / (values.length - 1);
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * Math.max(1, h - top - bottom);
   let d = `M0 ${y(values[0]).toFixed(1)}`;
   for (let i = 1; i < values.length; i++) d += `L${(i * step).toFixed(1)} ${y(values[i]).toFixed(1)}`;
-  const fill = `${d}L${w} ${h}L0 ${h}Z`;
-  return `<path d="${fill}" fill="${color}" opacity="0.13"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+  const endX = (w - right).toFixed(1);
+  const endY = y(values[values.length - 1]).toFixed(1);
+  const fill = `${d}L${endX} ${h}L0 ${h}Z`;
+  // The wash only says which side of the line is "under". One gradient per colour, named by the
+  // colour: it is in the fill's own box, so every sparkline of that colour can share the definition,
+  // and a duplicate one is harmless.
+  const id = `spark-${String(color).replace(/[^a-z0-9]/gi, "")}`;
+  return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="${color}" stop-opacity="0.08"/><stop offset="0.75" stop-color="${color}" stop-opacity="0"/>`
+    + `</linearGradient></defs>`
+    + `<path d="${fill}" fill="url(#${id})"/>`
+    + `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`
+    + (dot
+      ? `<circle cx="${endX}" cy="${endY}" r="5.5" fill="${color}" fill-opacity="0.16"/><circle cx="${endX}" cy="${endY}" r="2.75" fill="${color}"/>`
+      : "");
 }
 
 function arcPath(cx, cy, r, a0, a1) {
@@ -478,7 +900,10 @@ const ALERT_HOLD_MAX = 8000;
 
 /* Order is load-bearing: the number keys index into this. Declared up here rather than beside
  * `showView` because `loadSettings` validates the opening view against it and runs first. */
-const VIEWS = ["board", "tune", "logs", "topics"];
+/* CAN goes on the end rather than beside the dashboard it belongs next to, because the position is
+ * the shortcut: 1–4 are keys drivers already have in their hands and renumbering them to make room
+ * would be a worse trade than a fifth key in the wrong place. */
+const VIEWS = ["board", "tune", "logs", "topics", "can"];
 const UNITS = ["metric", "imperial"];
 
 const SETTINGS_DEFAULTS = {
@@ -491,6 +916,8 @@ const SETTINGS_DEFAULTS = {
    * their frame in inches can say so. */
   units: "metric",
   startView: "board",
+  /* Park is on unless someone turns it off: it is what the screen looks like while nothing is moving. */
+  parkView: true,
 };
 
 /* Read one key at a time and check every one. Storage can hold anything — an older build wrote it,
@@ -508,6 +935,7 @@ function loadSettings() {
     if (Number.isFinite(saved.alertHoldMs)) s.alertHoldMs = Math.round(clamp(saved.alertHoldMs, 0, ALERT_HOLD_MAX));
     if (UNITS.includes(saved.units)) s.units = saved.units;
     if (VIEWS.includes(saved.startView)) s.startView = saved.startView;
+    if (typeof saved.parkView === "boolean") s.parkView = saved.parkView;
   } catch { /* corrupt storage is not worth a dialog; the defaults are a working console */ }
   return s;
 }
@@ -554,7 +982,7 @@ define("match", {
     body.innerHTML = `
       <div class="fill">
         <div class="phase" data-x="phase">No match</div>
-        <div><span class="n" data-x="time" style="font-size:52px">—:—</span></div>
+        <div><span class="n" data-x="time" style="--size:52px;--fit:46cqh">${clock(null)}</span></div>
         <div class="segs">
           <div class="seg auto"><i data-x="s0"></i></div>
           <div class="seg"><i data-x="s1"></i></div>
@@ -568,7 +996,7 @@ define("match", {
     /* Name the shift rather than just the period — during teleop "Shift 3" is the thing a driver
      * actually needs, because it decides whether their hub is scoring. */
     const shift = t !== null && ds.enabled && !ds.auto
-      ? (SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1]).name
+      ? segmentAt(t)?.name ?? null
       : null;
     x.phase.textContent = shift ? `${ds.mode} · ${shift}` : ds.mode;
     x.time.textContent = clock(t);
@@ -597,42 +1025,26 @@ define("match", {
   },
 });
 
-/* --- fuel tower -------------------------------------------------------------- */
+/* --- hub activation ---------------------------------------------------------- */
 
-/* REBUILT teleop, from the 2026 game manual (Table 6-2). Teleop runs 140 s and the match clock counts
- * down, so each segment is expressed as the time remaining when it ends.
+/* REBUILT switches each alliance's HUB on and off through teleop, and the schedule lives in hub.js: the
+ * segments from the game manual, the FMS game data that decides the alternation, and a countdown to the
+ * moment this alliance's hub really changes.
  *
- * Both HUBS are active during AUTO, the TRANSITION SHIFT and END GAME. Through shifts 1-4 they
- * alternate: the alliance that scored more FUEL in AUTO is inactive for shift 1, and FMS relays which
- * alliance that was in the game-specific message at the start of teleop. */
-const SHIFTS = [
-  { name: "Transition", endsAt: 130, always: true },
-  { name: "Shift 1", endsAt: 105, index: 0 },
-  { name: "Shift 2", endsAt: 80, index: 1 },
-  { name: "Shift 3", endsAt: 55, index: 2 },
-  { name: "Shift 4", endsAt: 30, index: 3 },
-  { name: "End game", endsAt: 0, always: true },
-];
+ * The tile is read from across a drive station in the middle of a match, so the state is the tile: the
+ * whole card turns green while the hub scores and stays dark while it does not, the word says Active or
+ * Inactive as large as the tile allows, and the countdown under it names what comes next. Amber is kept
+ * for the last few seconds before a change and for nothing else. The strip along the bottom is the rest
+ * of the match for this alliance - green where the hub scores - so the next change is visible before it
+ * is counted down. */
 
-/**
- * Which alliance's hub goes inactive first, from the FMS game-specific message.
- *
- * WPILib documents the 2026 message as a single character — `R` or `B` — naming the alliance whose
- * goal goes inactive first, which is the alliance that scored more FUEL in auto. It is an empty string
- * until roughly three seconds after auto ends, once scoring has been assessed, so null here is the
- * normal state for the first part of a match rather than a fault.
- */
-function inactiveFirstAlliance() {
-  const text = (str("/FMSInfo/GameSpecificMessage", "") || "").trim().toLowerCase();
-  if (text.startsWith("r")) return "red";
-  if (text.startsWith("b")) return "blue";
-  return null;
-}
+/* Auto and the six teleop segments, as parts of the strip in proportion to how long each runs. */
+const HUB_STRIP = [{ name: "Auto", from: AUTO_S, to: 0 }, ...TELEOP_SEGMENTS];
 
 define("tower", {
   name: "Hub activation",
   group: "Match",
-  desc: "Whether your alliance HUB is scoring this shift, and how long until that changes",
+  desc: "Whether your alliance HUB is scoring now, how long until that changes, and the rest of the match",
   w: 3, h: 2,
   tileClass: "tower",
   config: [
@@ -641,85 +1053,189 @@ define("tower", {
     { key: "countdownKey", label: "Countdown topic", type: "topic", def: "/Catalyst/Game/TowerSeconds",
       hint: "Optional override: seconds until the state flips." },
     { key: "warn", label: "Warn at", type: "number", def: 5,
-      hint: "Seconds before a change when the tile turns amber." },
+      hint: "Seconds before a change when the countdown turns amber." },
   ],
   render(body) {
     body.innerHTML = `
-      <div class="fill">
-        <div>
-          <div class="who" data-x="who">Alliance unknown</div>
-          <div class="status" data-x="status">No data</div>
-        </div>
-        <div>
-          <span class="n" data-x="count">—</span>
-          <span class="u" data-x="unit">s</span>
-        </div>
-        <div>
-          <div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="cap" data-x="src" style="margin-top:6px">waiting for robot</div>
-        </div>
+      <div class="fill hub">
+        <div class="hub-now"><i class="hub-lamp" aria-hidden="true"></i><span class="hub-word" data-x="word">No match</span></div>
+        <div class="hub-next"><span class="n" data-x="count"></span><span class="u" data-x="unit">s</span><span class="hub-then" data-x="then"></span></div>
+        <div class="hub-strip" aria-hidden="true">${HUB_STRIP.map((s) => `<i style="flex-grow:${s.from - s.to}"></i>`).join("")}</div>
+        <div class="cap hub-src" data-x="src">waiting for robot</div>
       </div>`;
   },
-  update(body, cfg, x, tile) {
+  update(body, cfg, x, tile, state) {
     const side = alliance();
-    x.who.textContent = side ? `${side === "red" ? "Red" : "Blue"} hub` : "Alliance unknown";
-    x.who.className = `who ${side || ""}`;
+    const sub = tile.querySelector(":scope > .h > .s");
+    if (sub) setText(sub, side ? `${side === "red" ? "Red" : "Blue"} hub` : "No alliance");
 
-    /* A robot that publishes its own answer wins — it may know something we do not. Otherwise the
-     * schedule comes straight out of the rules plus the FMS game data, which is exact rather than
-     * estimated. */
-    let active = bool(cfg.activeKey, null);
-    let left = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
-    let source = active !== null || left !== null ? "robot" : null;
-    let segment = null;
+    const t = matchTime();
+    const plan = hubPlan({
+      t, auto: ds.auto, enabled: ds.enabled, side,
+      first: inactiveFirst(gameMessage()),
+    });
 
-    if (active === null || left === null) {
-      const t = matchTime();
-      if (t !== null && !ds.auto && ds.enabled) {
-        segment = SHIFTS.find((s) => t > s.endsAt) || SHIFTS[SHIFTS.length - 1];
-        if (left === null) left = Math.max(0, t - segment.endsAt);
-
-        if (active === null) {
-          if (segment.always) {
-            active = true;                       // both hubs are active here, no game data needed
-            source = "rule — both hubs active";
-          } else {
-            const inactiveFirst = inactiveFirstAlliance();
-            if (inactiveFirst && side) {
-              // Named alliance sits out shift 1, then the two alternate every shift.
-              const weSitOutFirst = inactiveFirst === side;
-              active = weSitOutFirst ? segment.index % 2 === 1 : segment.index % 2 === 0;
-              source = `FMS · ${segment.name}`;
-            } else {
-              source = side ? "waiting for FMS game data" : "waiting for alliance";
-            }
-          }
-        }
-      } else if (t !== null && ds.auto) {
-        active = true;
+    /* A robot that publishes its own answer wins - it may know something we do not. Its countdown is
+     * taken to run to its own next change; the schedule's is only borrowed when the two agree on now. */
+    let { active, left, until } = plan;
+    let next = plan.next?.active ?? null;
+    let source = null;
+    const robotActive = cfg.activeKey ? bool(cfg.activeKey, null) : null;
+    const robotLeft = cfg.countdownKey ? num(cfg.countdownKey, null) : null;
+    if (robotActive !== null || robotLeft !== null) {
+      source = "From the robot";
+      if (robotActive !== null && robotActive !== plan.active) {
+        active = robotActive;
         left = null;
-        source = "rule — both hubs active in auto";
+        until = null;
+      }
+      if (robotLeft !== null) {
+        left = Math.max(0, robotLeft);
+        until = active === null ? "segment" : "change";
+        next = active === null ? null : !active;
       }
     }
 
-    const soon = active !== null && left !== null && left <= cfg.warn;
-    tile.dataset.active = active === true && !soon ? "true" : "false";
-    tile.dataset.soon = soon ? "true" : "false";
+    const hub = active === true ? "on" : active === false ? "off" : "none";
+    const soon = until === "change" && left !== null && left <= cfg.warn;
+    setFlag(tile, "hub", hub);
+    setFlag(tile, "soon", soon);
 
-    if (active === null) {
-      x.status.textContent = segment ? segment.name : "No data";
-      x.count.textContent = left === null ? "—" : left.toFixed(1);
-      x.unit.textContent = left === null ? "" : "s";
-      x.src.textContent = source || "no match in progress";
-      return;
+    /* The moment it changes, the card says so once: a ring of the new state's colour that fades as the
+     * countdown starts again. Only for a change during a match - not for the tile being built, and not
+     * for a robot coming or going. */
+    if (state.hub && state.hub !== hub && state.hub !== "none" && hub !== "none" && !reducedMotion()) {
+      const ring = hub === "on" ? "rgba(48, 209, 88, 0.95)" : "rgba(235, 235, 240, 0.7)";
+      tile.animate(
+        [{ boxShadow: `inset 0 0 0 3px ${ring}` }, { boxShadow: "inset 0 0 0 3px rgba(0, 0, 0, 0)" }],
+        { duration: 1400, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      );
     }
+    state.hub = hub;
 
-    x.status.textContent = soon
-      ? (active ? "CLOSING" : "OPENING")
-      : (active ? "HUB ACTIVE" : "HUB INACTIVE");
-    x.count.textContent = left === null ? "—" : left.toFixed(1);
-    x.unit.textContent = left === null ? "" : "s";
-    x.src.textContent = source || "robot";
+    setText(x.word, active === true ? "Active" : active === false ? "Inactive"
+      : plan.period === "none" && !source ? "No match" : "Waiting");
+
+    /* What comes next, with its countdown. With nothing to count - auto, or no match - the row keeps
+     * its height so the card does not jump when the countdown arrives. */
+    let then = "";
+    if (left !== null) {
+      setText(x.count, left.toFixed(1));
+      then = until === "end" ? "to the end"
+        : until === "change" ? (next ? "until active" : "until inactive")
+        : `until ${plan.next?.name ?? "the next shift"}`;
+    } else {
+      setText(x.count, "");
+      then = plan.period === "auto" ? "Both hubs score in auto" : "";
+    }
+    setFlag(x.unit, "hidden", left === null);
+    setText(x.then, then);
+
+    if (source === null) {
+      const segment = plan.segment;
+      source = plan.period === "auto" ? "Auto"
+        : plan.period === "none" ? (t === null ? "No match clock from the robot" : "No match in progress")
+        : segment.both ? `${segment.name} · both hubs`
+        : active !== null ? `${segment.name} · FMS`
+        : side ? `${segment.name} · waiting for FMS` : `${segment.name} · no alliance`;
+    }
+    setText(x.src, source);
+
+    /* The strip: auto, then teleop, each part green where this alliance's hub scores and dimmed once it
+     * has run. The part the match is in shows how far through it is. */
+    const parts = body.querySelector(".hub-strip").children;
+    const period = plan.period;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const segment = i === 0 ? null : plan.plan[i - 1];
+      const on = i === 0 ? true : segment.active;
+      const done = period === "none" ? 0 : i === 0 ? plan.autoDone : period === "auto" ? 0 : segment.done;
+      const now = period === "auto" ? i === 0 : period === "teleop" && i === plan.index + 1;
+      setFlag(part, "state", period === "none" ? "idle" : on === true ? "on" : on === false ? "off" : "unknown");
+      setFlag(part, "now", now);
+      setFlag(part, "past", !now && done >= 1);
+      const fill = now ? `${(done * 100).toFixed(1)}%` : "";
+      if (part.style.getPropertyValue("--done") !== fill) {
+        if (fill) part.style.setProperty("--done", fill);
+        else part.style.removeProperty("--done");
+      }
+    }
+  },
+});
+
+/* --- shooter ----------------------------------------------------------------- */
+
+/* What a driver waits on before shooting, from the robot's own mechanism topics (see mechanisms.js): whether
+ * a shot could go now, the flywheel against its setpoint, the FUEL on board, and the hood. The state is
+ * said the way the hub tile says its state, a lamp and a word as large as the tile allows, and the lamp is
+ * green only while a shot could go this instant. The bars under it are the reasons.
+ *
+ * The FUEL figure is the console's estimate (createHopper): nothing on the robot counts balls, so it is
+ * written with a tilde, and the robot's full sensor is believed over it whenever it reads true. */
+const SHOOTER_WORDS = {
+  shooting: "Shooting", feeding: "Feeding", ready: "Ready", spinning: "Spinning up", warm: "Warm",
+  idle: "Idle", spindown: "Spinning down", stopped: "Stopped",
+};
+
+define("shooter", {
+  name: "Shooter",
+  group: "Match",
+  desc: "Whether a shot could go now, the flywheel against its setpoint, the FUEL on board, and the hood",
+  w: 3, h: 2,
+  tileClass: "shooter",
+  config: [
+    { key: "maxRpm", label: "Flywheel bar top (RPM)", type: "number", def: 4000,
+      hint: "Where the flywheel bar ends. The robot's speeds are read from /Catalyst/Shooter/VelocityRPS and SetpointRPS." },
+  ],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill shoot">
+        <div class="hub-now"><i class="hub-lamp" aria-hidden="true"></i><span class="hub-word" data-x="word">No shooter</span></div>
+        <div class="shoot-rows">
+          <div class="shoot-row">
+            <span class="shoot-lab">Flywheel</span>
+            <span class="shoot-bar" aria-hidden="true"><i data-x="fly"></i><b data-x="goal"></b></span>
+            <span class="shoot-fig" data-x="rpm">—</span>
+          </div>
+          <div class="shoot-row">
+            <span class="shoot-lab">FUEL</span>
+            <span class="shoot-bar" aria-hidden="true"><i data-x="load"></i></span>
+            <span class="shoot-fig" data-x="fuel">—</span>
+          </div>
+        </div>
+        <div class="cap" data-x="cap">waiting for robot</div>
+      </div>`;
+  },
+  update(body, cfg, x, tile) {
+    const linked = nt.status.connected || demo.on;
+    const m = linked ? mechanismState.now : null;
+    const readiness = m ? shooterReadiness(m, { enabled: ds.enabled }) : null;
+    setFlag(tile, "state", readiness?.state ?? "none");
+    setFlag(tile, "ready", Boolean(readiness?.ready));
+    setText(x.word, readiness ? SHOOTER_WORDS[readiness.state] : "No shooter");
+
+    const top = Math.max(1, Number(cfg.maxRpm) || 4000);
+    const share = (rpm) => `${(clamp01(Math.abs(rpm) / top) * 100).toFixed(1)}%`;
+    const rps = readiness ? m.shooterRps : null;
+    const goal = readiness && Number.isFinite(m.shooterGoalRps) && Math.abs(m.shooterGoalRps) > 0.5 ? m.shooterGoalRps : null;
+    x.fly.style.width = rps === null ? "0%" : share(rps * 60);
+    setFlag(x.goal, "on", goal !== null);
+    if (goal !== null) x.goal.style.left = share(goal * 60);
+    setText(x.rpm, rps === null ? "—" : `${compactFigure(Math.abs(rps) * 60)} RPM`);
+
+    const hopper = mechanismState.hopper;
+    const full = m?.hopperFull === true;
+    x.load.style.width = m ? `${(clamp01(full ? 1 : hopper.fill / hopper.capacity) * 100).toFixed(1)}%` : "0%";
+    setText(x.fuel, !m ? "—" : full ? "Full" : `~${Math.round(hopper.fill)}`);
+
+    const parts = [];
+    if (m && Number.isFinite(m.hoodDeg)) parts.push(`<span class="capgrp">Hood <b>${m.hoodDeg.toFixed(0)}°</b></span>`);
+    if (m && mechanismState.matchFired > 0) parts.push(`<span class="capgrp"><b>~${Math.round(mechanismState.matchFired)}</b> shot this match</span>`);
+    const cap = !linked ? "waiting for robot"
+      : !m ? "No mechanism topics from the robot"
+      : !readiness ? "No flywheel speed from the robot"
+      : parts.join('<span class="capsep"> · </span>');
+    if (x.cap.innerHTML !== cap) x.cap.innerHTML = cap;
   },
 });
 
@@ -746,9 +1262,12 @@ define("gauge", {
     { key: "redline", label: "Redline", type: "number", def: 5500,
       hint: "Value at which the gauge turns red. Set above the maximum to disable." },
     { key: "decimals", label: "Decimals", type: "number", def: 0 },
+    { key: "figures", label: "Large figures", type: "select", def: "short",
+      options: [["short", "Short, as 2.4k"], ["full", "In full, as 2400"]],
+      hint: "Short writes a figure of a thousand or more with one decimal and a k. The whole value is in the gauge's tooltip either way." },
   ],
   render(body, cfg) {
-    body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div>`;
+    body.innerHTML = `<div class="gaugewrap" data-x="wrap"></div><div class="cap gauge-cap" data-x="cap" hidden></div>`;
     for (const key of String(cfg.topic).split(",").map((s) => s.trim()).filter(Boolean)) track(key);
   },
   update(body, cfg, x) {
@@ -757,6 +1276,8 @@ define("gauge", {
 
     if (wrap.childElementCount !== keys.length) {
       wrap.innerHTML = "";
+      /* How many rings share the row, which the stylesheet sizes each one by. */
+      wrap.style.setProperty("--n", String(Math.max(1, keys.length)));
       for (const k of keys) {
         const g = el("div", "gauge");
         g.dataset.key = k;
@@ -766,7 +1287,18 @@ define("gauge", {
 
     const span = Math.max(1e-6, cfg.max - cfg.min);
     const single = keys.length === 1;
-    const labels = single ? [cfg.unit || ""] : distinctLabels(keys);
+    const labels = single ? [cfg.unit || ""] : distinctLabels(keys).map(spacedLabel);
+
+    // Rings of dashes say nothing about why. When not one of the topics has a value, the tile says
+    // what it is waiting for; as soon as any arrives the caption goes, because a gauge showing three
+    // readings and a dash is reporting one missing topic, and the dash says that on its own.
+    const waiting = keys.every((k) => num(k, null) === null);
+    x.cap.hidden = !waiting;
+    if (waiting) {
+      x.cap.textContent = keys.length === 1
+        ? `waiting for the robot to publish ${keys[0]}`
+        : `waiting for the robot to publish ${keys.length} topics under ${commonPrefix(keys) || "these paths"}`;
+    }
 
     keys.forEach((key, i) => {
       const g = wrap.children[i];
@@ -774,27 +1306,38 @@ define("gauge", {
       const value = rawVal === null ? null : rawVal * (cfg.scale || 1);
       const frac = value === null ? 0 : clamp01((value - cfg.min) / span);
       const hot = value !== null && value >= cfg.redline;
-      const color = hot ? "var(--crit)" : "var(--blue)";
+      // A speed is a quantity, so its arc takes the quantity colour, and the redline is the one thing
+      // that turns it red.
+      const color = hot ? "var(--crit)" : "var(--cat-data)";
       const label = labels[i];
-      const text = value === null ? "—" : value.toFixed(Math.max(0, cfg.decimals | 0));
+      /* A motor speed reads 2.4k rather than 2400, the way Tesla writes a large figure, unless the tile
+       * is set to write figures in full. The whole value, its unit and the topic are in the tooltip. */
+      const places = Math.max(0, cfg.decimals | 0);
+      const text = value === null ? "—" : cfg.figures === "full" ? value.toFixed(places) : compactFigure(value, places);
+      const tip = `${value === null ? "no reading" : `${value.toFixed(places)}${cfg.unit ? ` ${cfg.unit}` : ""}`} · ${key}`;
+      if (g.title !== tip) g.title = tip;
 
       if (cfg.style === "number") {
         g.innerHTML =
-          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 46 : 26}px">${text}</div>` +
+          `<div class="gv ${hot ? "crit" : ""}" style="--size:${single ? 46 : 26}px">${text}</div>` +
           `<div class="gl">${label}</div>`;
         return;
       }
 
       if (cfg.style === "bar") {
         g.innerHTML =
-          `<div class="gv ${hot ? "crit" : ""}" style="font-size:${single ? 32 : 20}px">${text}</div>` +
+          `<div class="gv ${hot ? "crit" : ""}" style="--size:${single ? 32 : 20}px">${text}</div>` +
           `<div class="track" style="width:100%;margin:9px 0 4px"><i style="width:${frac * 100}%;background:${color}"></i></div>` +
           `<div class="gl">${label}</div>`;
         return;
       }
 
+      /* Drawn in its own units and sized by the stylesheet to the room the tile has (`.gaugewrap
+       * .gauge svg`), so everything in it - the ring, the needle, the figure - grows with the tile
+       * together. The ring is a little finer than it was at a fixed 92 px, since it is drawn larger. */
       const size = single ? 128 : 92;
-      const r = size / 2 - 10;
+      const ring = single ? 8 : 6.5;
+      const r = size / 2 - 8;
       const a0 = 135, sweep = 270;
       const a1 = a0 + sweep * frac;
       const cx = size / 2, cy = size / 2;
@@ -806,13 +1349,16 @@ define("gauge", {
         : "";
 
       g.innerHTML =
-        `<svg width="${size}" height="${size * 0.82}" viewBox="0 0 ${size} ${size * 0.82}">` +
-        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="8" stroke-linecap="round"/>` +
+        `<svg viewBox="0 0 ${size} ${size * 0.82}">` +
+        `<path d="${arcPath(cx, cy, r, a0, a0 + sweep)}" fill="none" stroke="var(--tile-3)" stroke-width="${ring}" stroke-linecap="round"/>` +
         (frac > 0.002 && cfg.style === "arc"
-          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>`
+          ? `<path d="${arcPath(cx, cy, r, a0, a1)}" fill="none" stroke="${color}" stroke-width="${ring}" stroke-linecap="round"/>`
           : "") +
         needle +
-        `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="currentColor" font-family="var(--mono)" font-weight="700" font-size="${single ? 22 : 16}" ${hot ? 'class="crit"' : ""}>${text}</text>` +
+        // Styled by class rather than by attributes: a presentation attribute cannot take var(), so
+        // `font-family="var(--mono)"` had never applied, and the stylesheet is where the readout face
+        // - and its placeholder dash - is defined for every other large reading.
+        `<text class="gv${hot ? " crit" : ""}" x="${cx}" y="${cy + (single ? 9 : 7)}" text-anchor="middle" fill="${value === null ? TOK.faint : "currentColor"}" font-size="${single ? 28 : 20}">${text}</text>` +
         `</svg><div class="gl">${label}</div>`;
     });
   },
@@ -836,7 +1382,7 @@ define("battery", {
     track("/Catalyst/Brownout/MeasuredVoltage");
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:40px">—</span><span class="u">V</span></div>
+        <div><span class="n" data-x="v" style="--size:40px">—</span><span class="u">V</span></div>
         <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
         <div class="cap" data-x="cap">no history yet</div>
       </div>`;
@@ -851,14 +1397,206 @@ define("battery", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    const color = v !== null && v < cfg.low ? "#ff9f0a" : "#30d158";
-    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, color);
+    // A reading is white, as every graph on the board is. A low pack is the figure's and the header's
+    // to say; a trace that turned amber with it was a second, much larger patch of the same colour.
+    x.spark.innerHTML = sparkline(h.slice(-160), w, ht, TOK.data, { dot: true });
 
     if (h.length > 3) {
       const recent = h.slice(-160);
       const lo = Math.min(...recent), hi = Math.max(...recent);
-      x.cap.innerHTML = `sag <b>${(hi - lo).toFixed(2)} V</b> · low <b>${lo.toFixed(2)} V</b>`;
+      // Each figure keeps its unit, and in a narrow tile the two halves take a line each rather than
+      // breaking inside one (see `.capgrp` in styles.css).
+      x.cap.innerHTML = `<span class="capgrp">sag <b>${(hi - lo).toFixed(2)} V</b></span>`
+        + `<span class="capsep"> · </span><span class="capgrp">low <b>${lo.toFixed(2)} V</b></span>`;
     }
+  },
+});
+
+/* --- systemcore -------------------------------------------------------------- */
+
+define("systemcore", {
+  name: "Systemcore",
+  group: "Health",
+  desc: "What the control system reports about itself: CPU, memory, storage, brownout",
+  w: 3, h: 2,
+  config: [
+    { key: "warn", label: "Warn above (%)", type: "number", def: 80 },
+    { key: "crit", label: "Critical above (%)", type: "number", def: 90 },
+  ],
+  render(body) {
+    // Systemcore measures its own CPU, RAM, storage and power and publishes them on its system
+    // NetworkTables server; Catalyst mirrors them under /Catalyst/Systemcore/ so they arrive on the
+    // same connection as everything else. A roboRIO reported almost none of this, which is why a
+    // robot that browned out because logs filled the disk used to fail pointing at nothing.
+    ["CpuPercent", "RamFraction", "StorageFraction", "BatteryVolts", "BrownedOut"]
+      .forEach((k) => track("/Catalyst/Systemcore/" + k));
+    body.innerHTML = `
+      <div class="fill">
+        <div class="row"><span class="k">CPU</span><span class="n" data-x="cpu">—</span><span class="u">%</span></div>
+        <div class="row"><span class="k">RAM</span><span class="n" data-x="ram">—</span><span class="u">%</span></div>
+        <div class="row"><span class="k">Disk</span><span class="n" data-x="disk">—</span><span class="u">%</span></div>
+        <div class="cap" data-x="cap">waiting for Systemcore</div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const pct = (key, scale) => {
+      const v = num("/Catalyst/Systemcore/" + key, null);
+      return v === null ? null : v * scale;
+    };
+    const paint = (el, v) => {
+      el.textContent = v === null ? "—" : v.toFixed(0);
+      el.className = `n ${v === null ? "" : v >= cfg.crit ? "crit" : v >= cfg.warn ? "warn" : "ok"}`;
+    };
+
+    const cpu = pct("CpuPercent", 1);
+    const ram = pct("RamFraction", 100);
+    const disk = pct("StorageFraction", 100);
+    paint(x.cpu, cpu);
+    paint(x.ram, ram);
+    paint(x.disk, disk);
+
+    if (cpu === null && ram === null && disk === null) {
+      // Absent rather than zero. Off Systemcore there is no system server, and reporting 0% would
+      // read as a very healthy machine rather than as no machine.
+      x.cap.textContent = "no Systemcore detected — simulation, or a roboRIO";
+      return;
+    }
+    const volts = num("/Catalyst/Systemcore/BatteryVolts", null);
+    const brownedOut = bool("/Catalyst/Systemcore/BrownedOut", false);
+    x.cap.innerHTML = brownedOut
+      ? `<b class="crit">BROWNED OUT</b>${volts === null ? "" : ` at ${volts.toFixed(2)} V`}`
+      : (volts === null ? "healthy" : `battery <b>${volts.toFixed(2)} V</b>`);
+  },
+});
+
+/* --- autonomy 2.0 ------------------------------------------------------------- */
+
+/* The robot's reasoning, as the autonomy layer publishes it. Every one of these keys is a decision
+   that used to happen invisibly inside a lambda: which tasks won and which were held and why, what
+   the chaser is going after, which limiter is holding the robot back, what was shed to stay inside
+   the power budget, and what the intention system guessed. */
+define("autonomy", {
+  name: "Autonomy 2.0",
+  group: "Health",
+  desc: "What the robot decided this loop, and why it did not do the other things",
+  w: 4, h: 3,
+  config: [
+    { key: "showIntent", label: "Show intention guess", type: "select", def: "yes",
+      options: [["yes", "Yes"], ["no", "No"]] },
+  ],
+  render(body) {
+    ["Situation/Valid", "Situation/Confidence", "Situation/Slip", "Situation/BusVolts",
+     "Situation/Headroom", "Situation/Binding",
+     "Tasks/Running", "Tasks/Held", "Tasks/Explain",
+     "Chase/Target", "Chase/Why",
+     "Authority/Scale", "Authority/Binding", "Authority/Explain",
+     "Power/Deficit", "Power/Shed", "Power/Short", "Power/Explain",
+     "Intent/Guess", "Intent/HitRate", "Intent/Samples", "Intent/Explain",
+    ].forEach((k) => track("/Catalyst/Autonomy/" + k));
+    body.innerHTML = `
+      <div class="fill au-fill">
+        <div class="au-authority">
+          <div class="au-scale"><span class="n" data-x="scale">—</span><span class="u">%</span></div>
+          <div class="au-track"><i data-x="bar"></i></div>
+          <div class="cap" data-x="authWhy">waiting for the robot</div>
+        </div>
+        <div class="au-row"><span class="k">Running</span><span data-x="running">—</span></div>
+        <div class="au-row"><span class="k">Held</span><span class="dim" data-x="held">—</span></div>
+        <div class="au-row"><span class="k">Chasing</span><span data-x="chase">—</span></div>
+        <div class="au-row" data-x="powerRow"><span class="k">Power</span><span data-x="power">—</span></div>
+        <div class="au-row" data-x="intentRow"><span class="k">Intent</span><span data-x="intent">—</span></div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const K = "/Catalyst/Autonomy/";
+
+    /* Authority is the number a driver asks about when the robot "feels slow", so it gets the
+       headline and the reason underneath it rather than a bare percentage. */
+    const scale = num(K + "Authority/Scale", null);
+    if (scale === null) {
+      x.scale.textContent = "—";
+      x.bar.style.width = "0%";
+      x.authWhy.textContent = has(K + "Tasks/Running")
+        ? "no authority published"
+        : "waiting for the robot \u2014 needs an AutonomyBoard publishing";
+    } else {
+      const pct = clamp01(scale) * 100;
+      x.scale.textContent = pct.toFixed(0);
+      x.scale.className = `n ${pct < 50 ? "crit" : pct < 90 ? "warn" : "ok"}`;
+      x.bar.style.width = `${pct.toFixed(0)}%`;
+      x.bar.style.background = pct < 50 ? "var(--crit)" : pct < 90 ? "var(--warn)" : "var(--cat-data)";
+      x.authWhy.textContent = str(K + "Authority/Explain", "no limits");
+    }
+
+    x.running.textContent = str(K + "Tasks/Running", "\u2014");
+    x.held.textContent = str(K + "Tasks/Held", "\u2014");
+
+    const target = str(K + "Chase/Target", null);
+    x.chase.textContent = target === null ? "\u2014"
+      : target === "(none)" ? "nothing worth chasing" : `${target} \u00b7 ${str(K + "Chase/Why", "")}`;
+
+    /* Power only appears once something is actually measuring it. An unmeasured robot showing
+       "0 A shed" reads as healthy, and that is the exact confusion this schema avoids. */
+    const shedExplain = str(K + "Power/Explain", null);
+    x.powerRow.hidden = shedExplain === null;
+    if (shedExplain !== null) {
+      const short = num(K + "Power/Short", 0);
+      x.power.textContent = shedExplain;
+      x.power.className = short > 0 ? "warn" : "";
+    }
+
+    const showIntent = cfg.showIntent !== "no";
+    const intentExplain = str(K + "Intent/Explain", null);
+    x.intentRow.hidden = !showIntent || intentExplain === null;
+    if (showIntent && intentExplain !== null) {
+      x.intent.textContent = intentExplain;
+    }
+  },
+});
+
+/* --- motor history ------------------------------------------------------------ */
+
+define("motorhistory", {
+  name: "Motor history",
+  group: "Health",
+  desc: "Every motor's lifetime hours, revolutions, peaks and boots, by serial number",
+  w: 6, h: 3,
+  config: [
+    { key: "sort", label: "Sort by", type: "select", def: "powered",
+      options: [["powered", "Powered hours"], ["running", "Turning hours"], ["hot", "Hot time"],
+                ["peakTemp", "Peak temperature"], ["peakAmps", "Peak current"], ["revolutions", "Revolutions"],
+                ["boots", "Boots"]] },
+    { key: "rows", label: "Motors shown", type: "number", def: 12 },
+    { key: "hot", label: "Hot from (\u00b0C)", type: "number", def: 70,
+      hint: "Peak temperatures at or above this are marked. Falcons protect themselves in the 90s." },
+  ],
+  render(body) {
+    ["Rows", "Summary", "Count", "ClockTrusted", "Discovery"].forEach((k) => track("/Catalyst/MotorHistory/" + k));
+    body.innerHTML = `
+      <div class="fill mh-fill">
+        <div class="cap mh-summary" data-x="summary">waiting for the robot's motor history</div>
+        <div class="mhist" data-x="table"></div>
+      </div>`;
+  },
+  update(body, cfg, x) {
+    const rows = arr("/Catalyst/MotorHistory/Rows");
+    if (!rows.length) {
+      const why = str("/Catalyst/MotorHistory/Discovery", "");
+      x.summary.textContent = has("/Catalyst/MotorHistory/Count")
+        ? (why && why !== "ok" ? `no motors on record yet \u2014 diagnostic server: ${why}` : "no motors on record yet")
+        : "waiting for the robot's motor history \u2014 needs FrcCatalyst 2.0.0-alpha.2-a9 or later";
+      setHtml(x.table, "");
+      return;
+    }
+    const summary = str("/Catalyst/MotorHistory/Summary", "");
+    const clock = bool("/Catalyst/MotorHistory/ClockTrusted", true);
+    x.summary.textContent = summary + (clock ? "" : " \u00b7 robot clock not set, dates are relative");
+    /* Re-render only when the rows change: this table is text, and NT sends the array again every
+       two seconds whether or not anything moved. */
+    const sig = rows.join("\n") + cfg.sort + cfg.rows + cfg.hot;
+    if (x.table.dataset.sig === sig) return;
+    x.table.dataset.sig = sig;
+    setHtml(x.table, motorTableHtml(motorRowsFromNt(rows), cfg.sort, Math.max(1, cfg.rows | 0), cfg.hot));
   },
 });
 
@@ -900,10 +1638,10 @@ define("health", {
 
     const frac = loop === null ? 0 : clamp01(loop / cfg.budget);
     x.bar.style.width = `${frac * 100}%`;
-    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--ok)";
+    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--cat-data)";
     x.cap.innerHTML = loop === null
       ? "waiting for the robot to publish loop time"
-      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
+      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
   },
 });
 
@@ -949,10 +1687,18 @@ define("physics", {
 
     const frac = trac === null ? 0 : clamp01(trac);
     x.bar.style.width = `${frac * 100}%`;
-    x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--brand)";
-    x.cap.innerHTML = conf === null
-      ? "advisory only — never gates control"
-      : `estimator confidence <b>${(conf * 100).toFixed(0)}%</b> · advisory only`;
+    // Traction in use is a quantity until it is nearly all used. It was the signal colour, which on
+    // this board is also the fault colour, so a healthy 60% drew a bar that looked like a fault.
+    x.bar.style.background = frac > 0.95 ? "var(--warn)" : "var(--cat-data)";
+    // With nothing at all from Physics Core, "advisory only" under three dashes reads as a tile that
+    // is working and quiet. It is waiting, and it says for what.
+    // "Advisory only" is the part a narrow tile lets go of (`.capopt`): it is true of every reading
+    // here and said again in the palette, where the confidence is only said here.
+    x.cap.innerHTML = slip === null && tip === null && trac === null && conf === null
+      ? "waiting for Physics Core on the robot<span class=\"capopt\"> · advisory only</span>"
+      : conf === null
+        ? "advisory only — never gates control"
+        : `<span class="capgrp">estimator confidence <b>${(conf * 100).toFixed(0)}%</b></span><span class="capopt"> · advisory only</span>`;
   },
 });
 
@@ -975,7 +1721,7 @@ define("impacts", {
     state.lastStamp = null;
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="mag" style="font-size:30px">—</span><span class="u">m/s²</span></div>
+        <div><span class="n" data-x="mag" style="--size:30px">—</span><span class="u">m/s²</span></div>
         <div class="cap" data-x="when">no contact recorded</div>
         <div class="cap" data-x="hist" style="margin-top:8px"></div>
       </div>`;
@@ -1017,19 +1763,29 @@ define("swerve", {
   desc: "Four module angles and speeds, drawn as they are actually pointing",
   w: 3, h: 2,
   config: [
-    { key: "topic", label: "Module states topic", type: "topic", def: "/Catalyst/Drive/ModuleStates",
-      hint: "The WPILib convention: a number array of [angleRad, speedMps] per module, four modules." },
+    // Catalyst 2.x publishes this as ModuleVelocities, following WPILib's rename of
+    // SwerveModuleState to SwerveModuleVelocity. It also still publishes ModuleStates as a
+    // deprecated alias through the 2027 season, so a saved layout pointing at the old path keeps
+    // working - but new layouts should use the accurate name.
+    { key: "topic", label: "Module velocities topic", type: "topic", def: "/Catalyst/Drive/ModuleVelocities",
+      hint: "A number array of [angleRad, speedMps] per module, four modules. Catalyst 1.x published this at /Catalyst/Drive/ModuleStates." },
     { key: "max", label: "Max speed (m/s)", type: "number", def: 5.0 },
   ],
   render(body) {
-    body.innerHTML = `<div class="fill"><svg data-x="svg" viewBox="0 0 120 120" style="width:100%;height:100%;max-height:none"></svg></div>`;
+    body.innerHTML = `<div class="fill"><svg data-x="svg" viewBox="0 0 120 120" style="width:100%;height:100%;max-height:none"></svg><div class="cap" data-x="cap" hidden></div></div>`;
   },
   update(body, cfg, x) {
     const states = arr(cfg.topic);
     const spots = [[34, 34], [86, 34], [34, 86], [86, 86]];
 
-    if (!Array.isArray(states) || states.length < 8) {
-      x.svg.innerHTML = `<text x="60" y="62" text-anchor="middle" fill="#63656b" font-size="8" font-family="var(--sans)">no module states</text>`;
+    // Said in the tile's own caption, like every other tile waiting on a topic. Drawn inside the
+    // drawing it was eight units tall in a hundred-and-twenty-unit viewBox, which on a two-row tile
+    // came out smaller than any text on the board, and it did not say which topic it was waiting for.
+    const waiting = !Array.isArray(states) || states.length < 8;
+    x.svg.style.display = waiting ? "none" : "";
+    x.cap.hidden = !waiting;
+    if (waiting) {
+      x.cap.textContent = `waiting for the robot to publish ${cfg.topic}`;
       return;
     }
 
@@ -1042,11 +1798,11 @@ define("swerve", {
       // Screen y grows downward and the field's +y is to the left, so the angle is negated.
       const dx = Math.cos(-angle) * 16 * (speed < 0 ? -1 : 1);
       const dy = Math.sin(-angle) * 16 * (speed < 0 ? -1 : 1);
-      const colour = frac > 0.92 ? "#ff453a" : frac > 0.7 ? "#ff9f0a" : "#4d90fe";
+      const colour = frac > 0.92 ? TOK.bad : frac > 0.7 ? TOK.warn : TOK.data;
       out +=
-        `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="#2c2e34" stroke-width="3"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="${TOK.rule}" stroke-width="3"/>` +
         `<line x1="${cx}" y1="${cy}" x2="${(cx + dx).toFixed(1)}" y2="${(cy + dy).toFixed(1)}" stroke="${colour}" stroke-width="3.5" stroke-linecap="round"/>` +
-        `<text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="#9a9ba1" font-size="7.5" font-family="var(--mono)">${speed.toFixed(1)}</text>`;
+        `<text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="${TOK.dim}" font-size="7.5" font-family="var(--mono)">${speed.toFixed(1)}</text>`;
     }
     x.svg.innerHTML = out;
   },
@@ -1126,7 +1882,7 @@ define("auto", {
   desc: "Pick the autonomous routine — writes the same key SendableChooser reads",
   w: 3, h: 1,
   config: [
-    { key: "base", label: "Chooser path", type: "topic", def: "/SmartDashboard/Auto Chooser" },
+    { key: "base", label: "Chooser path", type: "topic", def: "/Auto Selector" },
     { key: "style", label: "Style", type: "select", def: "compact",
       options: [["compact", "Dropdown (1 row)"], ["list", "Full list"]],
       hint: "The dropdown fits in a single row, which is usually worth more board space than seeing every option at once." },
@@ -1188,7 +1944,7 @@ define("value", {
     { key: "decimals", label: "Decimals", type: "number", def: 2 },
   ],
   render(body) {
-    body.innerHTML = `<div class="fill"><div><span class="n" data-x="v" style="font-size:30px">—</span><span class="u" data-x="u"></span></div></div>`;
+    body.innerHTML = `<div class="fill"><div><span class="n" data-x="v" style="--size:30px;--fit:70cqh">—</span><span class="u" data-x="u"></span></div></div>`;
   },
   update(body, cfg, x) {
     const value = raw(cfg.topic);
@@ -1253,7 +2009,7 @@ define("graph", {
     track(cfg.topic);
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:26px">—</span></div>
+        <div><span class="n" data-x="v" style="--size:26px">—</span></div>
         <svg class="spark" data-x="spark" preserveAspectRatio="none"></svg>
         <div class="cap" data-x="cap"></div>
       </div>`;
@@ -1265,9 +2021,18 @@ define("graph", {
     const box = x.spark.getBoundingClientRect();
     const w = Math.max(40, box.width), ht = Math.max(20, box.height);
     x.spark.setAttribute("viewBox", `0 0 ${w} ${ht}`);
-    x.spark.innerHTML = sparkline(h, w, ht, "#4d90fe");
+    x.spark.innerHTML = sparkline(h, w, ht, TOK.data, { dot: true });
     if (h.length > 2) {
-      x.cap.innerHTML = `min <b>${Math.min(...h).toFixed(2)}</b> · max <b>${Math.max(...h).toFixed(2)}</b> · ${h.length} samples`;
+      // The sample count is the first thing a narrow tile lets go of (`.capopt`).
+      x.cap.innerHTML = `<span class="capgrp">min <b>${Math.min(...h).toFixed(2)}</b></span> · `
+        + `<span class="capgrp">max <b>${Math.max(...h).toFixed(2)}</b></span>`
+        + `<span class="capopt"> · ${h.length} samples</span>`;
+    } else if (v === null) {
+      // An empty plot under a dash is the tile that most looks broken, so it is the one that most
+      // needs to say it is only waiting, and for which topic.
+      x.cap.textContent = `waiting for the robot to publish ${cfg.topic}`;
+    } else {
+      x.cap.textContent = "collecting samples…";
     }
   },
 });
@@ -1291,7 +2056,7 @@ define("stopwatch", {
     state.wasEnabled = false;
     body.innerHTML = `
       <div class="fill">
-        <div><span class="n" data-x="v" style="font-size:36px">0.00</span><span class="u">s</span></div>
+        <div><span class="n" data-x="v" style="--size:36px">0.00</span><span class="u">s</span></div>
         <div style="display:flex;gap:6px;margin-top:10px">
           <button class="dk" data-x="go" style="height:34px;flex:1;background:var(--tile-2);justify-content:center">Start</button>
           <button class="dk" data-x="rst" style="height:34px;background:var(--tile-2)">Reset</button>
@@ -1327,7 +2092,7 @@ define("note", {
   desc: "Free text that stays with the layout — setup reminders, a checklist",
   w: 3, h: 2,
   config: [
-    { key: "text", label: "Text", type: "text", def: "Check bumper numbers\nRadio power\nBattery > 12.4 V" },
+    { key: "text", label: "Text", type: "lines", def: "Check bumper numbers\nRadio power\nBattery > 12.4 V" },
   ],
   render(body) {
     body.innerHTML = `<div class="fill" style="justify-content:flex-start"><div class="cap" data-x="t" style="white-space:pre-wrap;font-size:13px;line-height:1.6"></div></div>`;
@@ -1338,6 +2103,12 @@ define("note", {
 });
 
 /* --- 3D field ---------------------------------------------------------------- */
+
+/* The speed governor's sign, beside the speed like Tesla's set-speed marker: shown only once a cap has
+   held this long, so the aim settling for a frame does not flash it on, and kept this long after the cap
+   lifts, so a governor riding a boundary does not flicker it off and on. */
+const CAP_SHOW_MS = 200;
+const CAP_HIDE_MS = 500;
 
 define("field", {
   name: "Field view",
@@ -1354,18 +2125,49 @@ define("field", {
   ],
   render(body, cfg, state) {
     track(cfg.poseKey);
+    /* Tesla's car panel, for a robot: the speed large at the top left with its unit under it, the
+     * pose as the small line of figures Tesla sets beneath, the scene filling the panel, and the
+     * camera choices as round buttons floating at the right edge the way Tesla floats its map
+     * controls. The label goes to the foot of the panel as a quiet credit, where Tesla's map puts
+     * its attribution. */
     body.innerHTML = `
       <canvas class="fieldcanvas" data-x="canvas"></canvas>
-      <div class="fieldlab">Field</div>
-      <div class="fieldchips">
-        <div class="fc">x <b data-x="fx">—</b> m</div>
-        <div class="fc">y <b data-x="fy">—</b> m</div>
-        <div class="fc">θ <b data-x="ft">—</b>°</div>
+      <div class="car-head" data-x="head">
+        <div class="car-speed-row">
+          <div class="car-power" title="Speed against the drivetrain's top speed"><i data-x="power"></i></div>
+          <div class="car-speed"><span class="n" data-x="speed">—</span><span class="car-unit">m/s</span></div>
+          <div class="car-signs">
+            <div class="car-cap" data-x="cap" hidden title="Automation capping the drive speed to keep the aim up"><small>Max</small><b data-x="capN">—</b></div>
+            <div class="car-limit" data-x="limit" hidden title="The drivetrain's top speed"><small>Top</small><b data-x="limitN">—</b></div>
+            <div class="car-od" data-x="od" hidden title="OVERDRIVE: the driver holding a higher speed cap">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><b>OVERDRIVE</b>
+            </div>
+            <div class="car-ap" data-x="ap" data-on="false" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2.2"/><path d="M3.6 10.6c2.6-.9 5.4-1.2 8.4-1.2s5.8.3 8.4 1.2M10.2 13.8 7 19.6M13.8 13.8 17 19.6"/></svg>
+            </div>
+          </div>
+        </div>
+        <div class="car-stats">
+          <span>x <b data-x="fx">—</b> m</span>
+          <span>y <b data-x="fy">—</b> m</span>
+          <span>θ <b data-x="ft">—</b>°</span>
+        </div>
+        <div class="car-aim" data-x="aim" data-state="" hidden><i aria-hidden="true"></i><span data-x="aimText"></span></div>
+        <div class="car-start" data-x="start" data-ready="false" hidden><i aria-hidden="true"></i><span data-x="startText"></span></div>
+        <div class="fc off" data-x="foff" hidden>drawn at the wall</div>
+        <div class="fc place" data-x="fplace" hidden></div>
       </div>
-      <div class="fieldbtns">
-        <button class="fbtn" data-mode="chase">Chase</button>
-        <button class="fbtn" data-mode="top">Overhead</button>
-        <button class="fbtn" data-mode="free">Free</button>
+      <div class="fieldlab">Field</div>
+      <div class="fieldbtns" role="group" aria-label="Camera">
+        <button class="fbtn" data-mode="chase" title="Chase" aria-label="Chase camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/></svg>
+        </button>
+        <button class="fbtn" data-mode="top" title="Overhead" aria-label="Overhead camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9.5" y="9" width="5" height="6" rx="1"/></svg>
+        </button>
+        <button class="fbtn" data-mode="free" title="Free" aria-label="Free camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="3.6"/><path d="M18 7.5l2.2 1.3-1 2.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>
+        </button>
       </div>`;
 
     const canvas = body.querySelector("[data-x=canvas]");
@@ -1410,15 +2212,179 @@ define("field", {
       });
   },
   update(body, cfg, x, tile, state) {
-    const pose = arr(cfg.poseKey);
-    const valid = Array.isArray(pose) && pose.length >= 3 && pose.every((n) => Number.isFinite(n));
+    const linked = nt.status.connected || demo.on;
+    /* Where the robot is: the estimator once it has left the corner it boots in, a live Limelight fix
+       before that, and not placed at all when there is neither, rather than drawn in that corner. */
+    const place = robotPlacement(ntView, { poseKey: cfg.poseKey, length: cfg.length, width: cfg.width, age: poseAge });
+    const pose = place.pose;
+    const valid = Boolean(pose);
     x.fx.textContent = valid ? pose[0].toFixed(2) : "—";
     x.fy.textContent = valid ? pose[1].toFixed(2) : "—";
     x.ft.textContent = valid ? ((pose[2] * 180) / Math.PI).toFixed(0) : "—";
+
+    /* The speed Tesla puts at the top of its panel, taken from how far the estimated pose moved since
+     * the last paint. Smoothed, because a pose estimator's step-to-step noise divided by a 100ms
+     * interval would make the figure flicker at rest; a pose that stops arriving reads as the robot
+     * stopping, which is also what it is from here. */
+    const now = performance.now();
+    if (valid) {
+      const last = state.lastPose;
+      if (last && now > last.t) {
+        const step = Math.hypot(pose[0] - last.x, pose[1] - last.y) / ((now - last.t) / 1000);
+        // A teleport - a reset pose, an alliance flip - is not a speed.
+        const instant = step > 8 ? state.speed ?? 0 : step;
+        state.speed = (state.speed ?? instant) * 0.7 + instant * 0.3;
+      }
+      state.lastPose = { x: pose[0], y: pose[1], t: now };
+    } else {
+      state.lastPose = null;
+      state.speed = null;
+    }
+    x.speed.textContent = state.speed == null ? "—" : state.speed < 0.05 ? "0.0" : state.speed.toFixed(1);
+    x.speed.dataset.empty = String(state.speed == null);
+    // Tesla's power meter, the line beside the speed: how much of the drivetrain's top speed is in use.
+    /* The drivetrain's current cap: OVERDRIVE.SpeedCapMps when the robot publishes a finite one - it is
+       the live figure, higher than the spec sheet's while OVERDRIVE holds it up - and the spec sheet's
+       own MaxSpeedMps otherwise. NaN is "unknown", not zero, so it falls through to the spec sheet
+       rather than reading as a stall. */
+    const driveCapRaw = num("/Catalyst/Drive/SpeedCapMps", null);
+    const driveCap = Number.isFinite(driveCapRaw) ? driveCapRaw : null;
+    const specTopSpeed = num("/Catalyst/Robot/Drivetrain/MaxSpeedMps", null);
+    const topSpeed = driveCap ?? specTopSpeed;
+    const top = topSpeed || 4.5;
+    x.power.style.height = `${(clamp01((state.speed ?? 0) / top) * 100).toFixed(1)}%`;
+
+    /* Beside the speed, the two signs Tesla keeps there. The speed-limit sign is the drivetrain's own top
+     * speed, shown only when the robot publishes one. The wheel is Autopilot's: grey while a routine is
+     * chosen and waiting, blue while autonomous is actually driving. */
+    const limitText = topSpeed ? topSpeed.toFixed(1) : "";
+    if (x.limit.hidden !== !topSpeed) x.limit.hidden = !topSpeed;
+    if (x.limitN.textContent !== limitText) x.limitN.textContent = limitText;
+
+    /* OVERDRIVE, Tesla Plaid-style: the driver holding a higher speed cap (see overdrive.js for the
+       debounce - true has to hold ~100 ms before anything shows, so a flicker on the wire never plays
+       the warp, and a re-engage inside 2 s of letting go shows the badge only). Read only while linked,
+       like the rest of this tile's automation state: a cached value from a robot that has since gone
+       quiet must not keep the warp primed. */
+    const odKey = "/Catalyst/Drive/Overdrive";
+    const odPresent = linked && has(odKey);
+    const odRaw = odPresent && bool(odKey, false) === true;
+    state.overdrive ??= createOverdriveDebounce({ reducedMotion: reducedMotion() });
+    const odPhase = state.overdrive.next(odRaw, now);
+    if (x.od.hidden !== !odPresent) x.od.hidden = !odPresent;
+    if (odPresent) {
+      const odOn = odPhase !== "idle";
+      if (x.od.dataset.on !== String(odOn)) x.od.dataset.on = String(odOn);
+    }
+    /* The warp itself - two lane-line sweeps beside the robot - is field3d.js's (see placeSweep there):
+       real geometry on the field so it reads correctly from the chase camera and the overhead view
+       alike, rather than something drawn over the lens. `state.scene.update` below is where it is told;
+       this tile only brightens the speed figure to go with it. */
+    const warping = odPhase === "warp";
+    if (x.head.dataset.warp !== String(warping)) x.head.dataset.warp = String(warping);
+    const routines = linked ? (arr("/Auto Selector/options") || []) : [];
+    const driving = linked && ds.enabled && ds.auto && !ds.estop;
+    const routine = str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", null);
+    if (x.ap.hidden !== !(driving || routines.length)) x.ap.hidden = !(driving || routines.length);
+    if (x.ap.dataset.on !== String(driving)) x.ap.dataset.on = String(driving);
+    const apTitle = `Autonomous ${driving ? "driving" : "ready"}${routine ? `: ${routine}` : ""}`;
+    if (x.ap.title !== apTitle) x.ap.title = apTitle;
+    /* The readouts are the estimator's numbers wherever they are. The drawing is held inside the
+       walls: a robot rendered through a wall, or off the slab entirely, tells the driver nothing
+       that the chip does not say better. */
+    const drawn = valid ? clampToField(pose, cfg.length, cfg.width) : null;
+    x.foff.hidden = !(drawn && drawn.clamped);
+    /* What the robot's aiming is doing, in words under the figures, grey or blue as its marks on the field
+       are: aligning to the hub or to a tag, locked on with the distance, aligned, or shooting on the move.
+       Steadied first, so a frame of idle or a moment of ALIGNING mid-lock does not blink the highlight out
+       (see createAimDebounce). The steadying is this tile's own, and forgotten whenever the robot is
+       disabled, which ends an aim at once. */
+    const aiming = linked && ds.enabled;
+    state.aimSteady ??= createAimDebounce();
+    if (!aiming) state.aimSteady.reset();
+    /* Aligning to a tag, the robot also says which tag it sees and how far off the tag it stops, and the
+       field view draws where that is (see aim-target.js aimCaption and standoffPose). They go through the
+       steadying with the aim they belong to, so a gap it bridges keeps the tag it was aligning to. */
+    const seen = aiming ? readAim(ntView) : null;
+    const aim = aiming ? state.aimSteady.next(seen && { ...seen, ...readAlign(ntView) }, now) : null;
+    const aimState = aim ? aim.state : "";
+    const aimText = aimCaption(aim, { tagId: aim?.tagId, standoff: aim?.standoff, from: pose });
+    if (x.aim.hidden !== !aim) x.aim.hidden = !aim;
+    if (x.aim.dataset.state !== aimState) x.aim.dataset.state = aimState;
+    if (x.aimText.textContent !== aimText) x.aimText.textContent = aimText;
+    /* The governor's own sign (see CAP_SHOW_MS, CAP_HIDE_MS above): a finite speed cap is automation
+       limiting the driver's translation to keep the aim up, and NaN - null, once readAim is done with it
+       - is it not limiting. Held on both edges so it reads as a steady state, not a flicker. */
+    const capNow = Number.isFinite(aim?.speedCap) ? aim.speedCap : null;
+    state.capOn ??= false;
+    if (capNow !== null) {
+      state.capSince ??= now;
+      state.capHideAt = null;
+      state.capValue = capNow;
+      if (!state.capOn && now - state.capSince >= CAP_SHOW_MS) state.capOn = true;
+    } else {
+      state.capSince = null;
+      if (state.capOn) {
+        state.capHideAt ??= now;
+        if (now - state.capHideAt >= CAP_HIDE_MS) state.capOn = false;
+      }
+    }
+    if (x.cap.hidden !== !state.capOn) x.cap.hidden = !state.capOn;
+    if (state.capOn) {
+      const capText = state.capValue.toFixed(1);
+      if (x.capN.textContent !== capText) x.capN.textContent = capText;
+    }
+    /* The auto's start, while the robot is disabled and its auto says where it starts: how far off and which
+       way to turn, or that it is there. */
+    const guide = linked && !ds.enabled ? startGuide(ntView) : null;
+    const turn = guide && guide.headingErrorDeg !== null && Math.abs(guide.headingErrorDeg) >= 1
+      ? ` · turn ${Math.abs(guide.headingErrorDeg).toFixed(0)}° ${guide.headingErrorDeg > 0 ? "right" : "left"}`
+      : "";
+    const startText = !guide ? ""
+      : guide.ready ? "On the auto's start"
+      : `Auto start${guide.distance !== null ? ` · ${guide.distance.toFixed(2)} m` : ""}${turn}`;
+    const showStart = Boolean(guide && (guide.near || guide.ready));
+    if (x.start.hidden !== !showStart) x.start.hidden = !showStart;
+    if (x.start.dataset.ready !== String(Boolean(guide?.ready))) x.start.dataset.ready = String(Boolean(guide?.ready));
+    if (x.startText.textContent !== startText) x.startText.textContent = startText;
+    /* Said under the figures whenever the position is not the estimator's own: where a vision fix is
+       standing in for it, and when there is nothing to place the robot with at all. */
+    const placeText = !linked ? ""
+      : !place.placed ? "Not placed yet · waiting for a Limelight fix"
+      : place.source === "vision" ? `Placed by ${place.camera} · ${place.tags} tag${place.tags === 1 ? "" : "s"}`
+      : "";
+    if (x.fplace.textContent !== placeText) x.fplace.textContent = placeText;
+    if (x.fplace.hidden !== !placeText) x.fplace.hidden = !placeText;
+    /* The robot's own chassis velocity, from wheel odometry and the gyro, so the field view can draw where it
+       is heading without differentiating a noisy pose (see motion-filter.js). Only while it is changing: one
+       that has sat unchanged for half a second is a robot that stopped publishing - unless it is zero. */
+    const velocityKey = has("/Catalyst/Swerve/ChassisVelocities") ? "/Catalyst/Swerve/ChassisVelocities" : "/Catalyst/Swerve/ChassisSpeeds";
+    const chassis = linked ? arr(velocityKey) : null;
+    const chassisUsable = Array.isArray(chassis) && chassis.length >= 3 && chassis.slice(0, 3).every(Number.isFinite)
+      && (poseAge(velocityKey) < 500 || chassis.slice(0, 3).every((v) => Math.abs(v) < 1e-3));
     state.scene?.update({
-      pose: valid ? pose : null,
+      pose: drawn ? [drawn.x, drawn.y, drawn.theta] : null,
+      velocity: chassisUsable && drawn ? [chassis[0], chassis[1], chassis[2]] : null,
+      placed: linked ? place.placed : null,
+      heading: place.heading,
       alliance: alliance(),
-      enabled: ds.enabled,
+      enabled: linked && ds.enabled,
+      /* The path ahead while the robot drives: PathPlanner's or a team planner's, improvised while an
+         Autopilot has the robot (see drivePath). The field view adds where its motion is heading. */
+      path: linked && ds.enabled ? drivePath(ntView, { length: cfg.length, width: cfg.width }) : null,
+      /* The same robot the Park stage draws: its size from the spec sheet, its number on the bumpers, and
+         the team's CAD only when that is this robot. */
+      cad: cadFits(),
+      spec: linked ? parkRobotSpec() : {},
+      team: parkTeam(linked),
+      /* Its mechanisms, and how many balls have left the shooter (see trackMechanisms). */
+      mechanisms: linked ? mechanismState.now : null,
+      aim,
+      startGuide: guide,
+      fired: mechanismState.fired,
+      hopper: mechanismState.hopper.fill / mechanismState.hopper.capacity,
+      /* OVERDRIVE's warp (see placeSweep in field3d.js): on for exactly the debounce's warp phase. */
+      overdrive: warping,
     });
   },
   onShow(state) {
@@ -1440,25 +2406,33 @@ const GRID_COLS = 12;
 const GRID_ROWS = 8;
 const STORE_KEY = "catalyst.console.layout.v2";
 
+/* Tesla's arrangement: the car panel down the whole left third, and the cards to its right where
+ * Tesla opens its apps over the map. The field is a tile like any other and can still be moved or
+ * removed; this is only where a new board starts. */
 const DEFAULT_LAYOUT = [
-  { type: "match", x: 0, y: 0, w: 3, h: 2 },
-  { type: "tower", x: 3, y: 0, w: 3, h: 2 },
-  { type: "health", x: 6, y: 0, w: 3, h: 2 },
-  { type: "battery", x: 9, y: 0, w: 3, h: 2 },
-  { type: "field", x: 0, y: 2, w: 5, h: 6 },
-  { type: "gauge", x: 5, y: 2, w: 4, h: 3,
+  { type: "field", x: 0, y: 0, w: 4, h: 8 },
+  { type: "match", x: 4, y: 0, w: 3, h: 2 },
+  { type: "tower", x: 7, y: 0, w: 2, h: 2 },
+  { type: "health", x: 9, y: 0, w: 3, h: 2 },
+  { type: "gauge", x: 4, y: 2, w: 5, h: 3,
     cfg: { topic: "/Catalyst/Drive/FrontLeft/Velocity,/Catalyst/Drive/FrontRight/Velocity,/Catalyst/Drive/BackLeft/Velocity,/Catalyst/Drive/BackRight/Velocity",
            title: "Drive", style: "arc", unit: "RPM", scale: 60, min: 0, max: 6000, redline: 5800, decimals: 0 } },
   { type: "physics", x: 9, y: 2, w: 3, h: 3 },
-  { type: "alerts", x: 5, y: 5, w: 4, h: 3 },
-  { type: "auto", x: 9, y: 5, w: 3, h: 1 },
-  { type: "graph", x: 9, y: 6, w: 3, h: 2,
-    cfg: { topic: "/Catalyst/Loop/Robot/AverageMs", title: "Loop time", decimals: 1 } },
+  { type: "alerts", x: 4, y: 5, w: 3, h: 3 },
+  { type: "shooter", x: 7, y: 5, w: 3, h: 2 },
+  { type: "auto", x: 7, y: 7, w: 3, h: 1 },
+  { type: "battery", x: 10, y: 5, w: 2, h: 3 },
 ];
 
 let layout = [];
 const live = new Map(); // id -> {spec, tile, body, cfg, refs, state}
 let nextId = 1;
+
+/* The two controls a tile shows in edit mode: two sliders for Configure, a cross for Remove. */
+const TILE_TOOL_ICONS = {
+  configure: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7.5h9M18 7.5h2M4 16.5h2M11 16.5h9"/><circle cx="15.5" cy="7.5" r="2.5"/><circle cx="8.5" cy="16.5" r="2.5"/></svg>`,
+  remove: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>`,
+};
 
 function defaults(spec) {
   const cfg = {};
@@ -1529,6 +2503,36 @@ function saveLayout() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(layout));
   } catch { /* private mode or quota — the board still works, it just will not persist */ }
+  /* Whoever is driving keeps the board they are driving with. Written here rather than on a save button,
+   * because a board is edited a tile at a time and nobody should have to remember to keep it. */
+  rememberBoard();
+}
+
+/* ---- driver profiles (see drivers.js) ----
+ *
+ * A profile is a name, a colour and a board. It exists because a driver and an operator do not want the
+ * same tiles in front of them, and a team swaps between the two between matches. Everything it holds is
+ * about this screen: nothing here is published, and nothing here reaches the robot.
+ */
+
+const DRIVERS_KEY = "catalyst.console.drivers";
+let drivers = readDrivers(localStorage.getItem(DRIVERS_KEY));
+
+function saveDrivers() {
+  try {
+    localStorage.setItem(DRIVERS_KEY, writeDrivers(drivers));
+  } catch { /* private mode or quota — the profile still applies, it just will not persist */ }
+}
+
+/** The board the profile in use is looking at, written into that profile. */
+function rememberBoard() {
+  const driver = activeDriver(drivers);
+  if (!driver) return;
+  drivers = {
+    active: drivers.active,
+    list: drivers.list.map((d) => (d.id === driver.id ? { ...d, ...capture({ layout }) } : d)),
+  };
+  saveDrivers();
 }
 
 function buildBoard() {
@@ -1547,6 +2551,9 @@ function buildBoard() {
 
     const tile = el("div", `t ${spec.tileClass || ""}`);
     tile.dataset.id = item.id;
+    // The stylesheet sizes a one-row tile's anatomy differently, and height is not otherwise visible
+    // to CSS: the grid span is an inline style it cannot select on.
+    tile.dataset.h = String(item.h);
     tile.style.gridColumn = `${item.x + 1} / span ${item.w}`;
     tile.style.gridRow = `${item.y + 1} / span ${item.h}`;
 
@@ -1556,12 +2563,18 @@ function buildBoard() {
     head.appendChild(sub);
     if (!spec.tileClass?.includes("pad0")) tile.appendChild(head);
 
+    /* Drawn glyphs rather than the ⚙ and × characters, which came from whichever fallback font had
+     * them and sat off-centre in their circles. */
     const tools = el("div", "tools");
-    const cfgBtn = el("button", "tbtn cfg", "⚙");
+    const cfgBtn = el("button", "tbtn cfg");
+    cfgBtn.innerHTML = TILE_TOOL_ICONS.configure;
     cfgBtn.title = "Configure";
+    cfgBtn.setAttribute("aria-label", "Configure");
     cfgBtn.onclick = (e) => { e.stopPropagation(); openConfig(item); };
-    const delBtn = el("button", "tbtn del", "×");
+    const delBtn = el("button", "tbtn del");
+    delBtn.innerHTML = TILE_TOOL_ICONS.remove;
     delBtn.title = "Remove";
+    delBtn.setAttribute("aria-label", "Remove");
     delBtn.onclick = (e) => {
       e.stopPropagation();
       layout = layout.filter((i) => i !== item);
@@ -1667,12 +2680,20 @@ function openConfig(item) {
   const bodyEl = $("#cfgBody");
   bodyEl.innerHTML = "";
 
-  const add = (label, control, hint) => {
-    const row = el("div", "cfgrow");
-    const wrap = el("div");
-    wrap.appendChild(control);
-    if (hint) wrap.appendChild(el("div", "hint", hint));
-    row.append(el("label", null, label), wrap);
+  /* A Settings row: the name with its explanation under it, and the control at the right edge. Text
+   * that runs long - a topic, a note - takes the full width under its name instead, where a column
+   * beside it would cut a path off after its first segment; a title or a unit is a word or two and
+   * sits at the edge like a number. The label is tied to its field, so a click on the name lands in
+   * the box. */
+  const SHORT_TEXT = ["title", "unit"];
+  const add = (label, control, hint, wide) => {
+    const row = el("div", wide ? "cfgrow wide" : "cfgrow");
+    const lab = el("div", "cfglab");
+    const name = el("label", null, label);
+    if (control.id) name.htmlFor = control.id;
+    lab.appendChild(name);
+    if (hint) lab.appendChild(el("div", "hint", hint));
+    row.append(lab, control);
     bodyEl.appendChild(row);
   };
 
@@ -1691,22 +2712,34 @@ function openConfig(item) {
       control.type = "number";
       control.step = "any";
       control.value = item.cfg[field.key];
+    } else if (field.type === "lines") {
+      // A note is written in lines, and a one-line field silently drops every break it is given.
+      control = el("textarea");
+      control.rows = 4;
+      control.value = item.cfg[field.key] ?? "";
     } else {
       control = el("input");
       control.type = "text";
       control.value = item.cfg[field.key] ?? "";
-      if (field.type === "topic") control.setAttribute("list", "ntkeys");
+      if (field.type === "topic") {
+        control.setAttribute("list", "ntkeys");
+        /* A path is typed back into robot code exactly, so it is set in the mono face. */
+        control.classList.add("mono");
+        control.spellcheck = false;
+      }
     }
+    control.id = `cfg-${field.key}`;
     control.oninput = () => {
       item.cfg[field.key] = field.type === "number" ? Number(control.value) : control.value;
     };
-    add(field.label, control, field.hint);
+    add(field.label, control, field.hint,
+      field.type === "topic" || field.type === "lines" || (field.type === "text" && !SHORT_TEXT.includes(field.key)));
   }
 
-  const size = el("div");
-  size.style.cssText = "display:flex;gap:8px";
+  const size = el("div", "cfgsize");
   const mk = (label, value, max, apply) => {
     const s = el("select");
+    s.setAttribute("aria-label", label);
     for (let i = 1; i <= max; i++) {
       const o = el("option", null, `${label} ${i}`);
       o.value = String(i);
@@ -1730,6 +2763,38 @@ $("#cfgClose").onclick = () => {
 
 /* ---------------------------------------------------------------- picker modal */
 
+/* A white line drawing for each component on its card in the palette, the way Tesla's launcher draws
+ * its apps. Kept here rather than on the component definitions, because a drawing is how the palette
+ * presents a component and not part of what the component is; a type with none gets a plain tile. */
+const PICK_ICONS = {
+  match: `<path d="M5.5 21V4M5.5 4h11l-2.2 4 2.2 4h-11"/>`,
+  tower: `<path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><circle cx="12" cy="12" r="2.6"/>`,
+  shooter: `<circle cx="8" cy="15.5" r="4.8"/><circle cx="8" cy="15.5" r="1.3" fill="currentColor"/><path d="M11.8 12.2c2.4-4 5.2-6 8.2-6.6"/><circle cx="19.6" cy="5.4" r="1.5"/>`,
+  gauge: `<path d="M4.6 16.5a8 8 0 1 1 14.8 0"/><path d="m12 13 3.6-4"/><circle cx="12" cy="13.5" r="1.3" fill="currentColor"/>`,
+  battery: `<rect x="3" y="7" width="16" height="10" rx="2.2"/><path d="M21.2 10.5v3M6.5 10v4M9.8 10v4"/>`,
+  systemcore: `<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/>`,
+  autonomy: `<circle cx="12" cy="12" r="8.5"/><path d="m15.4 8.6-2 4.8-4.8 2 2-4.8z"/>`,
+  motorhistory: `<rect x="3" y="8" width="13" height="9" rx="2"/><path d="M16 11h3.5v3H16M8 8V5.5M11 8V5.5M9.5 17v2.5"/>`,
+  health: `<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>`,
+  physics: `<circle cx="12" cy="10.5" r="6.5"/><circle cx="12" cy="10.5" r="2.2"/><path d="M4 20.5h16"/>`,
+  impacts: `<path d="M12 3v4.5M12 16.5V21M3 12h4.5M16.5 12H21M5.6 5.6l3 3M15.4 15.4l3 3M18.4 5.6l-3 3M8.6 15.4l-3 3"/>`,
+  swerve: `<rect x="7" y="6" width="10" height="12" rx="2.2"/><path d="M3.5 5v4.5M3.5 14.5V19M20.5 5v4.5M20.5 14.5V19"/>`,
+  alerts: `<path d="M12 4.2 20.8 19.5H3.2z"/><path d="M12 10v4.2M12 16.8v.1"/>`,
+  auto: `<path d="M4 5.5v6l5-3z"/><path d="M12.5 8.5H20M4 15.5h16M4 19.5h11"/>`,
+  value: `<path d="M5 9h14M5 15h14M10 4.5 8.5 19.5M15.5 4.5 14 19.5"/>`,
+  lamps: `<circle cx="5.5" cy="12" r="2.6"/><circle cx="12" cy="12" r="2.6"/><circle cx="18.5" cy="12" r="2.6"/>`,
+  graph: `<path d="M3.5 15.5 8.5 10l3.5 3.5 7.5-8"/><path d="M3.5 20h17"/>`,
+  stopwatch: `<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V10M9.5 3h5M12 3v3.5M18.3 7.2l1.3-1.3"/>`,
+  note: `<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h5M9 12.5h7M9 16h5"/>`,
+  field: `<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/><circle cx="12" cy="12" r="2.4"/>`,
+};
+const PICK_ICON_PLAIN = `<rect x="4.5" y="4.5" width="15" height="15" rx="3"/>`;
+
+function pickIcon(type) {
+  return `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" `
+    + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PICK_ICONS[type] || PICK_ICON_PLAIN}</svg>`;
+}
+
 function openPicker() {
   const bodyEl = $("#pickBody");
   bodyEl.innerHTML = "";
@@ -1742,8 +2807,11 @@ function openPicker() {
     bodyEl.appendChild(el("div", "pg", group));
     const grid = el("div", "cat");
     for (const [type, spec] of items) {
-      const btn = el("button", `item ${group === "Catalyst" ? "own" : ""}`);
-      btn.innerHTML = `<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
+      /* Catalyst's own tiles used to wear the accent on their cards to mark where they came from. The
+       * group heading above them already says so, and blue is kept for what is switched on. */
+      const btn = el("button", "item");
+      btn.type = "button";
+      btn.innerHTML = `${pickIcon(type)}<div class="n2">${spec.name}</div><div class="d2">${spec.desc}</div>`;
       btn.onclick = () => {
         const spot = findSpace(spec.w, spec.h);
         layout.push({ type, x: spot.x, y: spot.y, w: spec.w, h: spec.h, cfg: defaults(spec) });
@@ -2061,11 +3129,26 @@ function showView(name) {
     t.tabIndex = on ? 0 : -1;
   }
   for (const v of document.querySelectorAll(".view")) {
+    const opening = v.dataset.view === name && v.dataset.active !== "true";
     v.dataset.active = String(v.dataset.view === name);
+    if (opening) {
+      /* The opening animation runs once, for opening, and is then taken off, so the view showing again
+         for any other reason - the board coming back from Park - does not replay it. */
+      v.dataset.entering = "";
+      const done = (e) => {
+        /* A tile's own animation ending bubbles up here too; only the view's counts. */
+        if (e && e.target !== v) return;
+        delete v.dataset.entering;
+        v.removeEventListener("animationend", done);
+      };
+      v.addEventListener("animationend", done);
+      setTimeout(done, 700);
+    }
   }
   if (name === "logs") paintLogs();
   if (name === "tune") paintTune();
   if (name === "topics") paintTopics();
+  if (name === "can") paintCan();
   if (name === "board") {
     paint();
     for (const entry of live.values()) entry.spec.onShow?.(entry.state);
@@ -2121,7 +3204,7 @@ if (invoke) {
     if (!info || !info.available) return;
 
     const chip = el("button", "dk");
-    chip.style.cssText = "background:var(--brand);color:#fff";
+    chip.style.cssText = "background:var(--brand);color:var(--cat-on-signal)";
     chip.textContent = `Update to ${info.version}`;
     chip.title = info.notes ? info.notes.slice(0, 300) : `You are on ${info.current}`;
     chip.onclick = async () => {
@@ -2169,34 +3252,40 @@ function paintTune() {
   for (const [group, entries] of groups) {
     sheet.appendChild(el("div", "sh", group));
     for (const t of entries) {
-      const row = el("div", "tr");
+      const current = num(t.key, null);
+      const isBool = raw(t.key)?.t === "bool";
+
+      /* An on-or-off tunable is a shorter row, name left and switch at the right edge where the other
+       * rows keep their values; a slider needs the middle of the row to itself. */
+      const row = el("div", isBool ? "tr bool" : "tr");
       const name = el("div", "nm");
       name.appendChild(el("span", null, t.name || leaf(t.key)));
       name.appendChild(el("small", null, t.key));
       row.appendChild(name);
 
-      const current = num(t.key, null);
-      const isBool = raw(t.key)?.t === "bool";
-
       if (isBool) {
-        const btn = el("button", "dk");
-        btn.style.cssText = "height:34px;background:var(--tile-2)";
-        btn.textContent = bool(t.key) ? "On" : "Off";
-        btn.onclick = () => ntSet(t.key, !bool(t.key));
-        row.appendChild(btn);
-        row.appendChild(el("div", "v", bool(t.key) ? "ON" : "OFF"));
+        // A switch, the control Settings already uses for an on-or-off setting, and the one Tesla's
+        // Controls screen uses. A button that read "On" had to be read to be understood.
+        const tog = el("button", "tog");
+        tog.type = "button";
+        tog.setAttribute("role", "switch");
+        tog.setAttribute("aria-checked", String(bool(t.key)));
+        tog.setAttribute("aria-label", t.name || leaf(t.key));
+        tog.dataset.key = t.key;
+        tog.appendChild(el("i"));
+        tog.onclick = () => ntSet(t.key, !bool(t.key));
+        const control = el("div", "tswitch");
+        control.append(el("div", "v", bool(t.key) ? "On" : "Off"), tog);
+        row.appendChild(control);
       } else {
+        const { min, max, step, places } = tunableRange(t);
         const slider = el("input");
         slider.type = "range";
-        slider.min = String(t.min ?? 0);
-        slider.max = String(t.max ?? 1);
-        slider.step = String(t.step ?? 0.01);
-        slider.value = String(current ?? t.min ?? 0);
+        slider.min = String(min);
+        slider.max = String(max);
+        slider.step = String(step);
+        slider.value = String(current ?? min);
         paintRange(slider);
-        /* Show exactly as many decimals as the step can resolve: a 25 RPM step printed to three
-         * places is noise, and a 0.001 gain printed to one is unusable. */
-        const step = Number(t.step ?? 0.01);
-        const places = step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(step)));
         const readout = el("div", "v", `${fmt(current, places)}${t.unit ? ` ${t.unit}` : ""}`);
         slider.oninput = () => {
           paintRange(slider);
@@ -2217,6 +3306,25 @@ function paintTune() {
   );
 }
 
+/* A switch on the Tune sheet shows what the robot holds, not what was pressed.
+ *
+ * `paintTune` builds the sheet once, when it is opened, and a switch's `aria-checked` was only ever
+ * written there - so a pressed switch did not move until the sheet was opened again, even though the
+ * value had been written. It follows the store now, on every paint while the sheet is up, which also
+ * means a write the robot refuses leaves the switch where the robot says it is rather than where the
+ * press put it. Written only when it changed. */
+function syncTune() {
+  for (const tog of $("#tuneSheet").querySelectorAll(".tog[data-key]")) {
+    const on = bool(tog.dataset.key, null);
+    if (on === null) continue;
+    const v = String(on);
+    if (tog.getAttribute("aria-checked") === v) continue;
+    tog.setAttribute("aria-checked", v);
+    const word = tog.parentElement.querySelector(".v");
+    if (word) word.textContent = on ? "On" : "Off";
+  }
+}
+
 /* ------------------------------------------------------------------- logs sheet */
 
 /* Two halves, in this order deliberately: what the link has done since this console started, and then
@@ -2232,7 +3340,6 @@ function paintLogs() {
 
   const host = el("div");
   host.id = "dsLogs";
-  host.style.marginTop = "26px";
   sheet.appendChild(host);
   refreshSessions(host);
 }
@@ -2349,16 +3456,18 @@ async function openSession(session) {
   if (samples.parsed && samples.battery.length) {
     const w = 900, h = 90;
     const stat = (v) => `${Math.min(...v).toFixed(2)} – ${Math.max(...v).toFixed(2)}`;
+    /* Three readings, all white, the way a graph on the board is: packet loss used to be drawn amber
+     * whatever it measured, which put a warning colour on a session that lost nothing. */
     host.insertAdjacentHTML(
       "beforeend",
-      `<div class="sh" style="margin-top:6px">Link quality · ${samples.battery.length} samples</div>
-       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      `<div class="sh">Link quality · ${samples.battery.length} samples</div>
+       <div class="lq">
          <div><div class="ml">Battery ${stat(samples.battery)} V</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.battery, w, h, "#30d158")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.battery, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Trip ${stat(samples.trip_ms)} ms</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.trip_ms, w, h, "#4d90fe")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.trip_ms, w, h, TOK.data)}</svg></div>
          <div><div class="ml">Packet loss ${stat(samples.loss_pct)} %</div>
-           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:70px">${sparkline(samples.loss_pct, w, h, "#ff9f0a")}</svg></div>
+           <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${sparkline(samples.loss_pct, w, h, TOK.data)}</svg></div>
        </div>`
     );
   } else if (!samples.parsed) {
@@ -2368,7 +3477,7 @@ async function openSession(session) {
     );
   }
 
-  host.insertAdjacentHTML("beforeend", `<div class="sh" style="margin-top:20px">Events</div>`);
+  host.insertAdjacentHTML("beforeend", `<div class="sh">Events</div>`);
   if (!events.length) {
     host.insertAdjacentHTML("beforeend", `<div class="empty">No events recorded.</div>`);
     return;
@@ -2392,9 +3501,16 @@ function paintTopics() {
   const sheet = $("#topicSheet");
   if (!sheet.dataset.built) {
     sheet.dataset.built = "1";
+    /* The filter sits beside the title as a capsule with a magnifier, the way Settings' search does. A
+     * label rather than a div, so a press on the magnifier lands in the field. */
     sheet.innerHTML = `
-      <div class="sh">NetworkTables</div>
-      <div class="pickrow"><input type="text" id="topicSearch" placeholder="filter topics…" style="min-width:280px"></div>
+      <div class="sheethead">
+        <div class="sh">NetworkTables</div>
+        <label class="sfilter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="topicSearch" placeholder="Filter topics" aria-label="Filter topics" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
       <div id="topicList"></div>`;
     $("#topicSearch").oninput = (e) => { topicFilter = e.target.value.toLowerCase(); paintTopics(); };
   }
@@ -2404,20 +3520,316 @@ function paintTopics() {
     list.innerHTML = `<div class="empty">${Object.keys(nt.v).length ? "Nothing matches that filter." : "No topics — the console is not connected to a robot."}</div>`;
     return;
   }
+  /* Long values are cut at 90 characters, and say so with an ellipsis: cut bare, an array of device
+   * rows ended "CANco]", which reads as a value rather than as the start of one. */
+  const cut = (s) => (s.length > 90 ? `${s.slice(0, 89).trimEnd()}…` : s);
   list.innerHTML = keys
     .slice(0, 400)
     .map((k) => {
       const v = nt.v[k];
       const shown = v.t === "num" ? v.v.toFixed(4)
         : v.t === "bool" ? (v.v ? "true" : "false")
-        : Array.isArray(v.v) ? `[${v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", ").slice(0, 90)}]`
-        : String(v.v).slice(0, 90);
-      return `<div class="tr" style="grid-template-columns:1fr 70px 200px"><div class="nm"><small style="font-size:11.5px">${escapeHtml(k)}</small></div><div class="cap">${v.t}</div><div class="v" style="font-size:12px">${escapeHtml(shown)}</div></div>`;
+        : Array.isArray(v.v) ? `[${cut(v.v.map((n) => (typeof n === "number" ? n.toFixed(2) : n)).join(", "))}]`
+        : cut(String(v.v));
+      return `<div class="topic"><div class="tk">${escapeHtml(k)}</div><div class="tt"><span>${v.t}</span></div><div class="tv">${escapeHtml(shown)}</div></div>`;
     })
     .join("");
   if (keys.length > 400) {
     list.insertAdjacentHTML("beforeend", `<div class="empty">…and ${keys.length - 400} more. Narrow the filter.</div>`);
   }
+}
+
+/* ------------------------------------------------------------------- CAN sheet */
+
+/* Five buses on three SPI controllers, drawn as three controllers.
+ *
+ * That grouping is the entire reason this is a view rather than another row on the Systemcore page.
+ * can_s0 and can_s1 share an SPI host and throttle each other; can_s0 and can_s2 do not. Every other
+ * tool in FRC draws all five as equals, so a team moving half a drivetrain off a loaded bus can pick
+ * the pair that buys them nothing and find out on a field. The rules — the pairing, the thresholds,
+ * the warnings — are in can-model.js where they can be tested without a DOM. This draws what it
+ * returns and adds no rule of its own.
+ *
+ * Four sources feed it, and the page keeps them apart because they are not equally true:
+ *
+ *   /Catalyst/CAN/Devices                  what is wired where — CANRegistry.republish()
+ *   /Catalyst/Systemcore/CanUtilization    the OS's own measurement, all five buses, always
+ *   /Catalyst/CAN/Health/<bus>/*           Phoenix's view: reaches CANivores, carries the counters
+ *   /Catalyst/Preflight/Findings           what the robot said about its own CAN plan, when it ran
+ *
+ * The first three are continuous. The fourth is a snapshot from whenever robot code last called
+ * Preflight.run(), and nothing republishes it — so it is labelled as the robot's word and kept in its
+ * own block, rather than mixed in with what the console is working out live from the wire.
+ *
+ * The topology is drawn with no robot attached. Five buses on three controllers is a fact about the
+ * Systemcore rather than a reading from one, and an empty bus is the most useful thing on this page:
+ * it is where the next mechanism should go. Every number stays a dash until something answers. */
+
+const CAN_DEVICES = "/Catalyst/CAN/Devices";
+const CAN_HEALTH = "/Catalyst/CAN/Health/";
+const PREFLIGHT_FINDINGS = "/Catalyst/Preflight/Findings";
+
+/* Phoenix publishes six keys per bus and can-model.js reads six named fields. The mapping is a table
+   rather than six lines of assignment so the per-bus key strings can be built once, at the point the
+   set of buses changes, instead of being concatenated afresh ten times a second. */
+const CAN_HEALTH_FIELDS = [
+  ["ok", "OK", bool],
+  ["utilization", "Utilization", num],
+  ["busOff", "BusOffCount", num],
+  ["txFull", "TxFullCount", num],
+  ["rec", "REC", num],
+  ["tec", "TEC", num],
+];
+
+/* Everything that survives between frames. The structure — which buses exist, what is on them — is
+   rebuilt only when the published device roster changes, which is when somebody plugs something in.
+   The numbers are written straight to the cached nodes on every frame. */
+const canCache = {
+  rowsRaw: undefined,   // the last array object seen on CAN_DEVICES, for a free early-out
+  rowsSig: null,        // its contents, for when a frame re-sends an unchanged key as a new array
+  devices: [],          // parseDevices() of those rows
+  health: null,         // bus → the object handed to layout(), fields overwritten in place
+  probes: [],           // {row, fields:[{name, key, read}]} — where those fields come from
+  shape: null,          // the structure the cached nodes below were built for
+  groups: [],           // {el, track, num} per shared controller, in controller order
+  buses: [],            // {el, track, num, meta} per bus, in controller order
+  preRaw: undefined,    // the last array object seen on PREFLIGHT_FINDINGS
+  preHtml: "",          // its rendering, so a snapshot nobody has updated is formatted once
+};
+
+function paintCan() {
+  const sheet = $("#canSheet");
+  if (!sheet.dataset.built) {
+    sheet.dataset.built = "1";
+    sheet.innerHTML = `
+      <div class="sh">CAN buses</div>
+      <div class="canhead">
+        <div class="canstat"><b id="canDevCount">—</b><small>devices</small></div>
+        <div class="canstat"><b id="canBusiest">—</b><small>busiest bus</small></div>
+      </div>
+      <div class="note" id="canNote" hidden></div>
+      <div id="canGroups"></div>
+      <div class="canwarn" id="canWarn"></div>
+      <div class="canwarn" id="canPre"></div>`;
+  }
+
+  /* A frame that did not touch this key hands back the same array object, so the common case costs
+     one comparison. When it does hand back a new one the contents are usually identical anyway — the
+     roster is written once at robot boot — and re-parsing and re-sorting it to discover that is the
+     one piece of per-frame work here worth avoiding. */
+  const rows = arr(CAN_DEVICES);
+  if (rows !== canCache.rowsRaw) {
+    canCache.rowsRaw = rows;
+    const sig = rows ? rows.join("\n") : "";
+    if (sig !== canCache.rowsSig) {
+      canCache.rowsSig = sig;
+      canCache.devices = canModel.parseDevices(rows);
+      canCache.health = null;   // a new roster can mean a new bus to read health for
+    }
+  }
+
+  if (!canCache.health) buildCanProbes();
+  for (const p of canCache.probes) {
+    for (const f of p.fields) p.row[f.name] = f.read(f.key, null);
+  }
+
+  /* Called every frame, and deliberately. What it folds in — utilisation per bus, the combined figure
+     for a shared pair — changes every frame, and the alternative is to re-implement the pair rule out
+     here against the cached nodes, which is the duplication can-model.js exists to prevent. It costs a
+     map and a couple of dozen small objects. What is gated is everything that reaches the DOM. */
+  const model = canModel.layout({
+    devices: canCache.devices,
+    osUtilization: arr(CORE + "CanUtilization"),
+    health: canCache.health,
+  });
+
+  const shape = canShapeOf(model);
+  if (shape !== canCache.shape) {
+    canCache.shape = shape;
+    buildCanGroups(model);
+  }
+
+  setText($("#canDevCount"), String(model.deviceCount));
+  setText($("#canBusiest"), canModel.utilizationText(model.busiest) ?? "—");
+
+  /* Compared before it is written, like everything else on this page. Assigning `hidden` the value it
+     already holds still rewrites the attribute, which is a style invalidation ten times a second for a
+     line that changes twice a match. */
+  const note = $("#canNote");
+  const linked = nt.status.connected || demo.on;
+  if (note.hidden !== linked) note.hidden = linked;
+  if (!linked) {
+    setHtml(note, "No robot. Which buses share a controller is a fact about the Systemcore rather "
+      + "than a reading from one, so the layout is drawn — every number stays a dash until "
+      + "something answers.");
+  }
+
+  let gi = 0;
+  let bi = 0;
+  for (const c of model.controllers) {
+    if (c.shared) writeCanPair(canCache.groups[gi++], c);
+    for (const b of c.buses) writeCanBus(canCache.buses[bi++], b);
+  }
+
+  paintCanWarnings(model);
+  paintCanPreflight();
+}
+
+/* The set of buses to read Phoenix health for: Systemcore's own five, always, plus whatever the
+   roster puts a device on. Nothing else can reach the page — layout() only raises a non-Systemcore
+   group for a bus that has devices — so scanning every NetworkTables key for a CANivore that
+   published health and carries nothing would find only buses with nothing to draw. */
+function buildCanProbes() {
+  const names = new Set();
+  for (const c of canModel.CONTROLLERS) for (const b of c.buses) names.add(b);
+  for (const d of canCache.devices) names.add(d.bus);
+
+  canCache.health = Object.create(null);
+  canCache.probes = [];
+  for (const bus of names) {
+    const row = {};
+    canCache.health[bus] = row;
+    canCache.probes.push({
+      row,
+      fields: CAN_HEALTH_FIELDS.map(([name, key, read]) => ({ name, key: CAN_HEALTH + bus + "/" + key, read })),
+    });
+  }
+}
+
+/* What the markup depends on, and nothing that does not: bus names, the devices on them, and whether
+   a group draws a combined bar. Utilisation is absent on purpose — it changes every frame and is
+   written to nodes that already exist. */
+function canShapeOf(model) {
+  let s = "";
+  for (const c of model.controllers) {
+    s += `${c.group}:${c.shared ? "p" : "-"}:`;
+    for (const b of c.buses) {
+      s += b.name + "[";
+      for (const d of b.devices) s += `${d.id},${d.type},${d.name};`;
+      s += "]";
+    }
+    s += "|";
+  }
+  return s;
+}
+
+function buildCanGroups(model) {
+  $("#canGroups").innerHTML = model.controllers.map((c) => `
+    <section class="cangroup" data-shared="${c.shared}">
+      <header>
+        <h4>${escapeHtml(c.name)}</h4>
+        <small>${escapeHtml(c.note)}</small>
+      </header>
+      ${c.shared ? `<div class="canpair">
+        <span>together</span>
+        <div class="ctrack big"><i></i></div>
+        <b>—</b>
+      </div>` : ""}
+      ${c.buses.map(canBusHtml).join("")}
+    </section>`).join("");
+
+  /* One walk of the tree, so a frame never runs a selector. The order below is the order the writers
+     step through the model, which is the order the markup was just built in. */
+  canCache.groups = [...$("#canGroups").querySelectorAll(".canpair")].map((row) => ({
+    el: row,
+    track: row.querySelector("i"),
+    num: row.querySelector("b"),
+  }));
+  canCache.buses = [...$("#canGroups").querySelectorAll(".canbus")].map((node) => ({
+    el: node,
+    track: node.querySelector(".canline i"),
+    num: node.querySelector(".canline b"),
+    meta: node.querySelector(".canmeta"),
+  }));
+}
+
+function canBusHtml(b) {
+  const devices = b.devices.map((d) =>
+    `<div class="candev"><i>${d.id}</i><span>${escapeHtml(d.type)}</span>`
+    + `${d.name ? `<small>${escapeHtml(d.name)}</small>` : ""}</div>`).join("");
+  return `<div class="canbus" data-bus="${escapeHtml(b.name)}" data-kind="${b.kind}">
+      <div class="canline">
+        <span>${escapeHtml(b.name)}</span>
+        <div class="ctrack"><i></i></div>
+        <b>—</b>
+      </div>
+      <div class="canmeta"></div>
+      ${devices ? `<div class="candevs">${devices}</div>` : ""}
+    </div>`;
+}
+
+/* One bus's live numbers.
+ *
+ * `absent` and `idle` are the distinction the whole model is careful about and the one the page is
+ * most able to blur: a bus nobody measured and a bus carrying nothing both draw an empty track. They
+ * are separated in the text — a dash against a zero — and in the styling, because reading "0%" off a
+ * bus that was never reported on is how somebody concludes a wire is free and hangs a mechanism on
+ * it. */
+function writeCanBus(node, b) {
+  setText(node.num, canModel.utilizationText(b.utilization) ?? "—");
+  setWidth(node.track, canModel.barWidth(b.utilization));
+  setLevel(node.track, coreFmt.level(
+    b.utilization === null ? null : b.utilization * 100, 70, canModel.UTILIZATION_WARN * 100));
+
+  setFlag(node.el, "absent", b.utilization === null);
+  setFlag(node.el, "idle", b.idle);
+
+  /* Device count first: it is the half of the page that is true with the robot disabled, which is
+     when somebody is standing in front of it able to move a wire. */
+  let meta = b.devices.length
+    ? `${b.devices.length} device${b.devices.length === 1 ? "" : "s"}`
+    : "nothing registered";
+  if (b.utilization === null) meta += " · not measured";
+  else if (b.idle) meta += " · idle";
+  if (b.source === "phoenix") meta += " · Phoenix";
+  if (b.health?.busOff) meta += ` · bus-off ×${b.health.busOff}`;
+  if (b.health?.txFull) meta += ` · TX full ×${b.health.txFull}`;
+  /* The counters climb before a bus drops. Catching that in the pit is the difference between
+     finding a loose connector and finding it during an elimination. */
+  if (canModel.hasErrorActivity(b.health)) {
+    meta += ` · errors REC ${b.health.rec ?? 0} / TEC ${b.health.tec ?? 0}`;
+  }
+  setText(node.meta, meta);
+}
+
+/* The combined figure for a shared controller, which is the number the grouping exists to show. Drawn
+ * against what the pair can carry rather than against two full buses: the ceiling is one SPI host's
+ * throughput, not the sum of two free wires. */
+function writeCanPair(node, c) {
+  setText(node.num, canModel.utilizationText(c.utilization) ?? "—");
+  setWidth(node.track, canModel.barWidth(c.utilization, canModel.PAIR_UTILIZATION_LIMIT));
+  setLevel(node.track, c.utilization === null ? null
+    : c.utilization > canModel.PAIR_UTILIZATION_LIMIT ? "crit"
+    : c.utilization > canModel.PAIR_UTILIZATION_LIMIT * 0.8 ? "warn" : "ok");
+  /* Marked absent on the same terms as a bus, and drawn the same way. A pair total is null unless
+     both its buses were measured, so half a reading shows as no reading — and the one thing this
+     page cannot afford is for a missing number to look like a low one in one place and not another. */
+  setFlag(node.el, "absent", c.utilization === null);
+  /* A pair whose buses are both idle is dimmed with them, rather than printing its 0% in white between
+     two dimmed ones. */
+  setFlag(node.el, "idle", c.utilization !== null && c.buses.every((b) => b.idle));
+}
+
+/* What the console worked out, from what is on the wire right now. */
+function paintCanWarnings(model) {
+  setHtml($("#canWarn"), canModel.contentionWarnings(model)
+    .map((w) => `<div class="canw" data-level="${w.level}">${escapeHtml(w.text)}</div>`).join(""));
+}
+
+/* What the robot said, the last time anything asked it. Kept in its own block and labelled, because
+ * it is a snapshot from whenever Preflight.run() was called and nothing republishes it — a finding
+ * sitting beside a live warning would be read as equally current. */
+function paintCanPreflight() {
+  const rows = arr(PREFLIGHT_FINDINGS);
+  if (rows !== canCache.preRaw) {
+    canCache.preRaw = rows;
+    const found = canModel.parsePreflightCan(rows);
+    canCache.preHtml = found.length
+      ? `<div class="sh">From the robot&rsquo;s preflight</div>`
+        + found.map((f) => `<div class="canw" data-level="${f.level}">${escapeHtml(f.text)}</div>`).join("")
+      : "";
+  }
+  setHtml($("#canPre"), canCache.preHtml);
 }
 
 /* ----------------------------------------------------------- connection history */
@@ -2496,11 +3908,60 @@ function paintHeader() {
   const side = alliance();
   const event = str("/FMSInfo/EventName", "");
   const match = num("/FMSInfo/MatchNumber", null);
-  const where = event ? `${event}${match ? ` · Match ${match}` : ""}` : "no match";
-  $("#ident").innerHTML = `Catalyst<span> · ${side ? (side === "red" ? "Red" : "Blue") : "no"} alliance · ${escapeHtml(where)}</span>`;
+  const sideText = `${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance`;
+  const matchText = event ? (match ? `Match ${match}` : "") : "no match";
+  /* The status line carries the match, not the product: Tesla's bar has no wordmark on it, and the mark
+   * beside the drive-mode letters already says whose screen this is. The event and the match are their
+   * own spans because they are what the line gives up first on a narrow window (`fitStatusBar`), and the
+   * whole line stays in the tooltip once they have gone. */
+  const ident = $("#ident");
+  setHtml(ident, `<span class="idstate">${sideText}`
+    + (event ? `<span class="id-event"> · ${escapeHtml(event)}</span>` : "")
+    + (matchText ? `<span class="id-match"> · ${matchText}</span>` : "")
+    + `</span>`);
+  const identTitle = [sideText, event, matchText].filter(Boolean).join(" · ");
+  if (ident.title !== identTitle) ident.title = identTitle;
+
+  /* The drive-mode letters. Unlinked lights none of them: with nothing on the other end the robot is
+   * in no mode, and a lit D would say it had been disabled. */
+  const gears = $("#gears");
+  const gear = !linked ? "none"
+    : ds.estop ? "estop"
+    : !ds.enabled ? "disabled"
+    : ds.test ? "test"
+    : ds.auto ? "auto"
+    : "teleop";
+  if (gears.dataset.mode !== gear) {
+    gears.dataset.mode = gear;
+    gears.setAttribute("aria-label", `Robot mode: ${linked ? ds.mode : "no robot"}`);
+  }
+
+  /* The charge. The cell is drawn between 10.5 V, where a robot browns out, and 12.8 V, a pack fresh
+   * off the charger; the thresholds are the battery tile's defaults, so the bar and the tile agree
+   * about what "low" means. */
+  // The same keys, in the same order, the battery tile reads, so the bar and the tile never disagree.
+  /* Steadied the way Park's figure is (see batteryShown), so the bar and Park print the same tenth. */
+  const volts = linked ? batteryShown() : null;
+  const batt = $("#batt");
+  $("#battText").textContent = volts === null ? "— V" : `${volts.toFixed(1)} V`;
+  $("#battFill").setAttribute("width", volts === null ? "0" : (19 * clamp01((volts - 10.5) / (12.8 - 10.5))).toFixed(1));
+  batt.dataset.level = volts === null ? "none" : volts < 10.5 ? "critical" : volts < 11.5 ? "low" : "ok";
+
+  /* The team, where Tesla shows whose profile is driving. */
+  const team = linked ? (num("/Catalyst/Systemcore/TeamNumber", null) || num("/Catalyst/Robot/Identity/TeamNumber", null)) : null;
+  $("#profile").hidden = !team;
+  if (team && $("#profileName").textContent !== String(team)) $("#profileName").textContent = String(team);
+
+  /* Tesla's clock, in the status line. Written only when the minute changes, not ten times a second. */
+  const now = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const clockEl = $("#clock");
+  if (clockEl.textContent !== now) clockEl.textContent = now;
 
   $("#dLink").className = `d ${linked ? "ok" : "bad"}`;
   $("#linkText").textContent = demo.on ? "Demo" : nt.status.connected ? (nt.status.address || "Robot") : "Searching";
+  /* Said in the tooltip as well, for when a narrow line has left the chip only its light. */
+  const linkTitle = `${$("#linkText").textContent} · Robot settings`;
+  if ($("#linkChip").title !== linkTitle) $("#linkChip").title = linkTitle;
   $("#dDs").className = `d ${ds.dsAttached ? "ok" : ""}`;
   $("#dFms").className = `d ${ds.fms ? "ok" : ""}`;
 
@@ -2524,7 +3985,1738 @@ function paintHeader() {
   const chip = $("#dropChip");
   chip.hidden = drops === 0;
   if (drops) chip.textContent = `${drops} link drop${drops === 1 ? "" : "s"}`;
+
+  paintDeviceStrip();
 }
+
+/* The status line gives way a word at a time.
+ *
+ * At a laptop-width window, with an alert up, the line holds more than it has room for, and a word cut
+ * off partway - "De…" for Demo, "1/" for a device count - says nothing at all. So it gives up whole
+ * words instead, in the order `BAR_STEPS` lists and the stylesheet hides them (`.top[data-fit]`), and
+ * only as many as what is on it right now needs: a short event name keeps its match number where a
+ * long one does not, and a second alert costs a word that one alert did not.
+ *
+ * Measuring costs a layout, so it happens only when something that can change the line's width has
+ * changed - the window, the fonts arriving, the words on it, the alert count, the device counts - and
+ * not on every paint. Readings are tabular, so a figure that changes without changing length does not
+ * count as a change. */
+const BAR_STEPS = ["event", "match", "words", "ident", "team"];
+let barSig = "";
+
+function barOverflows(line) {
+  if (line.scrollWidth > line.clientWidth + 1) return true;
+  for (const node of line.querySelectorAll(".idt, .chip > span, .devstrip")) {
+    if (node.offsetWidth && node.scrollWidth > node.clientWidth + 1) return true;
+  }
+  return false;
+}
+
+function fitStatusBar() {
+  const sig = [
+    window.innerWidth, document.fonts?.status,
+    $("#ident").textContent, $("#profile").hidden, $("#profileName").textContent,
+    $("#linkText").textContent, $("#loopText").textContent.length,
+    $("#devStrip").hidden, $("#devStrip").dataset.sig,
+    $("#alertInd").hidden, $("#alertCount").textContent.length, $("#clock").textContent.length,
+  ].join("|");
+  if (sig === barSig) return;
+  barSig = sig;
+
+  const top = $(".top");
+  const line = $(".sb-map");
+  let steps = 0;
+  const apply = () => {
+    const fit = BAR_STEPS.slice(0, steps).join(" ");
+    if (top.dataset.fit !== fit) top.dataset.fit = fit;
+  };
+  apply();
+  while (steps < BAR_STEPS.length && barOverflows(line)) {
+    steps++;
+    apply();
+  }
+}
+
+/* ----------------------------------------------------------------- device strip */
+
+/** The read-only NetworkTables view devices.js works over. */
+const ntView = {
+  get linked() { return nt.status.connected || demo.on; },
+  /* `raw` is for the run recorder, which keeps a tunable's switch as a switch rather than as a 1. */
+  has, num, str, arr, bool, raw,
+  keys: () => Object.keys(nt.v),
+};
+
+/* How long ago each robot-pose array last changed, so a Limelight that has frozen is not taken for a
+ * live fix (see robotPlacement). A camera that sees tags publishes a slightly different solve every
+ * frame. */
+const poseChanges = new Map();
+function poseAge(key) {
+  const value = arr(key);
+  if (!Array.isArray(value)) return Infinity;
+  const now = performance.now();
+  const signature = value.join(",");
+  const seen = poseChanges.get(key);
+  if (!seen || seen.signature !== signature) {
+    poseChanges.set(key, { signature, at: now });
+    return 0;
+  }
+  return now - seen.at;
+}
+
+const DEV_ICONS = {
+  cameras: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><circle cx="9" cy="12.5" r="2.6"/><circle cx="16" cy="12.5" r="2.6"/></svg>`,
+  motors: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="13" height="9" rx="2"/><path d="M16 11h3.5v3H16M8 8V5.5M11 8V5.5M9.5 17v2.5"/></svg>`,
+  controller: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7 9h10M7 12.5h6M7 16h3"/></svg>`,
+};
+
+function fraction(count) {
+  if (!count.expected) return "—";
+  return count.connected === null ? String(count.expected) : `${count.connected}/${count.expected}`;
+}
+
+/* Three counts in the corner: cameras, motors, controller. "4/4" means four heartbeats are
+ * advancing; a bare "4" means four exist and nothing on the robot can say whether they answer,
+ * and the tooltip says which of those it is. Hidden until a robot is there, because a row of
+ * dashes is not information. */
+function paintDeviceStrip() {
+  const strip = $("#devStrip");
+  const s = deviceSummary(ntView);
+  const linked = nt.status.connected || demo.on;
+  strip.hidden = !linked || !s.any;
+  if (strip.hidden) { strip.dataset.sig = ""; return; }
+
+  const controller = {
+    expected: s.controller.kind ? 1 : 0,
+    connected: s.controller.connected === null ? null : (s.controller.connected ? 1 : 0),
+    rows: [],
+  };
+  const items = [
+    ["cameras", "Limelights", s.cameras],
+    ["motors", "Motors", s.motors],
+    ["controller", s.controller.kind || "Controller", controller],
+  ];
+  const sig = items.map(([k, , c]) =>
+    `${k}:${fraction(c)}:${countState(c)}:${c.rows.map((r) => `${r.name}=${r.connected}`).join(",")}`).join("|");
+  if (strip.dataset.sig === sig) return;
+  strip.dataset.sig = sig;
+
+  strip.innerHTML = items.map(([key, , count]) =>
+    `<button class="dev" data-state="${countState(count)}" data-dev="${key}">${DEV_ICONS[key]}<b>${escapeHtml(fraction(count))}</b></button>`
+  ).join("");
+  for (const b of strip.querySelectorAll(".dev")) {
+    const [, label, count] = items.find(([k]) => k === b.dataset.dev);
+    const lines = count.rows.map((r) =>
+      `${r.connected === false ? "\u2717" : r.connected ? "\u2713" : "\u00b7"} ${r.name}${r.detail ? ` \u2014 ${r.detail}` : ""}`);
+    const how = !count.expected ? "" : count.connected === null ? " seen on the wire" : " answering";
+    b.title = [`${label}: ${fraction(count)}${how}`, ...lines].join("\n");
+    b.onclick = () => setSettings(true, b.dataset.dev === "controller" ? "core" : "devices");
+  }
+}
+
+/* --------------------------------------------------------------------- notices */
+
+const noticeSeen = new Map();
+/** When each active notice was last put up as a pop-up, and at what level. */
+const toastShown = new Map();
+/** Notices that have cleared this session, newest first, for the alert list. */
+const noticeHistory = [];
+const HISTORY_MAX = 20;
+/* How long a pop-up stays before it folds into the triangle. Tesla's go in a few seconds; a fault
+ * stays longer because it is the one worth being sure was seen. */
+const TOAST_MS = { error: 10000, warn: 6000, info: 5000 };
+const NOTICE_RANK = { error: 0, warn: 1, info: 2 };
+
+/* Outline symbols in the level's colour, the way Tesla draws its alert icons: a triangle to check, an
+ * octagon for a fault, a circle for a note. Shape as well as colour, so the level reads in greyscale. */
+const NOTICE_ICONS = {
+  warn: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6 21.6 20.2H2.4z"/><path d="M12 9.8v4.6" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+  error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M8.2 2.8h7.6l5.4 5.4v7.6l-5.4 5.4H8.2l-5.4-5.4V8.2z"/><path d="M12 7.6v5.6" stroke-linecap="round"/><circle cx="12" cy="16.4" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
+};
+
+const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : key.startsWith("cal:") ? "Calibration" : "Robot");
+
+/* Turret mode's own status, beside the alerts proper: Tesla says when Autosteer can't help right now
+ * instead of staying quiet, and grey because nothing is a fault - the driver's stick already has the
+ * shot. Steadied the way the field view steadies the aim it draws (see createAimDebounce), so a frame
+ * the aim flickers through does not toggle this, and held a further AIM_STICK_HOLD_MS once the mode
+ * reads "stick", so a controller swap that only touches it for an instant does not either. It clears the
+ * instant the mode is anything else: unlike the alerts below, this says what is true right now, not an
+ * event worth a place in their history, so it never joins noticeSeen, the triangle's count, or either's
+ * hold time. */
+const aimStickSteady = createAimDebounce();
+const AIM_STICK_HOLD_MS = 300;
+let aimStickSince = null;
+function aimStickNotice(now) {
+  const aiming = (nt.status.connected || demo.on) && ds.enabled;
+  if (!aiming) aimStickSteady.reset();
+  const aim = aiming ? aimStickSteady.next(readAim(ntView), now) : null;
+  const stick = aim?.state === "SOTF" && aim.mode === "stick";
+  if (!stick) {
+    aimStickSince = null;
+    return null;
+  }
+  aimStickSince ??= now;
+  if (now - aimStickSince < AIM_STICK_HOLD_MS) return null;
+  return { key: "aim:stick", level: "info", text: "Aim unavailable", detail: "steer with the stick" };
+}
+
+/* Alerts, the way Tesla shows them. A notice that is new - or has just become more serious - comes up
+ * as a pop-up capsule over the board for a few seconds, then goes away on its own and waits in the
+ * triangle at the top right, which opens the list of everything active and everything that cleared
+ * this session. Fed by devices.js from the robot's vision health rows, its error alerts and the auto
+ * start check, and held for the same alertHoldMs the alerts tile uses, so a notice that flaps is one
+ * steady alert rather than a pop-up every second. It never blocks anything - rule two. */
+/* Calibration capsules skip the few-second hold above: a run in progress has to stay up however long
+ * it takes, and a finished result is something a team walks over to read, not a line to catch in
+ * passing. So they stay until the ×, or until the rising edge of ds.enabled acknowledges whatever
+ * calibration capsule is up right then, as surely as a tap on it would - the robot is about to move
+ * on the reading, so a stale one should not still be floating over the board. */
+const CAL_TOAST_HOLD_MS = 10 * 60 * 1000;
+let calWasEnabled = false;
+
+function paintNotices() {
+  const bar = $("#notices");
+  const linked = nt.status.connected || demo.on;
+  const now = performance.now();
+  if (linked) {
+    for (const n of [...computeNotices(ntView, { enabled: ds.enabled }), ...calibrationNotices(ntView)]) {
+      const prev = noticeSeen.get(n.key);
+      noticeSeen.set(n.key, { ...n, at: now, since: prev?.since ?? Date.now() });
+    }
+  }
+  for (const [key, entry] of noticeSeen) {
+    if (!linked || now - entry.at > settings.alertHoldMs) {
+      noticeSeen.delete(key);
+      toastShown.delete(key);
+      noticeHistory.unshift({ ...entry, cleared: Date.now() });
+      if (noticeHistory.length > HISTORY_MAX) noticeHistory.length = HISTORY_MAX;
+    }
+  }
+  const active = [...noticeSeen.values()].sort((a, b) => NOTICE_RANK[a.level] - NOTICE_RANK[b.level]);
+
+  if (ds.enabled && !calWasEnabled) {
+    for (const [key, shown] of toastShown) if (key.startsWith("cal:")) shown.dismissed = true;
+  }
+  calWasEnabled = ds.enabled;
+
+  // Which are pop-ups right now: new ones, ones that got worse, and ones still inside their time.
+  const toasts = [];
+  for (const n of active) {
+    const shown = toastShown.get(n.key);
+    const holdMs = n.key.startsWith("cal:") ? CAL_TOAST_HOLD_MS : (TOAST_MS[n.level] ?? 6000);
+    if (!shown || NOTICE_RANK[n.level] < NOTICE_RANK[shown.level]) {
+      toastShown.set(n.key, { at: now, level: n.level, dismissed: false });
+      toasts.push(n);
+    } else if (!shown.dismissed && now - shown.at < holdMs) {
+      toasts.push(n);
+    }
+  }
+  // Rides along as a pop-up too, but after every real alert: it is only an info-level note, and it is
+  // not in noticeSeen for the rank sort above to have already placed it.
+  const stickToast = aimStickNotice(now);
+  if (stickToast) toasts.push(stickToast);
+  paintToasts(bar, toasts.slice(0, 3));
+  paintAlertIndicator(active);
+  if (!$("#alertPop").hidden) paintAlertPop(active);
+}
+
+/* ---- the HUB's heads-up ----
+ * Just before the alliance's HUB changes in teleop, a capsule drops over the top of the board and counts
+ * down to it, the way Tesla counts down to a turn: "HUB active in 3" with a green lamp, "HUB inactive in 3"
+ * with a white one. When the HUB changes it says so for a moment and goes. It is not an alert - nothing is
+ * wrong - so it is not counted with the alerts and does not wait in the triangle. The schedule is hub.js's,
+ * the same one the Hub activation tile reads, so the two never disagree. */
+const CUE_LEAD_S = 5;
+/* REBUILT's endgame, the last thirty seconds of teleop. */
+const ENDGAME_S = 30;
+const CUE_HOLD_MS = 2200;
+const cueState = { active: null, changedAt: -Infinity, sig: "" };
+
+function paintMatchCue() {
+  const el = $("#matchCue");
+  const linked = nt.status.connected || demo.on;
+  const side = alliance();
+  const now = performance.now();
+  const plan = linked && ds.enabled && !ds.auto && side
+    ? hubPlan({
+        t: matchTime(), auto: ds.auto, enabled: ds.enabled, side,
+        first: inactiveFirst(gameMessage()),
+      })
+    : null;
+  const active = plan && plan.period === "teleop" && typeof plan.active === "boolean" ? plan.active : null;
+  if (active !== null && cueState.active !== null && active !== cueState.active) cueState.changedAt = now;
+  cueState.active = active;
+
+  let text = "";
+  let count = "";
+  let on = false;
+  if (plan && plan.period === "teleop" && plan.until === "change" && Number.isFinite(plan.left)
+      && plan.left <= CUE_LEAD_S && typeof plan.next?.active === "boolean") {
+    on = plan.next.active;
+    text = on ? "HUB active in" : "HUB inactive in";
+    count = String(Math.max(1, Math.ceil(plan.left)));
+  } else if (active !== null && now - cueState.changedAt < CUE_HOLD_MS) {
+    on = active;
+    text = active ? "HUB active" : "HUB inactive";
+  } else if (plan && plan.period === "teleop" && Number.isFinite(matchTime()) && matchTime() <= ENDGAME_S && matchTime() > ENDGAME_S - 3) {
+    /* The last thirty seconds: said once, as they start. */
+    text = "Endgame · 30 s left";
+  }
+  const sig = `${text}|${count}|${on}`;
+  if (sig === cueState.sig) return;
+  cueState.sig = sig;
+  el.hidden = !text;
+  el.dataset.on = String(on);
+  el.querySelector(".cue-text").textContent = text;
+  el.querySelector(".cue-n").textContent = count;
+}
+
+/* The pop-ups are kept by key rather than redrawn, so one arriving does not restart the others, and one
+ * leaving can slide away instead of vanishing mid-read. */
+function paintToasts(bar, toasts) {
+  const want = new Map(toasts.map((n) => [n.key, n]));
+  for (const node of [...bar.children]) {
+    if (!want.has(node.dataset.key) && node.dataset.leaving !== "true") {
+      node.dataset.leaving = "true";
+      setTimeout(() => node.remove(), 380);
+    }
+  }
+  toasts.forEach((n, i) => {
+    let node = [...bar.children].find((c) => c.dataset.key === n.key && c.dataset.leaving !== "true");
+    const sig = `${n.level}|${n.text}|${n.detail}`;
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "notice";
+      node.dataset.key = n.key;
+      node.setAttribute("role", n.level === "error" ? "alert" : "status");
+      bar.appendChild(node);
+    }
+    if (node.dataset.sig !== sig) {
+      node.dataset.sig = sig;
+      node.className = `notice ${n.level}`;
+      node.innerHTML =
+        `<span class="nicon">${NOTICE_ICONS[n.level] || NOTICE_ICONS.info}</span>` +
+        `<span class="ntext"><span class="nt">${escapeHtml(n.text)}</span>` +
+        `<span class="nd">${escapeHtml(n.detail || noticeKind(n.key))}</span></span>` +
+        `<button class="nbtn" type="button">Details</button>` +
+        `<button class="nclose" type="button" aria-label="Dismiss"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>`;
+      node.querySelector(".nbtn").onclick = () => openAlertPop(true);
+      node.querySelector(".nclose").onclick = () => {
+        const shown = toastShown.get(n.key);
+        if (shown) shown.dismissed = true;
+        paintNotices();
+      };
+    }
+    // Keep the order the ranking asked for without rebuilding anything.
+    if (bar.children[i] !== node) bar.insertBefore(node, bar.children[i] || null);
+  });
+  bar.hidden = bar.children.length === 0;
+}
+
+function paintAlertIndicator(active) {
+  const ind = $("#alertInd");
+  ind.hidden = active.length === 0;
+  if (!active.length) return;
+  const level = active[0].level;
+  if (ind.dataset.level !== level) ind.dataset.level = level;
+  const count = String(active.length);
+  if ($("#alertCount").textContent !== count) $("#alertCount").textContent = count;
+  ind.title = `${count} active alert${active.length === 1 ? "" : "s"}`;
+}
+
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`;
+}
+
+function paintAlertPop(active) {
+  const body = $("#alertPopBody");
+  // A calibration result (see calibration.js) carries more than text/detail: the paste-in constant it
+  // computed, the metres behind the inches shown up top, and - past SUSPECT_PERCENT - a line pointing
+  // at the gear ratio rather than tread wear. Selectable, because a constant nobody can retype correctly
+  // by eye is worth copying (the same exception Settings' own text makes, in styles.css).
+  const extra = (n) =>
+    !n.snippet && !n.hint ? "" :
+    `<div class="arow-extra">` +
+    (n.snippet ? `<code class="calsnip">${escapeHtml(n.snippet)}</code>${n.metresText ? `<span class="calm">${escapeHtml(n.metresText)}</span>` : ""}` : "") +
+    (n.hint ? `<p class="calhint">${escapeHtml(n.hint)}</p>` : "") +
+    `</div>`;
+  const row = (n, when) =>
+    `<div class="arow ${n.level}"><span class="nicon">${NOTICE_ICONS[n.level] || NOTICE_ICONS.info}</span>` +
+    `<span class="ntext"><span class="nt">${escapeHtml(n.text)}</span>` +
+    `<span class="nd">${escapeHtml(n.detail ? `${noticeKind(n.key)} · ${n.detail}` : noticeKind(n.key))}</span>` +
+    extra(n) + `</span>` +
+    `<span class="awhen">${when}</span></div>`;
+  const html =
+    (active.length
+      ? `<div class="asec">Active</div>` + active.map((n) => row(n, ago(Date.now() - n.since))).join("")
+      : `<div class="aempty">Nothing is active.</div>`) +
+    (noticeHistory.length
+      ? `<div class="asec">Earlier this session</div>` +
+        noticeHistory.map((n) => row(n, `cleared ${ago(Date.now() - n.cleared)} ago`)).join("")
+      : "");
+  if (body.dataset.html !== html) {
+    body.dataset.html = html;
+    body.innerHTML = html;
+  }
+}
+
+function openAlertPop(open) {
+  const pop = $("#alertPop");
+  pop.hidden = !open;
+  $("#alertInd").setAttribute("aria-expanded", String(open));
+  if (open) paintAlertPop([...noticeSeen.values()].sort((a, b) => NOTICE_RANK[a.level] - NOTICE_RANK[b.level]));
+}
+
+$("#alertInd").onclick = () => openAlertPop($("#alertPop").hidden);
+$("#alertPopClose").onclick = () => openAlertPop(false);
+document.addEventListener("pointerdown", (e) => {
+  const pop = $("#alertPop");
+  if (pop.hidden || !(e.target instanceof Element)) return;
+  if (!e.target.closest("#alertPop, #alertInd, .notice")) openAlertPop(false);
+});
+// Escape closes the list before anything else it might mean, which is why this listens in the capture
+// phase: the list is the thing on top.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#alertPop").hidden) {
+    openAlertPop(false);
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
+
+/* ------------------------------------------------------------------ dock: the auto routine */
+
+/* The routine the robot will run, set from the dock with a chevron either side, the way Tesla sets the
+ * cabin temperature. Same key the chooser tile writes. Locked while the robot is enabled: a routine is
+ * read when auto begins, and a tap mid-match would change nothing but what the screen says. */
+const AUTO_BASE = "/Auto Selector";
+function paintDockAuto() {
+  const box = $("#dockAuto");
+  const options = (nt.status.connected || demo.on) ? (arr(`${AUTO_BASE}/options`) || []) : [];
+  box.hidden = options.length === 0;
+  if (!options.length) return;
+  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const name = $("#autoName");
+  if (name.textContent !== chosen) name.textContent = chosen;
+  box.title = chosen;
+  const locked = ds.enabled;
+  $("#autoPrev").disabled = locked;
+  $("#autoNext").disabled = locked;
+  box.dataset.locked = String(locked);
+}
+function stepAuto(dir) {
+  const options = arr(`${AUTO_BASE}/options`) || [];
+  if (!options.length || ds.enabled) return;
+  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const at = Math.max(0, options.indexOf(chosen));
+  ntSet(`${AUTO_BASE}/selected`, options[(at + dir + options.length) % options.length]);
+  paintDockAuto();
+}
+$("#autoPrev").onclick = () => stepAuto(-1);
+$("#autoNext").onclick = () => stepAuto(1);
+
+/* ------------------------------------------------------------------------------------- park */
+
+/* How long the robot has to stay disabled before the board steps aside for Park. Long enough that a
+ * disable to reset something does not throw the view around; longer again with the FMS attached, to
+ * ride out the few seconds between auto and teleop, when a real match disables the robot on purpose. */
+const PARK_ENTER_MS = 2500;
+const PARK_ENTER_FMS_MS = 8000;
+/* The fade between Park and the board, matching the CSS below it. */
+const PARK_FADE_MS = 520;
+/* How long the robot sits on its auto's start, with the start drawn green, before Park comes. */
+const START_CONFIRM_MS = 2500;
+
+const parkState = {
+  on: false,
+  since: null,          // when the robot was last seen disabled, for the delay above
+  dismissed: false,     // "Dashboard" was pressed: stay on the board until the next enable
+  scene: null,
+  layout: null,         // park3d.js's layoutCallouts, once the module has loaded
+  loading: false,
+  failed: false,
+  offFrame: null,
+  hideTimer: null,
+  liftTimer: null,      // a move into Park waiting for the board to clear before the robot lifts
+  move: 0,              // counts moves between Park and Drive; a newer one cuts an older one short
+};
+
+/* The battery from the same keys, in the same order, the header's cell and the battery tile read, so
+ * Park never disagrees with either. */
+function batteryVolts() {
+  const key = ["/Catalyst/Status/BatteryVolts", "/Catalyst/Brownout/MeasuredVoltage", "/Catalyst/Systemcore/BatteryVolts"]
+    .find((k) => has(k));
+  return key ? num(key, null) : null;
+}
+
+/* The battery as it is printed, to a tenth of a volt.
+ *
+ * The measured voltage wanders by a few hundredths from one reading to the next, and printed to a tenth
+ * a resting robot's figure flickered between 12.7 and 12.8 several times a second. So the figure is the
+ * reading averaged over about a second, and the printed tenth only moves once that average is clearly
+ * past the rounding point - 0.015 V beyond it either way - so a value sitting on the boundary holds
+ * still. It is still the measurement, only steadier: a real sag under load pulls it down within a second,
+ * and the battery tile's trace keeps every raw reading. */
+const BATTERY_SHOWN_TAU_MS = 800;
+const BATTERY_SHOWN_HOLD_V = 0.065;
+const batteryShownState = { value: null, at: 0, tenth: null };
+
+function batteryShown() {
+  const raw = batteryVolts();
+  const s = batteryShownState;
+  const now = performance.now();
+  if (raw === null || !Number.isFinite(raw)) {
+    s.value = null;
+    s.tenth = null;
+    return null;
+  }
+  /* A first reading, or one after a gap long enough that averaging across it would lie, starts afresh. */
+  if (s.value === null || now - s.at > 3000) s.value = raw;
+  else s.value += (raw - s.value) * (1 - Math.exp(-(now - s.at) / BATTERY_SHOWN_TAU_MS));
+  s.at = now;
+  if (s.tenth === null || Math.abs(s.value - s.tenth) > BATTERY_SHOWN_HOLD_V) s.tenth = Math.round(s.value * 10) / 10;
+  return s.tenth;
+}
+
+/* What a disabled robot's battery says about the next match. Disabled, a robot draws only the couple
+ * of amps its controller and radio need, so the reading is close to the battery's resting voltage, and
+ * a 12 V lead-acid battery at rest sits near 12.7 V when full and falls steadily as it empties. The bar
+ * runs from 11.8 V to 12.8 V. */
+function batteryReadiness(volts) {
+  if (volts === null || !Number.isFinite(volts)) return null;
+  const fill = clamp01((volts - 11.8) / (12.8 - 11.8));
+  if (volts >= 12.5) return { level: "ok", fill, text: "Charged" };
+  if (volts >= 12.2) return { level: "low", fill, text: "Partly charged · swap before a match" };
+  return { level: "bad", fill, text: "Low · swap the battery" };
+}
+
+/* ---- the robot Console last saw ----
+ *
+ * Tesla's screen shows the car whether or not it is awake. Park does the same for the robot: the last
+ * real robot Console was connected to is remembered - its name, its number and its size, nothing more -
+ * and drawn when nothing is on the other end, with when it was last seen. Demo data is never
+ * remembered, because the demo robot is nobody's. */
+const LAST_ROBOT_KEY = "catalyst.console.lastRobot.v1";
+let lastRobot = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_ROBOT_KEY) || "null");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+})();
+let lastRobotWritten = -Infinity;
+
+function rememberRobot(now) {
+  if (!nt.status.connected || demo.on) return;
+  const name = str(`${SPEC_ROOT}Identity/Name`, "");
+  const team = parkTeam(true);
+  if (!name && !team) return;
+  const spec = parkRobotSpec();
+  const same = lastRobot && lastRobot.name === name && lastRobot.team === team
+    && JSON.stringify(lastRobot.spec) === JSON.stringify(spec);
+  /* When it was last seen is written every half minute at most; nothing shows it any finer. */
+  if (same && now - lastRobotWritten < 30000) return;
+  lastRobot = { name, team, spec, seen: Date.now() };
+  lastRobotWritten = now;
+  try {
+    localStorage.setItem(LAST_ROBOT_KEY, JSON.stringify(lastRobot));
+  } catch { /* private mode or quota: the robot is simply not remembered */ }
+}
+
+function agoText(ms) {
+  const s = Math.max(0, ms / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 36 * 3600) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+}
+
+/** The robot's size and module layout from its spec sheet, in the shape park3d.js takes. */
+function parkRobotSpec() {
+  const n = (k) => num(`${SPEC_ROOT}${k}`, null) ?? undefined;
+  const flat = arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`);
+  const modules = Array.isArray(flat) && flat.length >= 8 && flat.length % 2 === 0
+    ? Array.from({ length: flat.length / 2 }, (_, i) => [flat[i * 2], flat[i * 2 + 1]])
+    : undefined;
+  return {
+    frameLength: n("Chassis/FrameLengthMeters"),
+    frameWidth: n("Chassis/FrameWidthMeters"),
+    bumperLength: n("Chassis/BumperLengthMeters"),
+    bumperWidth: n("Chassis/BumperWidthMeters"),
+    bumperThickness: n("Chassis/BumperThicknessMeters"),
+    height: n("Chassis/HeightMeters"),
+    modules,
+    /* A robot on the link that publishes no mechanisms is a drivebase, drawn without the generic
+       shooter; the demo plays a robot that has one (see cadFits). */
+    superstructure: demo.on || !nt.status.connected || mechanismState.now !== null,
+  };
+}
+
+/** The robot to draw: the connected one, or the remembered one when nothing is connected. */
+function parkSpec(linked) {
+  return linked ? parkRobotSpec() : (lastRobot?.spec ?? {});
+}
+
+/** The number on the bumpers, the same way round: the connected robot's, or the remembered one's. */
+function parkTeam(linked) {
+  if (!linked) return lastRobot?.team ?? null;
+  return num("/Catalyst/Systemcore/TeamNumber", null) || num(`${SPEC_ROOT}Identity/TeamNumber`, null) || null;
+}
+
+function parkWanted(now) {
+  if (settings.parkView === false) return false;
+  if (activeView() !== "board") return false;
+  const linked = nt.status.connected || demo.on;
+  if (linked && ds.enabled) {
+    parkState.since = null;
+    parkState.dismissed = false;
+    return false;
+  }
+  if (parkState.dismissed) return false;
+  /* Someone is putting the robot on its auto's start: the board stays, with the start drawn on the field,
+     until the robot is on it and has been for a moment. A robot far from its start is somewhere else on the
+     field, and Park comes as usual. */
+  const guide = linked ? startGuide(ntView) : null;
+  if (guide && guide.near && !guide.ready) {
+    parkState.startReadyAt = null;
+    return false;
+  }
+  if (guide && guide.near && guide.ready) {
+    if (parkState.startReadyAt == null) parkState.startReadyAt = now;
+    if (now - parkState.startReadyAt < START_CONFIRM_MS) return false;
+  } else {
+    parkState.startReadyAt = null;
+  }
+  if (parkState.since === null) parkState.since = now;
+  const wait = !linked ? 0 : ds.fms ? PARK_ENTER_FMS_MS : PARK_ENTER_MS;
+  return now - parkState.since >= wait;
+}
+
+function loadParkScene() {
+  if (parkState.scene || parkState.loading || parkState.failed) return;
+  parkState.loading = true;
+  /* three.js is fetched once whichever 3D view asks first. The stage is made as soon as there is a robot
+   * to park, not when Park is first shown, so the first move into Park has it ready to take the robot
+   * from the field; it draws nothing until it is shown. */
+  import("./park3d.js")
+    .then((mod) => {
+      parkState.loading = false;
+      const linked = nt.status.connected || demo.on;
+      parkState.layout = mod.layoutCallouts;
+      parkState.scene = mod.createPark($("#parkCanvas"), { reducedMotion: reducedMotion() });
+      parkState.lastSpec = JSON.stringify(parkSpec(linked));
+      parkState.scene.setRobot(JSON.parse(parkState.lastSpec));
+      parkState.lastAlliance = linked ? alliance() : null;
+      parkState.scene.setAlliance(parkState.lastAlliance);
+      parkState.scene.setTeamNumber(parkTeam(linked));
+      parkState.offFrame = parkState.scene.onFrame(placeCallouts);
+      /* The studio reflections and every shader the stage needs, done while nothing is watching, so the
+         first move into Park does not stall on its first frame doing them. */
+      const warm = () => parkState.scene?.prepare?.();
+      if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 2000 });
+      else setTimeout(warm, 300);
+      if (parkState.on) {
+        /* Park was asked for before the stage existed, and faded in empty. It can draw now. */
+        parkState.scene.setActive(true);
+        placeCallouts();
+      }
+    })
+    .catch((err) => {
+      parkState.loading = false;
+      parkState.failed = true;
+      console.warn("park view unavailable", err);
+      $("#parkHint").textContent = "The robot model could not be drawn on this machine.";
+    });
+}
+
+/* ---- the moves between Park and Drive ----
+ *
+ * Tesla's shift out of Park: the parked car turns and settles into its driving view, and the world comes
+ * up round it. Here the robot on the Park stage glides into the field tile - the stage's camera flies to
+ * the exact shot the field view has of the robot, so the robot turns, shrinks and lands in place - and the
+ * view takes it over in the frame it lands.
+ *
+ * The order is what keeps it clean: the robot never crosses anything. Into Drive, the stage's words step
+ * aside, and as the robot sets off the dark lifts onto a board with only the field tile on it, coming up
+ * under the robot as a window for it to land in. The rest of the board wakes as it lands, tile by tile,
+ * nearest the field tile first. Into Park the same happens backwards: the other tiles go first, all
+ * together, and only then does the robot lift out of its tile and grow back into the middle of the dark,
+ * with the stage's words returning as it arrives.
+ *
+ * Nothing sweeps across the screen and nothing is laid out mid-move: the robot is drawn by one canvas,
+ * the ground and the tiles only fade and settle, and the compositor carries all of it. A move is cut short
+ * and reversed from exactly where it is the instant the robot's state changes again. With nothing to hand
+ * over - no field tile, no robot on it, reduced motion - Park simply fades. */
+
+const DRIVE_MOVE_MS = 900;     // into Drive
+const PARK_MOVE_MS = 1000;     // into Park: a touch longer, a more deliberate lift
+/* How long the board takes to clear before the robot lifts off it. */
+const BOARD_CLEAR_MS = 190;
+/* The board waking round the robot: how long each tile takes, and the step between one tile and the
+   next, nearest the field tile first. */
+const TILE_WAKE_MS = 420;
+const TILE_STEP_MS = 32;
+
+function reducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+/** Hermite smoothstep of `x` from `a` to `b`. */
+function ramp(a, b, x) {
+  const u = clamp01((x - a) / (b - a));
+  return u * u * (3 - 2 * u);
+}
+
+/**
+ * The field tile that can take the robot from Park or give it back: its entry, its scene, and its canvas
+ * as a rectangle measured from Park's canvas. Null when there is no such tile.
+ */
+function fieldHandover() {
+  const park = $("#parkCanvas").getBoundingClientRect();
+  if (!park.width || !park.height) return null;
+  for (const entry of live.values()) {
+    if (entry.item.type !== "field" || !entry.state.scene || !entry.tile?.isConnected) continue;
+    const r = entry.body.querySelector("[data-x=canvas]")?.getBoundingClientRect();
+    if (!r || r.width < 40 || r.height < 40) continue;
+    return {
+      entry,
+      scene: entry.state.scene,
+      rect: { x: r.left - park.left, y: r.top - park.top, w: r.width, h: r.height },
+    };
+  }
+  return null;
+}
+
+/* The stage's black ground, a layer of its own under the robot. A move fades it by opacity, which the
+   compositor does alone; fading the stage's background colour instead repainted the whole screen on
+   every frame of the move. */
+function styleGround(opacity) {
+  $("#parkGround").style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
+}
+
+/* Where a move cut short left the ground, so the next move starts from what is on screen. */
+function groundNow(el) {
+  if (el.hidden || el.style.visibility === "hidden") return 0;
+  const set = $("#parkGround").style.opacity;
+  return set === "" ? 1 : Number(set);
+}
+
+/* The field tile's own fade during a move, written every frame in step with the robot. */
+function styleFieldTile(tile, opacity) {
+  tile.style.opacity = opacity >= 0.999 ? "" : Math.max(0, opacity).toFixed(3);
+}
+function fieldTileNow(tile) {
+  if (app.dataset.park === "on") return 0;
+  const set = tile.style.opacity;
+  return set === "" ? 1 : Number(set);
+}
+
+/* The rest of the board, tile by tile, with the Web Animations API: an animation rather than an inline
+   style holds a tile hidden, so cancelling it leaves the board exactly as it is laid out, and a tile
+   dragged or resized later has nothing left over on it. */
+const tileMoves = new WeakMap();
+const TILE_HIDDEN = { opacity: 0, transform: "translateY(10px) scale(0.985)" };
+const TILE_SHOWN = { opacity: 1, transform: "none" };
+
+/** The board's tiles other than `field`, nearest it first. */
+function tilesAround(field) {
+  const at = field.getBoundingClientRect();
+  const cx = at.left + at.width / 2;
+  const cy = at.top + at.height / 2;
+  return [...document.querySelectorAll("#board > .t")]
+    .filter((tile) => tile !== field)
+    .map((tile) => {
+      const r = tile.getBoundingClientRect();
+      /* By the gap between the two tiles rather than between their middles, so a long tile beside the
+         field tile counts as next to it. */
+      const dx = Math.max(0, Math.abs(r.left + r.width / 2 - cx) - (r.width + at.width) / 2);
+      const dy = Math.max(0, Math.abs(r.top + r.height / 2 - cy) - (r.height + at.height) / 2);
+      return { tile, gap: Math.hypot(dx, dy), far: Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy) };
+    })
+    .sort((a, b) => a.gap - b.gap || a.far - b.far)
+    .map((x) => x.tile);
+}
+
+/** Show or hide `tile`, from wherever it is now. */
+function moveTile(tile, show, { delay = 0, duration = TILE_WAKE_MS } = {}) {
+  const running = tileMoves.get(tile);
+  let from = show ? TILE_HIDDEN : TILE_SHOWN;
+  if (running) {
+    const style = getComputedStyle(tile);
+    from = { opacity: style.opacity, transform: style.transform };
+    running.cancel();
+  }
+  const anim = tile.animate([from, show ? TILE_SHOWN : TILE_HIDDEN], {
+    duration,
+    delay,
+    easing: show ? "cubic-bezier(0.2, 0, 0, 1)" : "cubic-bezier(0.4, 0, 1, 1)",
+    fill: "both",
+  });
+  tileMoves.set(tile, anim);
+  if (show) {
+    /* Shown is how a tile is anyway: once it is there, the animation comes off. */
+    anim.finished.then(() => {
+      if (tileMoves.get(tile) !== anim) return;
+      anim.cancel();
+      tileMoves.delete(tile);
+    }, () => {});
+  }
+  return anim;
+}
+
+/** Every tile back as the board lays it out. */
+function restTiles() {
+  for (const tile of document.querySelectorAll("#board > .t")) {
+    tileMoves.get(tile)?.cancel();
+    tileMoves.delete(tile);
+    tile.style.opacity = "";
+  }
+}
+
+function showPark() {
+  const el = $("#park");
+  clearTimeout(parkState.hideTimer);
+  clearTimeout(parkState.liftTimer);
+  const move = ++parkState.move;
+  loadParkScene();
+  const scene = parkState.scene;
+  const cutShort = Boolean(scene?.flying) && !el.hidden && el.style.visibility !== "hidden";
+  const onBoard = app.dataset.park !== "on";
+  const ground = cutShort ? groundNow(el) : 0;
+  /* Laid out so it can be measured, and not drawn until the move has decided how it starts. */
+  el.hidden = false;
+  if (!cutShort) {
+    el.style.visibility = "hidden";
+    styleGround(0);
+  }
+  const hand = scene && onBoard && !reducedMotion() ? fieldHandover() : null;
+  const shot = hand && !cutShort ? hand.scene.shot() : null;
+
+  if (!hand || (!cutShort && !shot)) {
+    /* Nothing to lift off the field: fade in. */
+    el.style.visibility = "";
+    styleGround(1);
+    restTiles();
+    el.dataset.ui = "on";
+    el.dataset.state = "in";
+    app.dataset.park = "entering";
+    scene?.setActive(true);
+    // The board stops drawing once Park covers it, so two scenes are never rendered at once.
+    parkState.hideTimer = setTimeout(() => {
+      if (parkState.on && move === parkState.move) app.dataset.park = "on";
+    }, PARK_FADE_MS);
+    return;
+  }
+
+  const field = hand.entry.tile;
+  app.dataset.park = "entering";
+  field.dataset.handover = "true";
+  /* The rest of the board goes first, all of it together, so the robot has nothing to cross. */
+  for (const tile of tilesAround(field)) moveTile(tile, false, { duration: BOARD_CLEAR_MS });
+
+  const lift = () => {
+    if (move !== parkState.move) return;
+    el.style.visibility = "";
+    el.dataset.state = "fly";
+    el.dataset.ui = "off";
+    paintParkInfo();
+    scene.setActive(true);
+    const fieldFrom = fieldTileNow(field);
+    const flight = scene.fly({
+      from: cutShort ? "current" : { ...shot, rect: hand.rect },
+      to: "stage",
+      duration: PARK_MOVE_MS,
+      /* The field view under the rising robot draws in step with it. */
+      sync: (now) => hand.scene.frame(now),
+      onProgress(eased, raw) {
+        /* The dark comes up behind the robot as it lifts, over the field tile it came out of; the stage's
+           words come back once it is nearly home. */
+        styleGround(ground + (1 - ground) * ramp(0.08, 0.55, eased));
+        styleFieldTile(field, fieldFrom * (1 - ramp(0.3, 0.6, eased)));
+        if (raw > 0.7 && el.dataset.ui !== "on") el.dataset.ui = "on";
+      },
+    });
+    /* The stage's first frame is drawn now, with the robot exactly where the field view has it, so the
+       field view's own robot can go in the same frame without a flicker of neither or both. */
+    scene.renderNow();
+    hand.scene.setRobotShown(false);
+
+    flight.then((landed) => {
+      if (!landed || move !== parkState.move) return;
+      app.dataset.park = "on";
+      delete el.dataset.state;
+      el.dataset.ui = "on";
+      styleGround(1);
+      restTiles();
+      hand.scene.setRobotShown(true);
+      delete field.dataset.handover;
+      placeCallouts();
+    });
+  };
+  if (cutShort) lift();
+  else parkState.liftTimer = setTimeout(lift, BOARD_CLEAR_MS * 0.85);
+}
+
+function hidePark() {
+  /* Park is going: whatever page was open about a part of the robot goes with it. */
+  showPart(null);
+  const el = $("#park");
+  clearTimeout(parkState.hideTimer);
+  clearTimeout(parkState.liftTimer);
+  const move = ++parkState.move;
+  const scene = parkState.scene;
+
+  if (!el.hidden && el.style.visibility === "hidden") {
+    /* Enabled again while the board was still clearing for Park: the robot never left, so the board just
+       comes back. */
+    el.hidden = true;
+    el.style.visibility = "";
+    app.dataset.park = "off";
+    for (const entry of live.values()) {
+      if (entry.item.type === "field") delete entry.tile?.dataset.handover;
+    }
+    for (const tile of document.querySelectorAll("#board > .t")) {
+      if (tileMoves.has(tile)) moveTile(tile, true, { duration: 260 });
+    }
+    return;
+  }
+
+  const ground = groundNow(el);
+  const fromPark = app.dataset.park === "on";
+  /* The board is back under the stage from the first frame, live, drawn but not yet seen. */
+  app.dataset.park = "leaving";
+  const hand = scene && !el.hidden && !reducedMotion() ? fieldHandover() : null;
+  let around = [];
+  let fieldFrom = 1;
+  if (hand) {
+    /* Every tile but the field tile held back until the robot is nearly down, and the field tile itself
+       from wherever the last move left it. */
+    around = tilesAround(hand.entry.tile);
+    for (const tile of around) {
+      if (fromPark || !tileMoves.has(tile)) moveTile(tile, false, { duration: 0 });
+    }
+    fieldFrom = fromPark ? 0 : fieldTileNow(hand.entry.tile);
+    styleFieldTile(hand.entry.tile, fieldFrom);
+    /* The field view is told the robot is enabled before it is asked where its camera will be, so the
+       stage lands on the driving camera and not on the parked one it is about to leave. */
+    hand.entry.spec.update(hand.entry.body, hand.entry.item.cfg, hand.entry.refs, hand.entry.tile, hand.entry.state);
+    hand.scene.settle();
+  }
+  for (const entry of live.values()) entry.spec.onShow?.(entry.state);
+  const shot = hand ? hand.scene.shot() : null;
+
+  if (!hand || !shot) {
+    /* Nothing to land on: fade out over the board, whose field view swings in from above. */
+    restTiles();
+    el.dataset.state = "out";
+    styleGround(1);
+    for (const entry of live.values()) entry.state.scene?.arrive?.();
+    parkState.hideTimer = setTimeout(() => {
+      if (parkState.on || move !== parkState.move) return;
+      el.hidden = true;
+      app.dataset.park = "off";
+      parkState.scene?.setActive(false);
+    }, PARK_FADE_MS);
+    return;
+  }
+
+  const field = hand.entry.tile;
+  hand.scene.setRobotShown(false);
+  field.dataset.handover = "true";
+  el.dataset.state = "fly";
+  el.dataset.ui = "off";
+  let woke = false;
+  const wake = () => {
+    if (woke) return;
+    woke = true;
+    around.forEach((tile, i) => moveTile(tile, true, { delay: i * TILE_STEP_MS }));
+  };
+  scene
+    .fly({
+      from: "current",
+      /* Read again every frame: the robot is enabled and may already be driving, and the field view's
+         camera follows it, so the shot to land on at the end is not the one there was at take-off. */
+      to: () => {
+        const now = hand.scene.shot();
+        return now ? { ...now, rect: hand.rect } : null;
+      },
+      duration: DRIVE_MOVE_MS,
+      /* The field view draws each frame first, so the shot read from it is the one on its canvas. */
+      sync: (now) => hand.scene.frame(now),
+      onProgress(eased, raw) {
+        /* The dark lifts as the robot sets off, onto a board with only the field tile on it, which comes
+           up under the robot to take it; the rest of the board wakes as the robot comes down. */
+        styleGround(ground * (1 - ramp(0.04, 0.45, eased)));
+        styleFieldTile(field, fieldFrom + (1 - fieldFrom) * ramp(0.12, 0.62, eased));
+        if (raw >= 0.55) wake();
+      },
+    })
+    .then((landed) => {
+      if (!landed || move !== parkState.move) return;
+      /* Landed: the field view takes the robot over in the same animation frame as the stage's last,
+         from the same shot, under the same lights. */
+      hand.scene.setRobotShown(true);
+      hand.scene.frame(performance.now());
+      el.hidden = true;
+      delete el.dataset.state;
+      styleGround(1);
+      styleFieldTile(field, 1);
+      wake();
+      app.dataset.park = "off";
+      scene.setActive(false);
+      delete field.dataset.handover;
+    });
+}
+
+/* The callouts follow the model as it turns. park3d.js's layoutCallouts sets each label beside the
+ * robot on its part's side and level with the part, never over the model, where white words on the
+ * silver frame could not be read, and a hairline runs from the label to a dot on the part. The bands
+ * keep the labels clear of the name at the top left, the cards along the bottom, and the Dashboard
+ * button and the hint on the right. With no robot connected there is nothing to say about its parts,
+ * so the model stands alone. */
+function placeCallouts() {
+  const scene = parkState.scene;
+  if (!scene || !parkState.on || !parkState.layout) return;
+  /* Mid-move the labels are hidden, and measuring them sixty times a second would cost a layout a
+     frame. They are placed again when the stage lands. */
+  if (scene.flying) return;
+  const canvas = $("#parkCanvas");
+  const svg = $("#parkLines");
+  const labels = [...document.querySelectorAll("#parkCallouts .callout")];
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const linked = nt.status.connected || demo.on;
+  if (!w || !h || !linked) {
+    for (const label of labels) if (label.dataset.on !== "false") label.dataset.on = "false";
+    if (svg.innerHTML) svg.innerHTML = "";
+    return;
+  }
+
+  /* Every read before any write, so a frame costs one layout however many labels there are. */
+  const origin = canvas.getBoundingClientRect();
+  const edge = (el, side) => {
+    const r = el?.getBoundingClientRect();
+    return r && r.height > 0 ? r[side] - origin.top : null;
+  };
+  const head = edge($(".park-head"), "bottom") ?? 0;
+  const cards = edge($(".park-cards"), "top") ?? h;
+  const dash = edge($("#parkDash"), "bottom") ?? 0;
+  const hint = edge($("#parkHint"), "top") ?? h;
+  const sizes = {};
+  for (const label of labels) sizes[label.dataset.anchor] = { w: label.offsetWidth, h: label.offsetHeight };
+  const spots = parkState.layout(scene.anchors(), scene.bounds(), sizes, {
+    w, h, top: 16, left: [head + 24, cards - 24], right: [dash + 24, Math.min(cards, hint) - 24],
+  });
+
+  let lines = "";
+  for (const label of labels) {
+    const spot = spots[label.dataset.anchor];
+    const on = spot ? "true" : "false";
+    if (label.dataset.on !== on) label.dataset.on = on;
+    if (!spot) continue;
+    if (label.dataset.side !== spot.side) label.dataset.side = spot.side;
+    label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px)`;
+    const [x1, y1, x2, y2] = spot.line.map((v) => v.toFixed(1));
+    lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><circle cx="${x2}" cy="${y2}" r="3"/>`;
+  }
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.innerHTML = lines;
+}
+
+/* ---- the runs ----
+ *
+ * Tesla writes up every drive; Console writes up every run - each stretch the robot was enabled - from the
+ * frames as they arrive (runs.js): how long, how far, how fast, how low the battery went and, for a robot
+ * that says what it is aiming at, how steadily it held the target. Park's Last drive card shows the latest
+ * and opens the run review, where its numbers and traces sit beside the runs before it, so a tuning change
+ * is judged by what it did. The last RUNS_KEPT are kept here with their samples. Their summaries are
+ * stored, so yesterday's runs are still there to compare against after a restart; the samples are not,
+ * which is what Export is for.
+ *
+ * Recording costs a frame a few dozen reads and sums (see runs.js). Everything else here - storing, the
+ * review, its traces - happens once the robot is disabled. */
+const runRecorder = createRunRecorder();
+const runLog = {
+  runs: (() => {
+    try {
+      return loadRuns(localStorage.getItem(RUNS_STORE_KEY));
+    } catch {
+      return [];
+    }
+  })(),
+  selected: null,  // the run the review shows, by id; null for the latest
+  demoRun: false,  // whether the run being recorded began on demo data
+  sig: "",         // what the review last drew, so it is built again only when that changes
+};
+
+/** Feed the recorder this frame, and keep the run it finishes. `linked` false ends a run in progress: the
+ *  console has stopped watching the robot it was recording. */
+function recordRun(linked = nt.status.connected || demo.on) {
+  const recording = runRecorder.recording;
+  const run = runRecorder.frame(performance.now(), ntView, {
+    word: linked ? controlWord() : null,
+    linked,
+    wall: Date.now(),
+    shots: mechanismState.now ? mechanismState.fired : null,
+  });
+  if (!recording && runRecorder.recording) runLog.demoRun = demo.on;
+  if (!run) return;
+  /* Demo runs are shown, marked, while the demo plays, and never stored: the demo robot is nobody's. */
+  run.demo = runLog.demoRun;
+  runLog.runs = addRun(runLog.runs, run);
+  if (run.demo) return;
+  try {
+    localStorage.setItem(RUNS_STORE_KEY, storeRuns(runLog.runs));
+  } catch { /* private mode or quota: the run is still here until the console closes */ }
+}
+
+/* ---- the robot's mechanisms ----
+ *
+ * Read once per paint for both 3D views (see mechanisms.js). The hopper estimate lives here rather than
+ * in either view, so the field view's volley and the balls in the hopper agree, and it starts each match
+ * from the preload the moment autonomous begins. `fired` only ever counts up; the field view launches a
+ * ball for each one it has not seen. */
+const mechanismState = {
+  now: null, at: null, fired: 0, matchFired: 0, wasEnabled: false, hopper: createHopper({ feedRate: FEED_RATE }),
+};
+
+/* The team's CAD is one particular robot - 5805's offseason shooter - and it is drawn only for the robot
+ * it depicts: the demo, which plays that robot, or a robot publishing the mechanisms it animates (a hood,
+ * an intake, a shooter). A drivebase such as X1 publishes none of them and is drawn from its own published
+ * size instead, rather than as somebody else's robot with a shooter it does not have. With nothing on the
+ * link the last answer stands, so the "last seen" robot keeps its shape. */
+let cadDecision = true;
+function cadFits() {
+  if (demo.on) cadDecision = true;
+  else if (nt.status.connected) cadDecision = mechanismState.now !== null;
+  return cadDecision;
+}
+
+function trackMechanisms(now) {
+  const linked = nt.status.connected || demo.on;
+  const m = linked ? readMechanisms(ntView) : null;
+  mechanismState.now = m && hasMechanisms(m) ? m : null;
+  const enabled = linked && ds.enabled;
+  if (enabled && !mechanismState.wasEnabled && ds.auto) {
+    /* A match starts: the preload is back in the hopper and nothing has been shot yet. */
+    mechanismState.hopper.reset();
+    mechanismState.matchFired = 0;
+  }
+  mechanismState.wasEnabled = enabled;
+  const dt = mechanismState.at === null ? 0 : (now - mechanismState.at) / 1000;
+  mechanismState.at = now;
+  if (mechanismState.now && enabled) {
+    const out = mechanismState.hopper.step(dt, mechanismState.now);
+    mechanismState.fired += out;
+    mechanismState.matchFired += out;
+  }
+}
+
+/* ---- the part pages ----
+ *
+ * A callout on Park names a part of the robot and gives one number for it. Pressing it opens a page
+ * about that part: what it is, in the two sentences someone who has not built one needs, and then what
+ * it is reading right now. It is how a team teaches a new driver what they are looking at without
+ * anybody having to be standing next to them.
+ *
+ * Rule two applies: it is a panel and not a dialog. Nothing behind it is blocked, Escape closes it, and
+ * it closes itself when the robot is enabled - along with the rest of Park.
+ */
+
+const PART_PAGES = {
+  vision: {
+    kind: "Vision",
+    title: "Cameras",
+    lede: "The robot finds itself on the field by looking at the AprilTags around it: each camera works out "
+      + "where it must be standing for the tag to look the way it does, and the robot averages those answers "
+      + "with what its wheels and gyro say. The number beside the callout is how many of the cameras it "
+      + "expects are answering. A camera that drops out does not stop the robot driving - it stops it "
+      + "knowing exactly where it is, which is what aiming needs.",
+    rows: (ctx) => [
+      ["Answering", ctx.summary?.cameras?.expected
+        ? `${ctx.summary.cameras.connected ?? 0} of ${ctx.summary.cameras.expected}`
+        : "—"],
+      ["Pose", ctx.pose ? `${ctx.pose[0].toFixed(2)} m, ${ctx.pose[1].toFixed(2)} m` : "not published"],
+      ["Estimator", ctx.confidence === null ? "—" : `${Math.round(ctx.confidence * 100)}% confident`],
+    ],
+  },
+  battery: {
+    kind: "Power",
+    title: "Battery",
+    lede: "One 12 volt lead-acid battery runs everything on the robot. Disabled, it draws only the couple of "
+      + "amps the controller and the radio need, so what is shown is close to its resting voltage: near "
+      + "12.7 V when it is full, and falling steadily as it empties. Under load it sags, and if it sags far "
+      + "enough the controller browns out and the robot stops - which is why a battery that reads low here "
+      + "is swapped rather than driven.",
+    rows: (ctx) => [
+      ["At rest", ctx.volts === null ? "—" : `${ctx.volts.toFixed(2)} V`],
+      ["State", ctx.charge ? ctx.charge.text : "not published"],
+      ["Brownout at", ctx.brownout === null ? "—" : `${ctx.brownout.toFixed(2)} V`],
+    ],
+  },
+  drivetrain: {
+    kind: "Drive",
+    title: "Drivetrain",
+    lede: "Four swerve modules, each with a motor that drives its wheel and a second that points it. Because "
+      + "every wheel can point anywhere, the robot can drive in one direction while facing another - which "
+      + "is what lets it keep its shooter on the target while it moves. The number is how many of its motors "
+      + "are answering on the CAN bus; a module that goes quiet takes a quarter of the robot's grip with it.",
+    rows: (ctx) => [
+      ["Motors", ctx.summary?.motors?.expected
+        ? `${ctx.summary.motors.connected ?? 0} of ${ctx.summary.motors.expected}`
+        : "—"],
+      ["Modules", ctx.modules ? String(ctx.modules) : "—"],
+      ["Size", ctx.size ? `${ctx.size[0].toFixed(2)} × ${ctx.size[1].toFixed(2)} m` : "—"],
+    ],
+  },
+  check: {
+    kind: "Pre-match",
+    title: "Pre-match check",
+    lede: "The robot's own checklist, written into its code: every device answering, the battery, and whatever "
+      + "else its team decided a robot must pass before it plays. Some checks move a mechanism to prove it "
+      + "works, so it runs only with the robot enabled - choose its utility mode in the Driver Station, "
+      + "\"System check\" on most robots, and enable. The console only reads the results; it cannot start the "
+      + "check, because starting it means enabling the robot.",
+    rows: (ctx) => {
+      const check = ctx.check;
+      if (!check) return [["Result", "not published"]];
+      const result = check.running ? "Running…" : check.ready === true ? "Ready" : check.ready === false
+        ? `${check.tests.filter((t) => !t.pass).length} failing` : "No result yet";
+      return [
+        ["Check", check.name],
+        ["Result", result, check.running ? "" : check.ready === false ? "fail" : ""],
+        ...check.tests.map((t) => [t.test, t.pass ? "Passed" : t.detail ? `Failed · ${t.detail}` : "Failed", t.pass ? "pass" : "fail"]),
+      ];
+    },
+  },
+  controller: {
+    kind: "Control system",
+    title: "Robot controller",
+    lede: "The computer that runs the robot's code. It reads every sensor and writes every motor on a fixed "
+      + "loop - twenty milliseconds on this robot - and everything else waits for that loop. The loop time is "
+      + "how long the code actually took; if it creeps toward the budget, something in it is too slow and the "
+      + "robot starts responding late. The CAN figure is how full the wire to the motors is.",
+    rows: (ctx) => [
+      ["Loop", ctx.loop === null ? "—" : `${ctx.loop.toFixed(1)} ms of 20`],
+      ["CAN", ctx.can === null ? "—" : `${Math.round(ctx.can * 100)}%`],
+      ["Round trip", ctx.rtt === null ? "—" : `${ctx.rtt.toFixed(1)} ms`],
+    ],
+  },
+};
+
+let openPart = null;
+
+/** What the part pages read. Gathered once per paint rather than per page. */
+function partContext() {
+  const linked = nt.status.connected || demo.on;
+  const pose = linked ? arr("/Catalyst/Physics/PoseArray") : null;
+  const modules = linked ? arr("/Catalyst/Swerve/ModuleStates") : null;
+  return {
+    summary: linked ? deviceSummary(ntView) : null,
+    volts: linked ? batteryVolts() : null,
+    charge: linked ? batteryReadiness(batteryVolts()) : null,
+    brownout: linked ? (num(`${SPEC_ROOT}Power/BrownoutVolts`, null) ?? num("/Catalyst/Brownout/Threshold", null)) : null,
+    pose: Array.isArray(pose) && pose.length >= 2 ? pose : null,
+    confidence: linked ? (num("/Catalyst/Physics/Quality/Confidence", null) ?? num("/Catalyst/Physics/Confidence", null)) : null,
+    modules: Array.isArray(modules) && modules.length >= 2 ? modules.length / 2 : null,
+    /* Outside the bumpers where the robot has published them, otherwise its frame. */
+    size: linked ? (() => {
+      const l = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`, null) ?? num(`${SPEC_ROOT}Chassis/FrameLengthMeters`, null);
+      const w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`, null) ?? num(`${SPEC_ROOT}Chassis/FrameWidthMeters`, null);
+      return l !== null && w !== null ? [l, w] : null;
+    })() : null,
+    loop: linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null,
+    can: linked ? num("/Catalyst/Status/CanUtilization", null) : null,
+    /* Demo data has no round trip, and a zero there would be the console inventing a number about
+       itself. */
+    rtt: nt.status.connected && nt.status.rtt_ms ? nt.status.rtt_ms : null,
+    check: linked ? latestSystemCheck() : null,
+  };
+}
+
+/** The robot's pre-match check to show: the one with a result, or the first published. Robots with more
+ *  than one are rare, and the one somebody ran last is the one they want to read. */
+function latestSystemCheck() {
+  const checks = systemChecks(ntView);
+  return checks.find((c) => c.running) ?? checks.find((c) => c.tests.length) ?? checks[0] ?? null;
+}
+
+function paintPart() {
+  const panel = $("#parkPart");
+  if (!panel) return;
+  /* The run review is a page of its own (paintRuns); every other page shares this panel. */
+  const page = openPart && openPart !== RUN_REVIEW ? PART_PAGES[openPart] : null;
+  if (panel.hidden !== !page) panel.hidden = !page;
+  for (const button of document.querySelectorAll("#parkCallouts .callout")) {
+    button.setAttribute("aria-expanded", String(button.dataset.part === openPart));
+  }
+  /* Before anything returns, so a card whose page closes stops looking pressed. This line used to sit at
+     the end, where closing the check's page never reached it and the card stayed lit. */
+  $("#parkCheck")?.setAttribute("aria-expanded", String(openPart === "check"));
+  paintRuns();
+  if (!page) return;
+  $("#parkPartKind").textContent = page.kind;
+  $("#parkPartTitle").textContent = page.title;
+  $("#parkPartLede").textContent = page.lede;
+  const rows = $("#parkPartRows");
+  rows.textContent = "";
+  for (const [label, value, state] of page.rows(partContext())) {
+    const row = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    if (state) dd.dataset.state = state;
+    row.append(dt, dd);
+    rows.append(row);
+  }
+}
+
+/** Open a part's page, or close the one that is open when it is pressed again. */
+function showPart(name) {
+  const known = name === RUN_REVIEW || Boolean(name && PART_PAGES[name]);
+  openPart = openPart === name ? null : (known ? name : null);
+  /* The review opens on the latest run, whichever one was being looked at the last time. */
+  if (openPart === RUN_REVIEW) runLog.selected = null;
+  paintPart();
+}
+
+function wireParts() {
+  for (const button of document.querySelectorAll("#parkCallouts .callout")) {
+    button.onclick = () => showPart(button.dataset.part);
+  }
+  $("#parkPartClose").onclick = () => showPart(null);
+  const check = $("#parkCheck");
+  if (check) check.onclick = () => showPart("check");
+  $("#parkDriveCard").onclick = () => showPart(RUN_REVIEW);
+  $("#parkRunsClose").onclick = () => showPart(null);
+  $("#runExport").onclick = exportRun;
+  $("#runList").onclick = (e) => {
+    const row = e.target instanceof Element ? e.target.closest("[data-run]") : null;
+    if (!row) return;
+    runLog.selected = row.dataset.run;
+    paintRuns();
+  };
+}
+
+/* ---- the run review ----
+ *
+ * What the Last drive card opens: one run's numbers, its traces, and the runs before it down the side, so
+ * the question after a change - did that help? - is answered by a number rather than by the driver's
+ * impression. It is a panel like a part's page, and goes the same way: Escape, its close button, the card
+ * again, or the robot being enabled. It is built only when Park is showing, so it costs a driven robot
+ * nothing, and built again only when there is something new to show.
+ */
+const RUN_REVIEW = "runs";
+
+/* The traces a run review draws, each from a sample column, for the runs that published it. The heading
+   error is scaled to twice its 95th percentile, so the steadiness while the target is held fills the plot
+   and the swing onto a target runs off its top; the battery is pooled by its lowest, so a sag that lasted a
+   moment is still drawn. */
+const RUN_TRACES = [
+  {
+    key: "error", label: "Heading error", pool: "max", magnitude: true,
+    note: (run) => (Number.isFinite(run.aim?.rmsDeg) ? `${run.aim.rmsDeg.toFixed(1)}° RMS` : ""),
+    range: (run, seen) => ({ lo: 0, hi: Math.max(2, 2 * (run.aim?.p95Deg ?? seen.hi / 2)) }),
+    scale: (v) => (v === 0 ? "0°" : `${v.toFixed(v < 10 ? 1 : 0)}°`),
+  },
+  {
+    key: "speed", label: "Speed", pool: "mean", magnitude: false,
+    note: (run) => (Number.isFinite(run.topSpeed) ? `top ${run.topSpeed.toFixed(1)} m/s` : ""),
+    range: (run, seen) => ({ lo: 0, hi: Math.max(0.5, seen.hi * 1.1) }),
+    scale: (v) => (v === 0 ? "0" : `${v.toFixed(1)} m/s`),
+  },
+  {
+    key: "volts", label: "Battery", pool: "min", magnitude: false,
+    note: (run) => (Number.isFinite(run.voltsStart) && Number.isFinite(run.voltsMin)
+      ? `${run.voltsStart.toFixed(1)} → ${run.voltsMin.toFixed(1)} V` : ""),
+    /* At least half a volt tall, so a resting battery's hundredths are not drawn as a sag. */
+    range: (run, seen) => {
+      const mid = (seen.lo + seen.hi) / 2;
+      const half = Math.max(0.25, (seen.hi - seen.lo) / 2 + 0.05);
+      return { lo: mid - half, hi: mid + half };
+    },
+    scale: (v) => `${v.toFixed(1)} V`,
+  },
+];
+
+function selectedRun() {
+  return runLog.runs.find((r) => r.id === runLog.selected) ?? runLog.runs[0] ?? null;
+}
+
+/** The run before `run` on the same robot, which its tuning is compared against. */
+function runBefore(run) {
+  const i = runLog.runs.indexOf(run);
+  if (i < 0) return null;
+  return runLog.runs.slice(i + 1).find((r) => r.robot === run.robot && Boolean(r.demo) === Boolean(run.demo)) ?? null;
+}
+
+function paintRuns() {
+  const panel = $("#parkRuns");
+  if (!panel) return;
+  const open = openPart === RUN_REVIEW;
+  if (panel.hidden !== !open) panel.hidden = !open;
+  $("#parkDriveCard")?.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    runLog.sig = "";
+    return;
+  }
+  const run = selectedRun();
+  /* The panel's width is in the signature because the traces are drawn to it. */
+  const sig = [runLog.runs.length, runLog.runs[0]?.id, run?.id, panel.clientWidth].join("|");
+  if (sig === runLog.sig) return;
+  runLog.sig = sig;
+
+  $("#runTitle").textContent = run ? modeLabel(run) : "No runs yet";
+  /* How a run ended is said only when it was not the ordinary way, a disable. */
+  const ended = run?.ended === "estop" ? "ended by an e-stop" : run?.ended === "link" ? "ended when the link dropped" : "";
+  $("#runSub").textContent = run
+    ? [run.demo && "Demo data", run.opMode, run.robot, runWhen(run.started), ended].filter(Boolean).join(" · ")
+    : "";
+  $("#runExport").hidden = !run?.samples;
+  paintRunMain(run);
+  paintRunList(run);
+}
+
+function paintRunMain(run) {
+  const main = $("#runMain");
+  if (!run) {
+    main.innerHTML = `<p class="run-note">Every time the robot is enabled, the run is written up here: how far and how fast it went, `
+      + `how low the battery fell and, for a robot that publishes its aim, how steadily it held the target.</p>`;
+    return;
+  }
+  const changes = describeChanges(tunableChanges(runBefore(run)?.tunables, run.tunables), 3);
+  const { drive, aim, vision } = runFigures(run);
+  /* Tesla's trip card: a grey label, a white number, and a grey line of context under it. What a number
+     means, where its label cannot say, is on hover. */
+  const figure = ([label, value, sub, note]) => `<div class="run-fig" title="${escapeHtml(note)}"><small>${escapeHtml(label)}</small>`
+    + `<b${value === "—" ? ' data-empty="true"' : ""}>${escapeHtml(value)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ""}</div>`;
+  const group = (name, figures, absent) => `<section class="run-group"><div class="run-group-name">${name}</div>${
+    figures ? `<div class="run-figs">${figures.map(figure).join("")}</div>` : `<p class="run-note">${absent}</p>`}</section>`;
+  main.innerHTML = [
+    changes ? `<div class="run-changes"><small>Changed since the run before</small><span>${escapeHtml(changes)}</span></div>` : "",
+    group("Drive", drive),
+    group("Aim", aim, "Not published. The robot sends nothing under /Catalyst/Aim."),
+    group("Vision", vision, "Not published. The robot sends no camera health or pose quality."),
+    runTracesHtml(run),
+  ].join("");
+  drawRunTraces(run);
+}
+
+function runTracesHtml(run) {
+  const cols = run.samples?.columns;
+  if (!cols) {
+    return `<section class="run-group"><div class="run-group-name">Traces</div><p class="run-note">A run's traces are kept `
+      + `until the console closes, and this one is from an earlier session: its numbers were stored, its samples were not.</p></section>`;
+  }
+  const traces = RUN_TRACES.filter((t) => cols[t.key]);
+  if (!traces.length) return "";
+  return `<section class="run-group run-traces"><div class="run-group-name">Traces</div>${traces.map((t) => `
+    <div class="run-trace">
+      <div class="run-trace-head"><span>${t.label}</span><b data-note="${t.key}"></b></div>
+      <div class="run-plot"><canvas data-trace="${t.key}"></canvas><span class="run-scale"><i data-top="${t.key}"></i><i data-bottom="${t.key}"></i></span></div>
+    </div>`).join("")}
+    <div class="run-axis"><span>0:00</span><span>${runClock(run.seconds)}</span></div></section>`;
+}
+
+function drawRunTraces(run) {
+  const cols = run.samples?.columns;
+  if (!cols) return;
+  const main = $("#runMain");
+  for (const t of RUN_TRACES) {
+    const canvas = main.querySelector(`canvas[data-trace="${t.key}"]`);
+    if (!canvas) continue;
+    main.querySelector(`[data-note="${t.key}"]`).textContent = t.note(run);
+    const seen = valueRange(cols[t.key], { magnitude: t.magnitude });
+    if (!seen) continue;
+    const { lo, hi } = t.range(run, seen);
+    main.querySelector(`[data-top="${t.key}"]`).textContent = t.scale(hi);
+    main.querySelector(`[data-bottom="${t.key}"]`).textContent = t.scale(lo);
+    drawTrace(canvas, cols.t, cols[t.key], { span: run.seconds, lo, hi, pool: t.pool, magnitude: t.magnitude });
+  }
+}
+
+/* An `rgba()` of a token's hex, for the canvas, which takes no custom properties. Null for a token that is
+   not a plain hex, and the wash is then left out rather than drawn in a colour made up here. */
+function tokenAlpha(hex, alpha) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/* A run's trace, drawn the way the board's rolling traces are (see sparkline): a thin line in the reading's
+ * white, and a wash under it that is gone well before the floor. On a canvas rather than in SVG because a
+ * match is three thousand rows, and at the screen's own pixel ratio so the line is as fine as the board's.
+ * No light on the last sample: a finished run has no "now". */
+function drawTrace(canvas, times, values, options) {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const ctx = canvas.getContext("2d");
+  if (!w || !h || !ctx) return;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const lines = traceSegments(times, values, { ...options, w, h, step: 2, top: Math.max(4, h * 0.14), bottom: Math.max(2, h * 0.06) });
+  const clear = tokenAlpha(TOK.data, 0);
+  if (clear) {
+    const wash = ctx.createLinearGradient(0, 0, 0, h);
+    wash.addColorStop(0, tokenAlpha(TOK.data, 0.08));
+    wash.addColorStop(0.75, clear);
+    ctx.fillStyle = wash;
+    for (const line of lines) {
+      if (line.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(line[0][0], h);
+      for (const [x, y] of line) ctx.lineTo(x, y);
+      ctx.lineTo(line[line.length - 1][0], h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.strokeStyle = TOK.data;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const line of lines) {
+    ctx.beginPath();
+    ctx.moveTo(line[0][0], line[0][1]);
+    for (const [x, y] of line) ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+}
+
+/* The runs down the side, newest first. Each is read by one figure, the same for every row so they can be
+   compared down the column: the heading error's RMS when any of them aimed - lower is steadier - and the
+   distance otherwise; the bar is that figure against the largest in the list. Under a run, what changed in
+   its tuning since the run before it. */
+function paintRunList(selected) {
+  const runs = runLog.runs;
+  const byAim = runs.some((r) => Number.isFinite(r.aim?.rmsDeg));
+  $("#runListKey").textContent = !runs.length ? "" : byAim ? "on target · RMS" : "top speed · distance";
+  if (!runs.length) {
+    $("#runList").innerHTML = `<li class="run-note">None yet.</li>`;
+    return;
+  }
+  const figure = (r) => (byAim ? r.aim?.rmsDeg : r.distance);
+  const most = Math.max(0, ...runs.map(figure).filter(Number.isFinite));
+  $("#runList").innerHTML = runs.map((run) => {
+    const value = figure(run);
+    const key = !Number.isFinite(value) ? "—" : byAim ? `${value.toFixed(1)}°` : `${value < 100 ? value.toFixed(1) : value.toFixed(0)} m`;
+    const second = byAim
+      ? (Number.isFinite(run.aim?.onTarget) ? `${Math.round(run.aim.onTarget * 100)}%` : "")
+      : (Number.isFinite(run.topSpeed) ? `${run.topSpeed.toFixed(1)} m/s` : "");
+    const fill = Number.isFinite(value) && most > 0 ? Math.max(2, (value / most) * 100) : 0;
+    const change = describeChanges(tunableChanges(runBefore(run)?.tunables, run.tunables), 1);
+    return `<li><button type="button" class="run-row" data-run="${escapeHtml(run.id)}" aria-pressed="${run === selected}">`
+      + `<span class="run-row-when">${escapeHtml(runWhen(run.started))}<span> · ${escapeHtml(modeLabel(run, { short: true }))}${run.demo ? " · demo" : ""}</span></span>`
+      + `<span class="run-row-len">${runClock(run.seconds)}</span>`
+      + `<span class="run-row-bar" aria-hidden="true"><i style="width:${fill.toFixed(1)}%"></i></span>`
+      + `<span class="run-row-key">${second ? `<span>${second}</span>` : ""}${key}</span>`
+      + (change ? `<span class="run-row-change">${escapeHtml(change)}</span>` : "")
+      + `</button></li>`;
+  }).join("");
+}
+
+/* The selected run's samples as a CSV file, handed to the webview as a download: made here, from memory,
+   with nothing sent anywhere. */
+function exportRun() {
+  const run = selectedRun();
+  const csv = run ? runCsv(run) : null;
+  if (!csv) return;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = runFileName(run);
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/* The words on Park: who the robot is, its state, its charge, what each callout points at, and the
+ * four cards. Written only when they change; Park repaints with the rest of the board at 10 Hz. */
+function paintParkInfo() {
+  const linked = nt.status.connected || demo.on;
+  let changed = false;
+  const setText = (sel, text) => {
+    const el = $(sel);
+    if (el && el.textContent !== text) {
+      el.textContent = text;
+      changed = true;
+    }
+  };
+  const remembered = linked ? null : lastRobot;
+
+  const name = linked ? (str(`${SPEC_ROOT}Identity/Name`, "") || "Robot") : (remembered?.name || "Robot");
+  const team = parkTeam(linked);
+  setText("#parkName", team ? `${name} · ${team}` : name);
+  const side = linked ? alliance() : null;
+  const looking = nt.status.address ? `Looking for ${nt.status.address}…` : null;
+  setText("#parkSub", linked
+    ? [ds.estop ? "Emergency stopped" : "Disabled", side && `${side === "red" ? "Red" : "Blue"} alliance`, demo.on && "demo data"]
+        .filter(Boolean).join(" · ")
+    : remembered?.seen
+      ? `${looking || "Not connected"} · last seen ${agoText(Date.now() - remembered.seen)}`
+      : (looking || "No robot"));
+
+  /* The steadied figure (see batteryShown): printed large, a reading that changed every frame flickered. */
+  const volts = linked ? batteryShown() : null;
+  setText("#parkVolts", volts === null ? "—" : volts.toFixed(1));
+  $("#parkVolts").dataset.empty = String(volts === null);
+  const ready = batteryReadiness(volts);
+  const charge = $("#parkCharge");
+  if (charge.hidden !== !ready) {
+    charge.hidden = !ready;
+    changed = true;
+  }
+  if (ready) {
+    if (charge.dataset.level !== ready.level) charge.dataset.level = ready.level;
+    const width = `${(ready.fill * 100).toFixed(0)}%`;
+    const fill = $("#parkChargeFill");
+    if (fill.style.width !== width) fill.style.width = width;
+    setText("#parkChargeText", ready.text);
+  }
+
+  const summary = linked ? deviceSummary(ntView) : null;
+  const systemCheck = linked ? latestSystemCheck() : null;
+  /* Ready for the match: a green word when every check passes, otherwise the ones that do not, in the
+     order a drive team would see to them. */
+  const readiness = linked
+    ? matchReadiness({
+        volts,
+        summary,
+        guide: startGuide(ntView),
+        auto: has("/Auto Selector/options") ? (str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", "")) : null,
+        errors: (arr("/Catalyst/Alerts/Errors") || []).length,
+        systemCheck,
+      })
+    : null;
+
+  /* The pre-match check's card, only for a robot that has one. */
+  const checkCard = $("#parkCheck");
+  if (checkCard.hidden !== !systemCheck) {
+    checkCard.hidden = !systemCheck;
+    changed = true;
+  }
+  if (systemCheck) {
+    const failing = systemCheck.tests.filter((t) => !t.pass);
+    const state = systemCheck.running ? "running" : systemCheck.ready === true ? "pass"
+      : systemCheck.ready === false || failing.length ? "fail" : "none";
+    if (checkCard.dataset.state !== state) checkCard.dataset.state = state;
+    setText("#parkCheckState", state === "running" ? "Running…" : state === "pass" ? "Passed"
+      : state === "fail" ? `${failing.length} failing` : "Not run yet");
+    setText("#parkCheckSub", state === "fail" && failing[0] ? failing[0].test
+      : systemCheck.tests.length ? `${systemCheck.tests.length - failing.length} of ${systemCheck.tests.length} passed`
+      : "Utility mode · System check");
+  }
+  const readyEl = $("#parkReady");
+  if (readyEl.hidden !== !readiness) {
+    readyEl.hidden = !readiness;
+    changed = true;
+  }
+  if (readiness) {
+    if (readyEl.dataset.ready !== String(readiness.ready)) readyEl.dataset.ready = String(readiness.ready);
+    const failing = readiness.checks.filter((c) => !c.ok).map((c) => c.text);
+    setText("#parkReadyText", readiness.ready ? "Ready for the match"
+      : `Before the match: ${failing.slice(0, 3).join(" · ")}${failing.length > 3 ? ` · ${failing.length - 3} more` : ""}`);
+  }
+  const count = (c) => `${c.connected ?? 0}/${c.expected}`;
+  const place = linked ? robotPlacement(ntView, { age: poseAge }) : null;
+  const cameras = summary?.cameras?.expected ? `${count(summary.cameras)} cameras` : "";
+  const placedBy = !place ? "" : !place.placed ? "not placed yet" : place.source === "vision" ? "placed by vision" : "";
+  setText('[data-c="vision"]', [cameras, placedBy].filter(Boolean).join(" · ") || "—");
+  setText('[data-c="battery"]', volts === null ? "—" : `${volts.toFixed(1)} V`);
+  const modules = linked ? num(`${SPEC_ROOT}Drivetrain/Modules`, null) : null;
+  const drive = linked ? str(`${SPEC_ROOT}Drivetrain/Type`, "") : "";
+  setText('[data-c="drivetrain"]', modules ? `${drive || "Drive"} · ${modules} modules` : (drive || "—"));
+  const kind = linked ? (str("/Catalyst/Devices/Controller/Kind", "") || str(`${SPEC_ROOT}Identity/Controller`, "")) : "";
+  setText('[data-c="controllerName"]', kind || "Controller");
+  const temp = linked ? num("/Catalyst/Systemcore/TempCelsius", null) : null;
+  const cpu = linked ? num("/Catalyst/Systemcore/CpuPercent", null) : null;
+  setText('[data-c="controller"]',
+    [temp !== null && `${temp.toFixed(0)} °C`, cpu !== null && `CPU ${cpu.toFixed(0)}%`].filter(Boolean).join(" · ") || "—");
+
+  const event = linked ? str("/FMSInfo/EventName", "") : "";
+  const match = linked ? num("/FMSInfo/MatchNumber", null) : null;
+  setText("#parkMatch", match ? `Match ${match}` : linked ? "Practice" : "—");
+  setText("#parkMatchSub", [event, side && `${side === "red" ? "Red" : "Blue"} alliance`].filter(Boolean).join(" · ") || "No event");
+
+  const options = linked ? (arr("/Auto Selector/options") || []) : [];
+  const chosen = str("/Auto Selector/selected", null) ?? str("/Auto Selector/active", null);
+  setText("#parkAuto", options.length ? (chosen || options[0]) : "—");
+  setText("#parkAutoSub", options.length ? `${options.length} routines · change it from the dock` : "No chooser published");
+
+  const loop = linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null;
+  const active = noticeSeen.size;
+  setText("#parkHealth", !linked ? "—" : active ? `${active} alert${active === 1 ? "" : "s"}` : "All clear");
+  setText("#parkHealthSub",
+    [summary?.motors?.expected && `${count(summary.motors)} motors`, loop !== null && `loop ${loop.toFixed(1)} ms`]
+      .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Loop time unknown");
+
+  /* The latest run. One read back from storage is from an earlier session, so it says when it was. */
+  const last = runLog.runs[0] ?? null;
+  const card = runCard(last);
+  setText("#parkDrive", card.title);
+  setText("#parkDriveSub", last && !last.samples && Number.isFinite(last.started) ? `${runWhen(last.started)} · ${card.sub}` : card.sub);
+
+  if (parkState.scene) {
+    parkState.scene.setCad?.(cadFits());
+    if (parkState.lastAlliance !== side) {
+      parkState.lastAlliance = side;
+      parkState.scene.setAlliance(side);
+    }
+    const spec = JSON.stringify(parkSpec(linked));
+    if (parkState.lastSpec !== spec) {
+      parkState.lastSpec = spec;
+      parkState.scene.setRobot(JSON.parse(spec));
+    }
+    parkState.scene.setTeamNumber(team);
+    parkState.scene.setMechanisms(linked ? mechanismState.now : null, mechanismState.hopper.fill / mechanismState.hopper.capacity);
+  }
+  /* A label that changed width has to move, even while the model is still and drawing nothing. */
+  if (changed) placeCallouts();
+}
+
+function paintPark() {
+  if ((nt.status.connected || demo.on) && settings.parkView !== false) loadParkScene();
+  const want = parkWanted(performance.now());
+  if (want !== parkState.on) {
+    parkState.on = want;
+    if (want) showPark(); else hidePark();
+  }
+  if (parkState.on) {
+    paintParkInfo();
+    if (openPart) paintPart();
+  }
+}
+
+wireParts();
+
+$("#parkDash").onclick = () => {
+  parkState.dismissed = true;
+  paintPark();
+};
+/* Tesla's P, for a robot: pressing the lit D while the robot is disabled parks the view again after
+ * "Dashboard" put it away. */
+$("#gears").addEventListener("click", () => {
+  const linked = nt.status.connected || demo.on;
+  if (linked && ds.enabled) return;
+  parkState.dismissed = false;
+  parkState.since = -Infinity;
+  paintPark();
+});
+
+
 
 /* --------------------------------------------------------------------- settings */
 
@@ -2549,6 +5741,7 @@ const SHORTCUTS = [
   [["2"], "Tune"],
   [["3"], "Logs"],
   [["4"], "Topics"],
+  [["5"], "CAN"],
   [["S"], "Settings"],
   [["D"], "Demo data on or off"],
   [["E"], "Edit layout"],
@@ -2611,9 +5804,13 @@ function candidateAddresses(team) {
   const known = Number.isInteger(team) && team > 0;
   return [
     ["127.0.0.1", "this machine, for simulation"],
-    [`roborio-${known ? team : "TEAM"}-frc.local`, "the field's mDNS name"],
+    ["robot.local", "Systemcore's mDNS name"],
+    ["172.26.0.1", "Systemcore over USB"],
+    ["172.30.0.1", "Systemcore's own Wi-Fi"],
+    ["172.27.0.1", "Systemcore over USB, from a Mac or Linux"],
     [known ? `10.${Math.floor(team / 100)}.${team % 100}.2` : "10.TE.AM.2", "the pit's static IP"],
-    ["172.22.11.2", "the USB tether"],
+    [`roborio-${known ? team : "TEAM"}-frc.local`, "a roboRIO's mDNS name"],
+    ["172.22.11.2", "a roboRIO over USB"],
   ];
 }
 
@@ -2782,6 +5979,640 @@ function applyUpdateInfo(info) {
   setUpdateNote("No newer release. This is the current build.");
 }
 
+/* The quick controls at the top of the Robot section, after the row of big square buttons at the top
+ * of Tesla's Controls screen.
+ *
+ * None of them is a setting of its own. Each presses a control that already exists, through the same
+ * function that control calls - `setDemo`, the team field, `setCamera`, the field model switch, the
+ * units choice - and `paintQuick` reads every state back from where that control reads it. So a tile
+ * and its control cannot disagree, and a tile cannot do anything its control would not. The reset is
+ * wired in `buildSettings`, beside the button whose two presses it shares. */
+const CAMERA_WORDS = { chase: "Chase", top: "Overhead", free: "Free" };
+/* The field tile's own drawing for each camera, so the tile shows the camera in use the way the round
+ * buttons on the field do. */
+const CAMERA_GLYPHS = {
+  chase: `<rect x="8" y="4" width="8" height="10" rx="2"/><path d="M5 20l3-4h8l3 4"/>`,
+  top: `<rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9.5" y="9" width="5" height="6" rx="1"/>`,
+  free: `<ellipse cx="12" cy="12" rx="9" ry="3.6"/><path d="M18 7.5l2.2 1.3-1 2.3"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>`,
+};
+
+function wireQuick() {
+  $("#qDemo").onclick = () => setDemo(!demo.on);
+  /* Where the link chip in the status bar goes too. The team number decides which addresses the
+   * console tries, so finding a different robot is changing that field. */
+  $("#qTeam").onclick = () => {
+    const input = $("#setTeam");
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    input.closest(".srow").scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    if (!input.disabled) input.focus({ preventScroll: true });
+  };
+  $("#qCamera").onclick = () => {
+    setCamera(CAMERAS[(CAMERAS.indexOf(settings.fieldCamera) + 1) % CAMERAS.length]);
+    paintQuick();
+  };
+  $("#qModel").onclick = () => $("#setModel").click();
+  $("#qUnits").onclick = () => {
+    const next = UNITS[(UNITS.indexOf(settings.units) + 1) % UNITS.length];
+    $("#setUnits").querySelector(`button[data-v="${next}"]`)?.click();
+    paintQuick();
+  };
+}
+
+/* Runs inside the 10 Hz paint while the Robot section is open, so nothing is written that has not
+ * changed. */
+function paintQuick() {
+  const state = (id) => $(id).querySelector("small");
+  const press = (id, on) => {
+    const v = String(on);
+    if ($(id).getAttribute("aria-pressed") !== v) $(id).setAttribute("aria-pressed", v);
+    setText(state(id), on ? "On" : "Off");
+  };
+
+  press("#qDemo", demo.on);
+  press("#qModel", settings.fieldModel);
+  setText(state("#qTeam"), teamNumber ? String(teamNumber) : "—");
+  setText(state("#qUnits"), settings.units === "imperial" ? "Imperial" : "Metric");
+
+  const camera = $("#qCamera");
+  if (camera.dataset.mode !== settings.fieldCamera) {
+    camera.dataset.mode = settings.fieldCamera;
+    camera.querySelector("svg").innerHTML = CAMERA_GLYPHS[settings.fieldCamera];
+    setText(state("#qCamera"), CAMERA_WORDS[settings.fieldCamera]);
+  }
+}
+
+/* ---- the drivers section ---- */
+
+/* The stage is made the first time the section is looked at and not before: a renderer nobody has asked
+ * for is a context, a program and a slice of the graphics chip for a panel that may never open. */
+let driverStage = null;
+let driverStageShown = "";
+
+function paintDrivers() {
+  const list = $("#driverList");
+  if (!list) return;
+  const active = activeDriver(drivers);
+  const declared = declaredTunables();
+  list.textContent = "";
+  for (const driver of drivers.list) {
+    const card = document.createElement("div");
+    card.className = "dcard";
+    card.dataset.id = driver.id;
+    card.dataset.active = String(driver.id === drivers.active);
+
+    const dot = document.createElement("i");
+    dot.className = "ddot";
+    dot.style.setProperty("--c", driverHex(driver));
+    dot.setAttribute("aria-hidden", "true");
+
+    const who = document.createElement("div");
+    who.className = "dwho";
+    const name = document.createElement("input");
+    name.className = "dname";
+    name.value = driver.name;
+    name.maxLength = 24;
+    name.setAttribute("aria-label", "Driver name");
+    name.onchange = () => {
+      drivers = updateDriver(drivers, driver.id, { name: name.value });
+      saveDrivers();
+      paintDrivers();
+    };
+    const sub = document.createElement("span");
+    sub.className = "dsub";
+    const tiles = driver.layout ? driver.layout.length : layout.length;
+    sub.textContent = driver.id === drivers.active
+      ? `In use · ${tiles} tile${tiles === 1 ? "" : "s"}`
+      : `${tiles} tile${tiles === 1 ? "" : "s"}`;
+    const swatches = document.createElement("div");
+    swatches.className = "dswatches";
+    for (const colour of DRIVER_COLOURS) {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.style.setProperty("--c", colour.hex);
+      swatch.title = colour.label;
+      swatch.setAttribute("aria-label", colour.label);
+      swatch.setAttribute("aria-pressed", String(colour.id === driver.colour));
+      swatch.onclick = () => {
+        drivers = updateDriver(drivers, driver.id, { colour: colour.id });
+        saveDrivers();
+        paintDrivers();
+        if (driver.id === drivers.active) driverStage?.setColour(colour.hex);
+      };
+      swatches.append(swatch);
+    }
+    who.append(name, sub, swatches);
+
+    const actions = document.createElement("div");
+    actions.className = "dactions";
+    const use = document.createElement("button");
+    use.className = "duse";
+    use.type = "button";
+    use.textContent = "Use";
+    use.onclick = () => useDriver(driver.id);
+    const drop = document.createElement("button");
+    drop.className = "ddrop";
+    drop.type = "button";
+    drop.textContent = "Remove";
+    drop.hidden = drivers.list.length <= 1;
+    drop.onclick = () => {
+      const result = removeDriver(drivers, driver.id);
+      if (!result.removed) return;
+      const wasActive = driver.id === drivers.active;
+      drivers = result.store;
+      saveDrivers();
+      if (wasActive) useDriver(drivers.active, { force: true });
+      else paintDrivers();
+    };
+    actions.append(use, drop);
+    card.append(dot, who, actions, robotBlock(driver, declared));
+    list.append(card);
+  }
+
+  const x = settingsRefs;
+  if (x?.driverName) {
+    x.driverName.textContent = active ? active.name : "No driver";
+    x.driverNote.textContent = active ? "in use" : "add one to keep a board";
+  }
+  if (active && driverStageShown !== active.id) {
+    driverStageShown = active.id;
+    driverStage?.setColour(driverHex(active));
+    driverStage?.play();
+  }
+  paintControls();
+  driversDrawn = driversSignature();
+}
+
+/* The panel repaints ten times a second, and the cards are full of things a person is in the middle of
+ * using: a name being typed, a slider being dragged, a select that is open. Rebuilding them on every
+ * frame takes the focus out from under all three, so the cards are built when what they are made of
+ * changes and only their readings are written on the frames in between.
+ *
+ * The signature is deliberately made of structure and not of values. A stored setting's number is not in
+ * it, because that number belongs to the control the driver is holding - the control writes its own
+ * readout as it moves, and a rebuild mid-drag would drop it. The keys are, because a setting arriving or
+ * leaving is a different set of rows. */
+let driversDrawn = "";
+
+function driversSignature() {
+  return JSON.stringify([
+    drivers.active,
+    robotLinked(),
+    robotNote?.id ?? "",
+    robotNote?.text ?? "",
+    drivers.list.map((d) => [
+      d.id, d.name, d.colour,
+      d.layout ? d.layout.length : layout.length,
+      Object.keys(d.robot ?? {}),
+    ]),
+    declaredTunables().map((t) => [t.key, t.name, t.group, t.unit, t.min, t.max, t.step, t.kind]),
+    controlBindings().map((b) => [b.controller, b.control, b.action, b.combo]),
+  ]);
+}
+
+function syncDrivers() {
+  const signature = driversSignature();
+  if (signature !== driversDrawn) {
+    paintDrivers();
+    return;
+  }
+  syncRobotRows();
+}
+
+/* ---- a profile's robot settings, on its card ---- */
+
+/**
+ * The settings block under one profile: what it will put on the robot, and what the robot says about
+ * each of them right now.
+ */
+function robotBlock(driver, declared) {
+  const inUse = driver.id === drivers.active;
+  const linked = robotLinked();
+  const plan = robotPlan(driver, declared);
+  const block = el("div", "drobot");
+  block.dataset.off = String(!linked);
+
+  const head = el("div", "drobothead");
+  head.append(el("b", null, "Robot settings"));
+  /* One line, and it is the whole of what the driver needs to know about whether this is live. Not an
+   * error when there is no robot: the pit is where profiles get set up and the robot is rarely on. */
+  head.append(el("span", "dwhy", !linked
+    ? "No robot connected. These are applied when one is."
+    : !declared.length
+      ? "This robot publishes no tunable manifest, so it offers nothing to set."
+      : inUse
+        ? "Changes go to the robot as you make them."
+        : "Applied when you use this profile."));
+  if (robotNote?.id === driver.id) head.append(el("span", "dnote", robotNote.text));
+  block.append(head);
+
+  /* Grouped the way the robot grouped them, so the rumble switches sit together and the deadband sits
+   * with the rest of the feel. One group is no grouping: a heading over the only group says nothing. */
+  const groups = new Map();
+  for (const row of plan.rows) {
+    const group = row.entry?.group || "General";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(row);
+  }
+  for (const [group, rows] of groups) {
+    if (groups.size > 1) block.append(el("div", "dgroup", group));
+    for (const row of rows) block.append(robotRow(driver, row, { inUse, linked }));
+  }
+
+  if (!plan.rows.length && linked && declared.length) {
+    block.append(el("div", "dempty", "This robot declares nothing this console can set."));
+  }
+
+  const foot = el("div", "drobotfoot");
+  /* There is no "add a setting" any more, because there is nothing to add: the robot says which settings
+     exist and every one of them is already a row. Taking the robot's values is what is left - one press
+     to make a profile out of a robot somebody has already tuned by hand. */
+  const takeable = declared.filter((t) => liveTunable(t.key) !== null);
+  const take = el("button", "sbtn", "Take from robot");
+  take.type = "button";
+  take.disabled = !linked || !takeable.length;
+  take.title = linked && takeable.length
+    ? `Put what the robot is set to now into ${driver.name}`
+    : "Nothing to take: no robot is publishing a value for any of these";
+  take.onclick = () => {
+    const values = {};
+    for (const t of takeable) values[t.key] = liveTunable(t.key);
+    drivers = captureRobot(drivers, driver.id, values);
+    saveDrivers();
+    paintDrivers();
+  };
+  foot.append(take);
+  block.append(foot);
+  return block;
+}
+
+/** One setting: what this profile holds for it, the control that changes it, and what the robot holds. */
+function robotRow(driver, row, { inUse, linked }) {
+  const { key, entry, writable, set } = row;
+  const label = entry?.name || leaf(key);
+  const unit = entry?.unit ? ` ${entry.unit}` : "";
+  const { min, max, step, places } = tunableRange(entry);
+  const line = el("div", "drow");
+  line.dataset.robotKey = key;
+  line.dataset.set = String(Boolean(set));
+
+  /* A setting this profile has no opinion about shows what the robot is set to, and moving its control
+   * is what gives the profile one. The alternative - making somebody name a tunable before they can see
+   * it - asks a driver to keep a list the robot is already broadcasting. */
+  const live = liveTunable(key);
+  const value = set ? row.value : live;
+
+  const name = el("div", "nm");
+  name.append(el("span", null, label));
+  name.append(el("small", null, key));
+  line.append(name);
+
+  const isSwitch = typeof (set ? row.value : live) === "boolean" || entry?.kind === "bool";
+  const shown = value === null ? "—"
+    : isSwitch ? (value ? "On" : "Off")
+      : entry ? `${Number(value).toFixed(places)}${unit}` : String(value);
+  const readout = el("div", "v", linked && set && !writable ? "—" : shown);
+  line.append(readout);
+
+  /* Only a setting the profile actually holds can be taken out of it. */
+  const forget = el("button", "dforget");
+  forget.type = "button";
+  forget.hidden = !set;
+  forget.title = "Let this one follow the robot again";
+  forget.setAttribute("aria-label", `Let ${label} follow the robot instead of ${driver.name}`);
+  forget.innerHTML = TILE_TOOL_ICONS.remove;
+  forget.onclick = () => {
+    drivers = setRobotSetting(drivers, driver.id, key, null);
+    saveDrivers();
+    paintDrivers();
+  };
+  line.append(forget);
+
+  if (!linked) {
+    /* No robot, so no control: a slider needs the range the robot declares, and drawing one against a
+     * range this console picked would be inventing the thing the driver is about to read off it. The
+     * setting and the value it will apply are both shown - those are the profile's own and are true in
+     * the pit with the battery out - and the line at the top of the block says why nothing moves. */
+    return line;
+  }
+
+  if (set && !writable) {
+    /* A profile filled in on the practice bot, used on the competition bot. The setting is kept and
+     * shown as a dash rather than hidden or guessed at: it says this robot has no such thing, which is
+     * a fact, where a number in that space would be a fiction about a robot that never declared it. */
+    line.append(el("div", "dmiss", "This robot does not publish it."));
+    return line;
+  }
+
+  if (value === null) {
+    /* Declared, but the robot has not published a value for it yet. There is nothing to put on a control
+       and nothing this console could put there that would not be made up. */
+    line.append(el("div", "dmiss", "The robot has not published a value for this yet."));
+    return line;
+  }
+
+  const control = el("div", "dctl");
+  if (isSwitch) {
+    const tog = el("button", "tog");
+    tog.type = "button";
+    tog.setAttribute("role", "switch");
+    tog.setAttribute("aria-checked", String(value));
+    tog.setAttribute("aria-label", label);
+    tog.disabled = !linked;
+    tog.append(el("i"));
+    tog.onclick = () => {
+      const next = tog.getAttribute("aria-checked") !== "true";
+      tog.setAttribute("aria-checked", String(next));
+      readout.textContent = next ? "On" : "Off";
+      commitRobotSetting(driver, key, next, inUse, linked);
+    };
+    control.append(tog);
+  } else {
+    const slider = el("input");
+    slider.type = "range";
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(value);
+    slider.disabled = !linked;
+    slider.setAttribute("aria-label", label);
+    paintRange(slider);
+    slider.oninput = () => {
+      paintRange(slider);
+      readout.textContent = `${Number(slider.value).toFixed(places)}${unit}`;
+    };
+    /* On release rather than on every pixel: a drag from one end of a deadband to the other is two
+     * hundred values and only the one the driver stopped on is a setting. */
+    slider.onchange = () => commitRobotSetting(driver, key, Number(slider.value), inUse, linked);
+    control.append(slider);
+  }
+  line.append(control);
+
+  const now = el("div", "dnow");
+  now.dataset.robotNow = key;
+  now.textContent = robotNowText(key, entry);
+  line.append(now);
+  return line;
+}
+
+/** A control moved: the profile keeps it, and the robot gets it when this is the profile in use. */
+function commitRobotSetting(driver, key, value, inUse, linked) {
+  drivers = setRobotSetting(drivers, driver.id, key, value);
+  saveDrivers();
+  /* The profile in use is what the robot is set to, so moving one of its controls moves the robot -
+   * exactly as the same slider on the Tune sheet would, through the same write. A profile nobody is
+   * using waits its turn. */
+  if (inUse && linked) ntSet(key, value);
+  /* No repaint. The control is the one the driver is holding and it has already written its own
+   * readout; the signature is made of which settings a profile carries rather than of their values, so
+   * nothing here asks for the cards to be built again. */
+}
+
+/** What the robot holds for a setting, which is the only thing on this card that is about the robot
+ *  rather than about the profile. A dash when there is nothing to report, never a stand-in. */
+function robotNowText(key, entry) {
+  if (!robotLinked()) return "on the robot: —";
+  const value = liveTunable(key);
+  if (value === null) return "on the robot: —";
+  if (typeof value === "boolean") return `on the robot: ${value ? "On" : "Off"}`;
+  const { places } = tunableRange(entry);
+  return `on the robot: ${value.toFixed(places)}${entry?.unit ? ` ${entry.unit}` : ""}`;
+}
+
+/** The readings on the cards between rebuilds. Nothing here touches a control someone may be holding. */
+function syncRobotRows() {
+  const list = $("#driverList");
+  if (!list) return;
+  const entries = new Map(declaredTunables().map((t) => [t.key, t]));
+  for (const node of list.querySelectorAll("[data-robot-now]")) {
+    const text = robotNowText(node.dataset.robotNow, entries.get(node.dataset.robotNow));
+    if (node.textContent !== text) node.textContent = text;
+  }
+}
+
+/* ---- what the buttons do ---- */
+
+/**
+ * The robot's own account of its controls. Read-only, and the one part of this panel that is not about a
+ * profile at all: it is the same for everybody, and it is here because the question "what does B do"
+ * belongs next to who is driving.
+ */
+function paintControls() {
+  const host = $("#driverControls");
+  if (!host) return;
+  const bindings = controlBindings();
+  host.textContent = "";
+
+  if (!bindings.length) {
+    host.append(el("div", "dempty", robotLinked()
+      ? "This robot does not publish what its controls do."
+      : "No robot connected. What the controls do is read from the robot."));
+    const note = el("div", "note");
+    note.innerHTML =
+      "<b>How a robot says what its buttons do.</b> Publish a JSON string on " +
+      `<code>${CONTROLS_MANIFEST}</code> - an array of ` +
+      "<code>{ \"control\", \"action\", \"controller\", \"combo\" }</code>, of which only the first two " +
+      "are needed. The console prints that list and nothing else, and never writes to it: what a button " +
+      "does is the robot's to decide.";
+    host.append(note);
+    return;
+  }
+
+  const byController = new Map();
+  for (const binding of bindings) {
+    if (!byController.has(binding.controller)) byController.set(binding.controller, []);
+    byController.get(binding.controller).push(binding);
+  }
+  for (const [controller, rows] of byController) {
+    host.append(el("div", "dgroup", controller));
+    for (const binding of rows) {
+      const line = el("div", "dbind");
+      const control = el("b", null, binding.control);
+      if (binding.combo) control.dataset.combo = "true";
+      line.append(control, el("span", null, binding.action));
+      host.append(line);
+    }
+  }
+}
+
+/** Switch to a profile: the one being left keeps the board it was left with, and the board of the one
+ *  coming in is laid out again. A profile that has never been used keeps whatever is on screen. */
+function useDriver(id, { force = false } = {}) {
+  if (!force && id === drivers.active) return;
+  const result = switchDriver(drivers, id, { layout });
+  drivers = result.store;
+  saveDrivers();
+  if (result.restore.layout?.length) {
+    layout = result.restore.layout.map((t) => ({ ...t, cfg: { ...(t.cfg || {}) } }));
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(layout));
+    } catch { /* the board still applies */ }
+    buildBoard();
+  }
+  applyRobotSettings(result.driver);
+  paintDrivers();
+}
+
+/* ---- what a profile does to the robot ----
+ *
+ * The robot decides what this is allowed to be. It publishes a manifest of what it will let a dashboard
+ * change - the same one the Tune sheet works from - and a profile is a set of values for keys out of that
+ * list: a deadband, a slew limit, a speed cap, which events buzz the controller and how hard. Writing one
+ * goes through `ntSet`, the console's single write path, so this is a dashboard changing a tunable and
+ * nothing more. A key the robot did not declare is never written, however it got into storage.
+ *
+ * Rumble is worth being clear about, because it looks like something this program could do and is not.
+ * The Driver Station holds the controller; the console has no route to it and cannot buzz anything. The
+ * robot can, over the same protocol it drives on, so a per-driver rumble preference is only ever a robot
+ * setting: the robot declares "buzz when the hopper fills" as a tunable, and the profile carries a value
+ * for it like any other.
+ *
+ * It needs a robot. Choosing who is driving happens in the pit with the battery on a cart, so a profile
+ * picked with nothing connected is remembered and applied the moment a robot turns up, rather than being
+ * refused - and the panel says which of the two happened in one line, because being disconnected in the
+ * pit is the ordinary case and not an error.
+ */
+
+/** The profile waiting for a robot to apply it to. Deliberately not kept across a restart: a console that
+ *  wrote to the robot on launch would be writing without anyone having asked it to. */
+let pendingRobot = null;
+
+/** What the last apply did, and which card it belongs under. */
+let robotNote = null;
+
+const robotLinked = () => nt.status.connected || demo.on;
+
+/** What the robot holds for a key now, or null when it holds nothing this console could write back. */
+function liveTunable(key) {
+  const v = raw(key);
+  if (!v) return null;
+  if (v.t === "num") return v.v;
+  if (v.t === "bool") return v.v;
+  return null;
+}
+
+/**
+ * Put a profile's robot settings on the robot.
+ *
+ * Only what this robot declared, only what a write actually got through, and the count in the line
+ * afterwards is of writes that were made rather than of settings that were meant - a value that failed
+ * to write has not been applied and must not be described as if it had.
+ */
+async function applyRobotSettings(driver) {
+  if (!driver || !Object.keys(driver.robot ?? {}).length) {
+    pendingRobot = null;
+    robotNote = null;
+    return;
+  }
+  if (!robotLinked()) {
+    pendingRobot = driver.id;
+    robotNote = { id: driver.id, text: `Held: ${driver.name}'s settings go to the robot as soon as one connects.` };
+    schedulePaint();
+    return;
+  }
+  /* A profile picked by hand while the robot is enabled is that driver's own decision and goes out. One
+     that has been waiting for a link does not: rule two says nothing this console does may impede
+     driving, and a deadband that changes by itself half way through a match because the radio came back
+     is exactly that. It waits for the robot to be disabled, which is a few seconds away at worst. */
+
+  const declared = declaredTunables();
+  if (!declared.length) {
+    /* Either the manifest is a frame behind the link or this robot does not publish one. The two look
+     * identical from here, the line on the card answers both, and both are worth waiting through: the
+     * settings go out the moment the robot says what it will take. */
+    pendingRobot = driver.id;
+    schedulePaint();
+    return;
+  }
+
+  pendingRobot = null;
+  const plan = robotPlan(driver, declared);
+  const results = await Promise.all(plan.ready.map((r) => ntSet(r.key, r.value)));
+  const applied = results.filter(Boolean).length;
+  const failed = results.length - applied;
+
+  const words = [applied ? `Applied ${applied} ${applied === 1 ? "setting" : "settings"}.` : "Nothing was applied."];
+  if (plan.missing) {
+    words.push(`This robot does not publish ${plan.missing === 1 ? "one of them" : `${plan.missing} of them`}.`);
+  }
+  if (failed) words.push(`${failed} ${failed === 1 ? "write" : "writes"} did not go through.`);
+  const note = { id: driver.id, text: words.join(" ") };
+  robotNote = note;
+  /* An account of something that has finished happening, so it goes away on its own. The held note
+   * above does not: that one is a state, and it is true until a robot connects. */
+  setTimeout(() => {
+    if (robotNote !== note) return;
+    robotNote = null;
+    schedulePaint();
+  }, 9000);
+  schedulePaint();
+}
+
+/** A profile chosen before there was a robot, applied now there is one. */
+function tryPendingRobotSettings() {
+  if (!pendingRobot || !robotLinked()) return;
+  const driver = drivers.list.find((d) => d.id === pendingRobot);
+  if (!driver) { pendingRobot = null; return; }
+  /* Not until the robot has said what it will let a dashboard change. Writing before the manifest is
+   * here would be writing keys nobody has offered, which is the one thing this must never do. */
+  if (!declaredTunables().length) return;
+  /* And not while the robot is being driven. Nobody asked for this at this moment - it is a write that
+   * fell due because a link came up - and a match is not when a driver finds out their stick has a
+   * different deadband. It goes out at the next disable. */
+  if (ds.enabled) {
+    if (!robotNote || robotNote.id !== driver.id) {
+      robotNote = { id: driver.id, text: `Held: ${driver.name}'s settings go to the robot when it is next disabled.` };
+      schedulePaint();
+    }
+    return;
+  }
+  applyRobotSettings(driver);
+}
+
+function wireDrivers() {
+  /* A console that has never had a profile gets one, holding the board it is already showing. */
+  if (!drivers.list.length) {
+    const first = makeDriver({ name: "Driver", colour: DRIVER_COLOURS[0].id, layout });
+    drivers = addDriver(drivers, first).store;
+    saveDrivers();
+  }
+  const add = $("#driverAdd");
+  add.onclick = () => {
+    if (drivers.list.length >= DRIVERS_MAX) return;
+    const taken = new Set(drivers.list.map((d) => d.name));
+    let name = "Driver";
+    for (let i = 2; taken.has(name); i++) name = `Driver ${i}`;
+    const colour = DRIVER_COLOURS[drivers.list.length % DRIVER_COLOURS.length];
+    const result = addDriver(drivers, makeDriver({ name: cleanName(name), colour: colour.id, layout }), { layout });
+    if (!result.added) return;
+    drivers = result.store;
+    saveDrivers();
+    paintDrivers();
+  };
+  paintDrivers();
+}
+
+/** Make the stage when the section is first looked at, and let it sleep whenever it is not. */
+async function driverSection(on) {
+  if (!on) {
+    driverStage?.setActive(false);
+    return;
+  }
+  if (!driverStage) {
+    const canvas = $("#driverCanvas");
+    if (!canvas) return;
+    const mod = await import("./driver3d.js");
+    if (!driverStage) {
+      driverStage = mod.createDriverStage(canvas, {
+        colour: driverHex(activeDriver(drivers)),
+        reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      });
+    }
+  }
+  driverStage.setActive(true);
+  driverStage.setRobot?.(nt.status.connected || demo.on ? parkRobotSpec() : {}, cadFits());
+  driverStage.play();
+}
+
 /* Wiring, done once on first open. A settings panel nobody has opened has no business asking the
  * backend anything, and the update check behind it can sit for a while on a field network. */
 function buildSettings() {
@@ -2796,6 +6627,7 @@ function buildSettings() {
 
   /* --- robot --- */
   $("#setSearch").oninput = (e) => applySearch(e.target.value);
+  wireQuick();
 
   $("#gCopy").onclick = async () => {
     const text = sheetAsText();
@@ -2871,7 +6703,19 @@ function buildSettings() {
     paintSettings();
   };
 
+  /* --- drivers --- */
+  wireDrivers();
+
   /* --- dashboard --- */
+  const parkTog = $("#setPark");
+  parkTog.setAttribute("aria-checked", String(settings.parkView));
+  parkTog.onclick = () => {
+    settings.parkView = !settings.parkView;
+    saveSettings();
+    parkTog.setAttribute("aria-checked", String(settings.parkView));
+    paintPark();
+  };
+
   const hold = $("#setAlertHold");
   hold.value = String(settings.alertHoldMs);
   paintRange(hold);
@@ -2886,26 +6730,42 @@ function buildSettings() {
   hold.onchange = saveSettings;
 
   /* Two presses rather than a confirmation dialog. Rule two says nothing blocks the board, and a
-   * button that arms itself asks the question without putting anything in front of anything. */
+   * button that arms itself asks the question without putting anything in front of anything.
+   *
+   * The quick control at the top of the Robot section is this button in a second place, so it arms and
+   * fires through the same two presses and each shows the other armed. Its page cannot see the board
+   * or the status line under the Dashboard rows, so the tile says itself that the press took. */
   const reset = $("#resetBoard");
+  const quickReset = $("#qReset");
+  const quickResetState = quickReset.querySelector("small");
   let armed = 0;
+  let settled = 0;
+  const showArmed = (on) => {
+    reset.classList.toggle("armed", on);
+    quickReset.classList.toggle("armed", on);
+    reset.textContent = on ? "Press again" : "Reset";
+    quickResetState.textContent = on ? "Press again" : "Press twice";
+  };
   const disarm = () => {
     clearTimeout(armed);
     armed = 0;
-    reset.classList.remove("armed");
-    reset.textContent = "Reset";
+    showArmed(false);
   };
-  reset.onclick = () => {
+  const pressReset = () => {
+    clearTimeout(settled);
     if (!armed) {
-      reset.classList.add("armed");
-      reset.textContent = "Press again";
+      showArmed(true);
       armed = setTimeout(disarm, 4000);
       return;
     }
     disarm();
     resetBoard();
     setLayoutStatus("The board is back to the layout the console ships with.", "ok");
+    quickResetState.textContent = "Done";
+    settled = setTimeout(() => { quickResetState.textContent = "Press twice"; }, 2500);
   };
+  reset.onclick = pressReset;
+  quickReset.onclick = pressReset;
 
   /* --- data --- */
   $("#setDemoTog").onclick = () => setDemo(!demo.on);
@@ -3022,12 +6882,24 @@ function showSection(name) {
     else delete sec.dataset.active;
   }
   $("#spane").scrollTop = 0;
+  driverSection(name === "drivers");
+  devicePart?.setActive(name === "devices");
+  garageStage?.setActive(name === "robot");
+  coreStage?.setActive(name === "core");
   paintSettings();
 }
 
 function setSettings(open, section) {
   const root = $("#settings");
-  if (!open) { root.dataset.open = "false"; return; }
+  if (!open) {
+    root.dataset.open = "false";
+    /* A closed panel draws nothing: every stage in it stops where it is. */
+    driverSection(false);
+    devicePart?.setActive(false);
+    garageStage?.setActive(false);
+    coreStage?.setActive(false);
+    return;
+  }
 
   if (!settingsRefs) buildSettings();
   /* A filter left up from last time would have the panel open on a search nobody is running. */
@@ -3116,12 +6988,16 @@ const SPEC_GROUPS = [
     ["WPILib", () => S.s("Software/WPILibVersion")],
     ["Java", () => S.s("Software/JavaVersion")],
   ]],
+  /* Canonical key first, Rio-named alias second. Catalyst 2.x renamed these to say "controller"
+   * and publishes both for one season so existing layouts keep resolving; reading only the old name
+   * would work today and go blank the moment the alias is dropped. Software/FpgaVersion is not here
+   * at all - Systemcore has no FPGA and 2027 removed the whole surface, so that row could only ever
+   * have been empty. */
   ["Controller", [
     ["Model", () => S.s("Identity/Controller")],
-    ["Serial", () => S.s("Identity/RioSerial")],
-    ["Image", () => S.s("Software/RioImage")],
-    ["FPGA", () => S.s("Software/FpgaVersion")],
-    ["Comment", () => S.s("Identity/RioComment")],
+    ["Serial", () => S.s("Identity/ControllerSerial") || S.s("Identity/RioSerial")],
+    ["Image", () => S.s("Software/ControllerImage") || S.s("Software/RioImage")],
+    ["Comment", () => S.s("Identity/ControllerComment") || S.s("Identity/RioComment")],
   ]],
   ["Drivetrain", [
     ["Type", () => S.s("Drivetrain/Type")],
@@ -3183,126 +7059,82 @@ const SPEC_GROUPS = [
   ]],
 ];
 
-/* A plan of this robot, to scale, from the figures on the wire. Bumpers, frame and module positions
- * are each drawn only if the robot published them, so a partial sheet gives a partial drawing rather
- * than a confident wrong one. Nose points up, which is +x in WPILib's frame.
+/* ---- the robot on its spec sheet ----
  *
- * Rendered rather than diagrammed: this is the one place in the program that is allowed to be a
- * picture of your robot, and a hairline outline does not read as one. Everything it draws is still
- * a published measurement — what is invented here is the lighting, not the geometry. */
-function drawPlan(canvas) {
-  const frameL = num(`${SPEC_ROOT}Chassis/FrameLengthMeters`);
-  const frameW = num(`${SPEC_ROOT}Chassis/FrameWidthMeters`);
-  const bumpL = num(`${SPEC_ROOT}Chassis/BumperLengthMeters`);
-  const bumpW = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`);
-  const mods = arr(`${SPEC_ROOT}Drivetrain/ModuleLocations`);
+ * The sheet used to draw a plan of the robot: a rectangle for the bumpers, another for the frame, four
+ * marks for the modules. It was drawn from the figures on the wire rather than from a stock picture,
+ * which was the right idea, and a top-down rectangle is still the least the console can say about a
+ * machine it has a model of. So it shows the robot - the same model the Park view draws, from the same
+ * published dimensions, standing on Park's floor under Park's studio.
+ *
+ * It is the stage the Devices section stands a Limelight on, because a part on a stage and a robot on a
+ * stage are the same thing at different sizes. It comes to rest off the front-left corner, the angle
+ * Park photographs it from, turns when it is dragged, and draws nothing while it is still.
+ *
+ * Deliberately not the alliance colour: alliance is match state and flips between matches, and this card
+ * describes the machine. It does carry the team number, which is the machine's.
+ */
+let garageStage = null;
+let garageRobot = null;
+let garageSpec = "";
+let garageTeam = undefined;
 
-  /* The module ring alone is enough to draw something true, so a team that declared no frame size
-   * still gets their own wheel layout rather than nothing. */
-  const span = mods && mods.length >= 2
-    ? [Math.max(...mods.filter((_, i) => i % 2 === 0).map(Math.abs)) * 2,
-       Math.max(...mods.filter((_, i) => i % 2 === 1).map(Math.abs)) * 2]
-    : null;
-  const outerL = bumpL || frameL || (span && span[0]);
-  const outerW = bumpW || frameW || (span && span[1]);
-  if (!outerL || !outerW) return false;
+/* Park's resting angle (YAW_DEFAULT in park3d.js): the stage turned so the front-left corner faces the
+   lens, 38 degrees round from the nose. */
+const GARAGE_REST = -(Math.PI / 2 + 0.66);
 
-  const dpr = Math.min(devicePixelRatio || 1, 3);
-  const cw = canvas.clientWidth || 300, ch = canvas.clientHeight || 210;
-  canvas.width = Math.round(cw * dpr);
-  canvas.height = Math.round(ch * dpr);
-  const g = canvas.getContext("2d");
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, cw, ch);
+function garageShow() {
+  garageStage?.showModel(garageRobot.root, {
+    lights: garageRobot.lights,
+    step: (now) => garageRobot.step(now),
+    rest: GARAGE_REST,
+    grid: true,
+    margin: 0.9,
+  });
+}
 
-  const pad = 44;
-  const scale = Math.min((cw - pad * 2) / outerW, (ch - pad * 2) / outerL);
-  const cx = cw / 2, cy = ch / 2;
-  /* Robot +x is forward and +y is to the left; screen y grows downward. */
-  const px = (x, y) => [cx - y * scale, cy - x * scale];
-  const box = (lengthM, widthM) => [cx - (widthM * scale) / 2, cy - (lengthM * scale) / 2,
-                                     widthM * scale, lengthM * scale];
-
-  /* Deliberately not the alliance colour. Alliance is match state — it flips between matches and a
-   * team carries both sets of bumpers — so painting it here would make a robot's spec sheet change
-   * colour depending on when you happened to open it. This card describes the machine, and the
-   * machine is the same robot on either side. */
-  const bumper = "#4c4e57";
-  const bumperLit = "#5b5d67";
-
-  /* The pool of light the robot sits in. Pure decoration, and the only thing here that is. */
-  const pool = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(cw, ch) * 0.52);
-  pool.addColorStop(0, "rgba(255,255,255,0.055)");
-  pool.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = pool;
-  g.fillRect(0, 0, cw, ch);
-
-  const outer = box(outerL, outerW);
-  const radius = Math.min(16, outer[2] / 7, outer[3] / 7);
-
-  g.save();
-  g.shadowColor = "rgba(0,0,0,0.55)";
-  g.shadowBlur = 26;
-  g.shadowOffsetY = 10;
-
-  if (bumpL && bumpW) {
-    /* Bumpers first and filled, because on a real robot they are the outline anyone recognises. */
-    const grad = g.createLinearGradient(0, outer[1], 0, outer[1] + outer[3]);
-    grad.addColorStop(0, bumperLit);
-    grad.addColorStop(1, bumper);
-    g.fillStyle = grad;
-    g.beginPath(); g.roundRect(...outer, radius); g.fill();
-  } else {
-    /* No bumper figures, so nothing is drawn as though there were: the frame carries the silhouette
-     * and the dashed edge says the outer dimension is not known. */
-    g.strokeStyle = "rgba(255,255,255,0.2)"; g.lineWidth = 1.5; g.setLineDash([6, 5]);
-    g.beginPath(); g.roundRect(...outer, radius); g.stroke();
-    g.setLineDash([]);
+function paintGarageModel() {
+  const canvas = $("#garagePlan");
+  if (!canvas) return false;
+  const spec = robotSpecFromWire();
+  if (!spec) return false;
+  if (!garageStage) {
+    /* Made the first time there is a robot to draw, not when the panel opens. */
+    garageStage = createDeviceStage(canvas, {
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+    garageRobot = createRobotModel({ maxAnisotropy: garageStage.maxAnisotropy });
+    garageRobot.setEnvironment(garageStage.environment);
+    /* The team's CAD arrives after the first build and the numbers print once their font loads, so the
+       robot is measured and framed again whenever the model changes on its own. */
+    garageRobot.onChange(garageShow);
   }
-  g.restore();
-
-  if (frameL && frameW) {
-    const inner = box(frameL, frameW);
-    const ir = Math.min(11, inner[2] / 8, inner[3] / 8);
-    const deck = g.createLinearGradient(0, inner[1], 0, inner[1] + inner[3]);
-    deck.addColorStop(0, "#2b2d34");
-    deck.addColorStop(1, "#1c1e23");
-    g.fillStyle = deck;
-    g.beginPath(); g.roundRect(...inner, ir); g.fill();
-    g.strokeStyle = "rgba(255,255,255,0.10)"; g.lineWidth = 1;
-    g.beginPath(); g.roundRect(...inner, ir); g.stroke();
+  const signature = JSON.stringify(spec);
+  const cadChanged = garageRobot.setCad(cadFits());
+  if (signature !== garageSpec) {
+    garageSpec = signature;
+    garageRobot.setSpec(normalizeRobot(spec));
+    garageShow();
+  } else if (cadChanged) {
+    garageShow();
   }
-
-  if (mods && mods.length >= 2) {
-    /* Wheels, oriented fore-aft, sized off the published radius when there is one. */
-    const wr = num(`${SPEC_ROOT}Drivetrain/WheelRadiusMeters`);
-    const wl = (wr ? wr * 2 * scale : 22), ww = Math.max(7, wl * 0.34);
-    for (let i = 0; i + 1 < mods.length; i += 2) {
-      const [sx, sy] = px(mods[i], mods[i + 1]);
-      g.save();
-      g.shadowColor = "rgba(0,0,0,0.5)"; g.shadowBlur = 7;
-      const tyre = g.createLinearGradient(sx - ww / 2, 0, sx + ww / 2, 0);
-      tyre.addColorStop(0, "#101114");
-      tyre.addColorStop(0.45, "#34363d");
-      tyre.addColorStop(1, "#101114");
-      g.fillStyle = tyre;
-      g.beginPath(); g.roundRect(sx - ww / 2, sy - wl / 2, ww, wl, ww / 2.4); g.fill();
-      g.restore();
-    }
+  /* Where Park reads it: the Systemcore's own team number first, then the spec sheet's. */
+  const team = parkTeam(nt.status.connected || demo.on);
+  if (team !== garageTeam) {
+    garageTeam = team;
+    garageRobot.setTeamNumber(team);
   }
-
-  /* Which way is forward. A brighter band across the front bumper rather than a floating arrow —
-   * it reads at a glance and it is where a team paints their number. */
-  g.save();
-  g.beginPath(); g.roundRect(...outer, radius); g.clip();
-  const nose = g.createLinearGradient(0, outer[1], 0, outer[1] + 16);
-  nose.addColorStop(0, "rgba(255,255,255,0.30)");
-  nose.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = nose;
-  g.fillRect(outer[0], outer[1], outer[2], 16);
-  g.restore();
-
+  garageStage.setActive(currentSection === "robot" && $("#settings").dataset.open === "true");
   return true;
+}
+
+/** What the robot says its own size is, or null when it has not said: Park's spec, so the module
+ *  positions arrive as pairs - the wire carries them flat, and a flat list drew default modules. */
+function robotSpecFromWire() {
+  const spec = parkRobotSpec();
+  const known = [spec.bumperLength, spec.bumperWidth, spec.frameLength, spec.frameWidth].some((v) => v !== undefined)
+    || Boolean(spec.modules);
+  return known ? spec : null;
 }
 
 function paintGarage() {
@@ -3318,7 +7150,7 @@ function paintGarage() {
   $("#gSub").textContent = [team && `Team ${team}`, season && String(season), rio].filter(Boolean).join("  ·  ") || "";
 
   const plan = $("#garagePlan");
-  const drew = drawPlan(plan);
+  const drew = paintGarageModel();
   plan.parentElement.style.display = drew ? "" : "none";
   /* The card is lit for a picture. A robot that published a name and no geometry is the ordinary
    * case, not a broken one, so the lighting goes with the drawing rather than hanging over a gap. */
@@ -3370,18 +7202,785 @@ function paintGarage() {
 
   $("#gSpecs").innerHTML = groups.map(([title, rows]) =>
     `<div class="ggroup"><h4>${escapeHtml(title)}</h4>${rows.map(([label, v]) =>
-      `<div class="grow"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
+      `<div class="gspec"><span>${escapeHtml(label)}</span><b>${escapeHtml(String(v))}</b></div>`
     ).join("")}</div>`).join("");
 
   sheetForCopy = { name, sub: $("#gSub").textContent, groups };
 }
 
+/* ------------------------------------------------------------------ systemcore
+
+   What the machine reports about itself, read straight off /Catalyst/Systemcore/.
+
+   The rule this page is built on: a reading the machine did not send is absent, never zero. It is
+   worth being blunt about why, because getting it wrong is not a cosmetic bug. Storage at 0% and no
+   answer from the storage sensor render identically as a number, mean opposite things, and the
+   wrong one of them is reassuring. So every helper below returns null for absent and every painter
+   draws an em dash and an empty bar for null. Nothing here substitutes a default. */
+
+const CORE = "/Catalyst/Systemcore/";
+
+/* paint() runs at 10 Hz and again on every NetworkTables frame, and most of this page does not
+   change between them: a team number, a set of network interfaces and a pair of brownout thresholds
+   are fixed for the life of the match. Rewriting innerHTML anyway would destroy and rebuild those
+   nodes tens of times a second, which costs layout, drops any text the user had selected, and
+   restarts the bar transitions mid-flight.
+
+   Comparing the string first is far cheaper than the write it avoids. */
+function setHtml(el, html) {
+  if (el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+}
+
+/* The same bargain one step down, for the nodes a page rewrites rather than rebuilds. Assigning
+   textContent or a style property that already holds that value still dirties the node, and a bar
+   whose width is re-set to the width it already has restarts its CSS transition — which is what turns
+   a bar easing to a new reading into one that never settles. Reading the property back first is a
+   cache hit; writing it is layout. */
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function setWidth(el, pct) {
+  const w = `${pct.toFixed(1)}%`;
+  if (el.style.width !== w) el.style.width = w;
+}
+
+/* Null clears it, so a reading that goes away takes its colour with it rather than leaving the last
+   one behind as a statement about a number that is no longer there. */
+function setLevel(el, level) {
+  if (level === null || level === undefined) {
+    if (el.dataset.level !== undefined) delete el.dataset.level;
+  } else if (el.dataset.level !== level) {
+    el.dataset.level = level;
+  }
+}
+
+function setFlag(el, name, on) {
+  const v = String(on);
+  if (el.dataset[name] !== v) el.dataset[name] = v;
+}
+
+/* The wording and the thresholds live in core-format.js so they can be tested: the states they
+   describe - a full disk, a worn-out eMMC, a pinned core - are exactly the ones nobody can
+   reproduce on a robot without breaking it. */
+const coreLevel = coreFmt.level;
+const coreBytes = coreFmt.bytes;
+
+/* Absent stays absent. num() already returns its fallback for a missing key, so the fallback is
+   null and stays null all the way to the screen. */
+function coreNum(key) {
+  return num(CORE + key, null);
+}
+
+/* One vital: the number, its bar, and the colour they share. */
+function paintVital(x, name, pct, opts = {}) {
+  const level = coreLevel(pct, opts.warn, opts.crit);
+  const digits = opts.digits ?? 0;
+
+  x[name].textContent = pct === null ? "\u2014" : pct.toFixed(digits);
+  x[`${name}Bar`].style.width = pct === null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
+  if (level === null) delete x[`${name}Bar`].dataset.level;
+  else x[`${name}Bar`].dataset.level = level;
+
+  const cell = x[`${name}Cell`];
+  if (level === null || level === "ok") delete cell.dataset.level;
+  else cell.dataset.level = level;
+}
+
+/* The five Systemcore buses and the SPI controller each hangs off, which is the fact that makes
+   this table worth drawing rather than listing five numbers. Same pairing the library encodes in
+   CatalystCANBus and the CAN ID planner warns about. */
+const CORE_CAN_GROUPS = [
+  ["Controller 1", ["can_s0", "can_s1"]],
+  ["Controller 2", ["can_s2"]],
+  ["Controller 3", ["can_s3", "can_s4"]],
+];
+
+/* ------------------------------------------------ the agent, when it is installed
+
+   Systemcore publishes a summary of itself on NetworkTables and Catalyst mirrors it, but a summary
+   is what it is: one processor figure for four cores, a storage percentage with no idea what filled
+   it, and nothing about the robot program's own process. The questions asked in the ninety seconds
+   before a match are the ones it cannot answer - which core is pinned and by what, what is using the
+   disk, how many times the robot program has restarted, whether CAN saw bus errors.
+
+   Catalyst ships an optional package that runs on the Systemcore itself and serves that from /proc
+   and /sys. This talks to it when it is there, and the page works without it - everything the agent
+   adds is additional, never a replacement for a reading that already arrives over NetworkTables.
+
+   Polled slowly and on its own clock. It is a diagnostic, not an instrument: a driver never looks at
+   this mid-match, and a page open in the pit should not be asking a robot for a process list ten
+   times a second. */
+
+const AGENT_PORT = 9010;
+const AGENT_POLL_MS = 3000;
+/* After this many silent failures the page stops asking and says the agent is not installed. Three
+   rather than one because a robot that has just rebooted refuses connections for a few seconds, and
+   flickering between "installed" and "not installed" is worse than either. */
+const AGENT_GIVE_UP_AFTER = 3;
+
+const coreAgent = { data: null, at: 0, misses: 0, inFlight: false, reachable: null };
+
+function agentUrl(path) {
+  /* The agent is on the robot, so it is wherever NetworkTables found one. A host with a port on it
+     is the NT port, not the agent's. */
+  const host = String(nt.status.address || "").replace(/:\d+$/, "");
+  return host ? `http://${host}:${AGENT_PORT}${path}` : null;
+}
+
+/* A plausible machine, for demo mode.
+ *
+ * The same reasoning as the NetworkTables demo data: nobody should have to find a robot, install a
+ * package on it and connect to it before they can find out whether this page works. It is a machine
+ * in good order under load rather than a perfect one - one core carrying the robot program, a
+ * program that has restarted once, and a log with something in it. */
+function demoMotorHistory(t) {
+  const names = ["FL_Drive", "FL_Steer", "FR_Drive", "FR_Steer", "BL_Drive", "BL_Steer", "BR_Drive", "BR_Steer"];
+  return {
+    present: true, updatedMs: Date.now(), clockTrusted: true,
+    devices: names.map((name, i) => ({
+      serial: "000E0B500C776800000A00011A00" + (0xE0 + i).toString(16).toUpperCase().padStart(4, "0"),
+      model: "Talon FX", kind: "motor", bus: "can_s2", id: [30, 24, 4, 27, 45, 26, 46, 25][i], name,
+      firmware: "26.1.1.1", poweredSeconds: 3600 * (9 + i * 1.7) + t, runningSeconds: 3600 * (2 + i * 0.6),
+      loadedSeconds: 3600 * (1 + i * 0.3), revolutions: 120000 * (1 + i * 0.4), peakStatorAmps: 60 + i * 12,
+      peakTempC: i === 4 ? 78 : 44 + i * 3, hotSeconds: i === 4 ? 420 : 0, energyJoules: 4e5 * (1 + i),
+      boots: 40 + i * 3, firstSeenMs: Date.now() - 86400e3 * 30, lastSeenMs: Date.now(), identities: i === 4 ? 3 : 1,
+      stickyFaults: 0,
+    })),
+  };
+}
+
+function demoAgentSnapshot(t) {
+  const load = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.7));
+  const core = (i, base) => ({
+    core: i,
+    percent: Math.round((base + 28 * load) * 10) / 10,
+    mhz: 1500 + Math.round(900 * load),
+  });
+  return {
+    identity: {
+      hostname: "robot", os: "Systemcore OS 2027.0.0-beta14", osVersion: "2027.0.0",
+      kernel: "6.12.77-rt", model: "Raspberry Pi Compute Module 5",
+      uptimeSeconds: 1180 + t, agentVersion: "2.0.0",
+    },
+    cpu: {
+      /* One core busier than the rest, because that is what a robot program looks like. */
+      cores: [core(0, 44), core(1, 12), core(2, 9), core(3, 7)],
+      loadAverage: [1.2, 0.9, 0.7],
+      model: "Cortex-A76",
+      throttling: {
+        underVoltageNow: false, frequencyCappedNow: false, throttledNow: false,
+        softTempLimitNow: false, throttledSinceBoot: false, underVoltageSinceBoot: false,
+      },
+    },
+    thermal: [{ zone: "cpu-thermal", celsius: 46 + 12 * load }],
+    memory: {
+      totalBytes: 8.0e9, availableBytes: 5.4e9, usedBytes: 2.6e9,
+      cachedBytes: 3.1e9, swapTotalBytes: 0, swapFreeBytes: 0,
+    },
+    storage: {
+      mounts: [{ mount: "/", device: "/dev/mmcblk0p2", filesystem: "ext4",
+                 totalBytes: 32.0e9, usedBytes: 15.0e9, freeBytes: 17.0e9 }],
+      directories: [
+        { path: "/home/systemcore", bytes: 9.4e9 },
+        { path: "/var/log", bytes: 2.1e9 },
+      ],
+    },
+    processes: {
+      count: 148,
+      topByCpu: [
+        { pid: 812, name: "java", cpuPercent: 38 + 20 * load, rssBytes: 512e6 },
+        { pid: 431, name: "MrcCommDaemon", cpuPercent: 6.2, rssBytes: 48e6 },
+        { pid: 502, name: "limelight", cpuPercent: 4.1, rssBytes: 96e6 },
+        { pid: 1, name: "systemd", cpuPercent: 0.2, rssBytes: 12e6 },
+      ],
+      topByMemory: [],
+    },
+    can: [
+      { name: "can_s0", up: true, state: "ERROR-ACTIVE", bitrate: 1000000, restarts: 0,
+        rxPackets: 1842300, txPackets: 921100, rxErrors: 0, txErrors: 0,
+        rxDropped: 0, txDropped: 0 },
+      { name: "can_s2", up: true, state: "ERROR-ACTIVE", bitrate: 1000000, restarts: 0,
+        rxPackets: 412900, txPackets: 208400, rxErrors: 0, txErrors: 0,
+        rxDropped: 0, txDropped: 0 },
+    ],
+    network: [],
+    robotProgram: {
+      unit: "robot.service", state: "active", subState: "running",
+      /* One restart, because that is the case worth showing: it looks completely normal from a
+         driver's station and this page is the only thing that says it happened. */
+      restarts: 1, runningForSeconds: 640 + t, memoryBytes: 512e6, pid: 812,
+      log: [
+        "2027-03-14T10:21:02+0000 robot: ********** Robot program starting **********",
+        "2027-03-14T10:21:03+0000 robot: Catalyst 2.0.0-alpha.1 (systemcore)",
+        "2027-03-14T10:21:03+0000 robot: CANRegistry: 13 devices on can_s0, 3 on can_s2",
+        "2027-03-14T10:21:04+0000 robot: Physics Core: shadow mode",
+        "2027-03-14T10:21:04+0000 robot: Robot code ready",
+      ],
+    },
+    motorHistory: demoMotorHistory(t),
+    sampledAt: Date.now() / 1000,
+  };
+}
+
+async function pollAgent() {
+  if (coreAgent.inFlight) return;
+  if (demo.on) {
+    /* Demo mode stands in for the agent too, so the whole page can be seen without a robot. */
+    coreAgent.data = demoAgentSnapshot((performance.now() - demo.t0) / 1000);
+    coreAgent.reachable = true;
+    return;
+  }
+  if (!nt.status.connected) {
+    coreAgent.reachable = false;
+    coreAgent.data = null;
+    return;
+  }
+  const url = agentUrl("/api/system");
+  if (!url) return;
+
+  coreAgent.inFlight = true;
+  try {
+    /* A timeout, because the failure being guarded against is not an error response - it is a robot
+       that has gone away mid-request and a fetch that never settles. */
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2500);
+    const res = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    coreAgent.data = await res.json();
+    coreAgent.at = performance.now();
+    coreAgent.misses = 0;
+    coreAgent.reachable = true;
+  } catch {
+    /* Silent. A robot without the package installed is the common case, not a fault, and an alert
+       about it every three seconds would train people to ignore alerts. */
+    coreAgent.misses += 1;
+    if (coreAgent.misses >= AGENT_GIVE_UP_AFTER) {
+      coreAgent.reachable = false;
+      coreAgent.data = null;
+    }
+  } finally {
+    coreAgent.inFlight = false;
+  }
+}
+
+/* Only while somebody is looking at the page. */
+setInterval(() => {
+  if ($("#settings").dataset.open === "true" && currentSection === "core") pollAgent();
+}, AGENT_POLL_MS);
+
+/* ---- the Systemcore itself ----
+ *
+ * The page opens on the machine it describes, the way Tesla's screens open on the car. Limelight
+ * publishes no CAD for it, so the model is the one the board's own web interface turns on its IMU page,
+ * read out of the OS image when the console is built (see device3d.js). A console built without the
+ * image shows the page without the picture. It is the same for every Systemcore, so it is drawn whether
+ * or not one is connected: it answers "which part is this", not "how is it doing".
+ */
+let coreStage = null;
+let coreHero = null;
+
+function paintCoreHero() {
+  const wanted = currentSection === "core" && $("#settings").dataset.open === "true";
+  if (coreHero) {
+    coreStage?.setActive(wanted);
+    return;
+  }
+  coreHero = (async () => {
+    deviceManifest ??= await loadDevices();
+    const device = deviceById(deviceManifest, "systemcore");
+    const holder = $("#coreHero");
+    if (!device || !holder) return;
+    coreStage = createDeviceStage($("#coreCanvas"), {
+      reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+    holder.hidden = false;
+    const ok = await coreStage.show(device);
+    holder.hidden = !ok;
+    if (!ok) return;
+    $("#coreHeroNote").textContent = partSize(device);
+    coreStage.setActive(currentSection === "core" && $("#settings").dataset.open === "true");
+  })();
+}
+
+function paintCore() {
+  /* buildSettings already collected every [data-x] in the settings tree, and this section is
+     inside it, so there is nothing of its own to wire. */
+  const x = settingsRefs;
+  const root = $("#core");
+
+  /* "Is there a machine" is answered by whether anything at all arrived, not by a flag. A robot on
+     Catalyst 2.x that never calls SystemCoreStatus.publish() is indistinguishable from no robot,
+     and the empty state says so rather than pretending the machine is idle. */
+  const cpu = coreNum("CpuPercent");
+  const temp = coreNum("TempCelsius");
+  const ramFrac = coreNum("RamFraction");
+  const diskFrac = coreNum("StorageFraction");
+  const live = [cpu, temp, ramFrac, diskFrac].some((v) => v !== null);
+  root.dataset.live = live ? "true" : "false";
+  if (!live) return;
+
+  /* --- the four that move ------------------------------------------------- */
+  paintVital(x, "cpu", cpu);
+  /* The CM5 throttles rather than reporting anything, so the symptom of a hot Systemcore in a
+     sealed electronics box is a loop overrun. 80 and 90 are below where throttling starts, so this
+     says something while there is still time to open the box. */
+  paintVital(x, "temp", temp, { warn: 80, crit: 90 });
+  paintVital(x, "ram", ramFrac === null ? null : ramFrac * 100);
+  /* Storage earlier than the rest: a disk that fills stops logging, then stops the robot program,
+     and nothing about that symptom points at the disk. */
+  paintVital(x, "disk", diskFrac === null ? null : diskFrac * 100, { warn: 85, crit: 93 });
+
+  /* Absolute sizes under the ratios. "88% used" is the same number on 8 GiB and on 512 MiB and a
+     different problem, and the ratio alone cannot tell them apart. */
+  const pair = (used, total) => {
+    const u = coreBytes(coreNum(used));
+    const t = coreBytes(coreNum(total));
+    return u && t ? `${u} of ${t}` : "";
+  };
+  x.ramSub.textContent = pair("RamUsedBytes", "RamTotalBytes");
+  x.diskSub.textContent = pair("StorageUsedBytes", "StorageTotalBytes");
+
+  paintCoreCan(x);
+  paintCoreWear(x);
+  paintCorePower(x);
+  paintCoreMachine(x);
+  paintCoreAgent(x);
+}
+
+/* Everything the on-device agent adds. Each card hides itself when the agent is not there, so the
+   page degrades to the NetworkTables view rather than showing a row of empty sections. */
+function paintCoreAgent(x) {
+  /* Demo mode refreshes it here rather than waiting for the poll, so the page is complete the
+     moment it opens instead of filling in three seconds later. */
+  if (demo.on) {
+    coreAgent.data = demoAgentSnapshot((performance.now() - demo.t0) / 1000);
+    coreAgent.reachable = true;
+  }
+  const a = coreAgent.data;
+
+  x.coresCard.hidden = !a?.cpu?.cores?.length;
+  x.programCard.hidden = !a?.robotProgram?.state;
+  x.loadCard.hidden = !a?.processes?.topByCpu?.length;
+  x.camCard.hidden = !a?.cameras?.cameras?.length;
+  x.motorCard.hidden = !a?.motorHistory?.devices?.length;
+  if (!a) {
+    setHtml(x.canCounters, "");
+    paintAgentNote(x);
+    return;
+  }
+
+  paintAgentCores(x, a.cpu);
+  paintAgentProgram(x, a.robotProgram);
+  paintAgentLoad(x, a);
+  paintAgentCameras(x, a.cameras);
+  paintAgentMotorHistory(x, a.motorHistory);
+  paintAgentCanCounters(x, a.can);
+  paintAgentNote(x);
+}
+
+/* ---- motor history ------------------------------------------------------------------------ */
+
+/* Hours to one decimal, or minutes when there are not many. */
+function hoursText(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0";
+  if (seconds < 3600) return `${(seconds / 60).toFixed(0)} min`;
+  return `${(seconds / 3600).toFixed(1)} h`;
+}
+
+function revsText(revs) {
+  if (!Number.isFinite(revs) || revs <= 0) return "0";
+  if (revs >= 1e6) return `${(revs / 1e6).toFixed(2)} M`;
+  if (revs >= 1e3) return `${(revs / 1e3).toFixed(1)} k`;
+  return revs.toFixed(0);
+}
+
+/* A serial is 32 hex characters; the last eight are what tells them apart on a robot. */
+function shortSerial(serial) {
+  const s = String(serial || "");
+  return s.length > 10 ? "\u2026" + s.slice(-8) : s;
+}
+
+/* One row per device from either source: the agent's flattened rows, or a NetworkTables row string. */
+function motorRowsFromNt(rows) {
+  return rows.map((line) => {
+    const f = String(line).split("|");
+    const n = (i) => { const v = Number(f[i]); return Number.isFinite(v) ? v : 0; };
+    return {
+      serial: f[0] || "", model: f[1] || "", kind: f[2] || "device", bus: f[3] || "", id: n(4),
+      name: f[5] || "", firmware: f[6] || "", poweredSeconds: n(7), runningSeconds: n(8),
+      loadedSeconds: n(9), revolutions: n(10), peakStatorAmps: n(11), peakTempC: n(12),
+      hotSeconds: n(13), energyJoules: n(14), boots: n(15), firstSeenMs: n(16), lastSeenMs: n(17),
+      identities: n(18), stickyFaults: n(19),
+    };
+  });
+}
+
+const MOTOR_SORTS = {
+  powered: (r) => r.poweredSeconds,
+  running: (r) => r.runningSeconds,
+  hot: (r) => r.hotSeconds,
+  peakTemp: (r) => r.peakTempC,
+  peakAmps: (r) => r.peakStatorAmps,
+  revolutions: (r) => r.revolutions,
+  boots: (r) => r.boots,
+};
+
+/* The table both the tile and the core-page card draw. Motors first, then everything else, each
+   sorted by the chosen column, descending. */
+function motorTableHtml(rows, sortKey, limit, hotCelsius) {
+  const key = MOTOR_SORTS[sortKey] || MOTOR_SORTS.powered;
+  const motors = rows.filter((r) => r.kind === "motor").sort((a, b) => key(b) - key(a));
+  const others = rows.filter((r) => r.kind !== "motor");
+  const shown = motors.slice(0, limit);
+  const maxPowered = Math.max(1, ...motors.map((r) => r.poweredSeconds));
+  const cell = (r) => {
+    const hot = r.peakTempC >= hotCelsius;
+    const label = r.name ? escapeHtml(r.name) : `<span class="dim">unnamed</span>`;
+    const where = [r.bus, Number.isFinite(r.id) && r.id ? `id ${r.id}` : ""].filter(Boolean).join(" \u00b7 ");
+    const past = r.identities > 1 ? `<span class="mh-past" title="${r.identities} identities on record: this motor has been renumbered, renamed or reflashed">${r.identities - 1} past</span>` : "";
+    return `<tr>
+      <td class="mh-name">${label}<small>${escapeHtml(where)} \u00b7 ${escapeHtml(shortSerial(r.serial))}${past}</small></td>
+      <td class="mh-bar"><div class="track"><i style="width:${(100 * r.poweredSeconds / maxPowered).toFixed(1)}%"></i></div><span>${hoursText(r.poweredSeconds)}</span></td>
+      <td>${hoursText(r.runningSeconds)}</td>
+      <td>${revsText(r.revolutions)}</td>
+      <td>${r.peakStatorAmps ? r.peakStatorAmps.toFixed(0) : "\u2014"}</td>
+      <td class="${hot ? "warn" : ""}">${r.peakTempC ? r.peakTempC.toFixed(0) + "\u00b0" : "\u2014"}</td>
+      <td class="${r.hotSeconds > 0 ? "warn" : ""}">${r.hotSeconds > 0 ? hoursText(r.hotSeconds) : "\u2014"}</td>
+      <td>${r.boots || 0}</td>
+    </tr>`;
+  };
+  const rest = motors.length > shown.length ? `<div class="cap">and ${motors.length - shown.length} more motors</div>` : "";
+  const otherNote = others.length ? `<div class="cap">${others.length} other device${others.length === 1 ? "" : "s"} on record (encoders, IMUs)</div>` : "";
+  return `<table class="mh">
+    <thead><tr><th>Motor</th><th>Powered</th><th>Turning</th><th>Revs</th><th>Peak A</th><th>Peak \u00b0C</th><th>Hot</th><th>Boots</th></tr></thead>
+    <tbody>${shown.map(cell).join("")}</tbody></table>${rest}${otherNote}`;
+}
+
+function paintAgentMotorHistory(x, hist) {
+  if (!hist?.devices?.length) { setHtml(x.motorHist, ""); return; }
+  setHtml(x.motorHist, motorTableHtml(hist.devices, "powered", 40, 70));
+  const when = hist.updatedMs && hist.clockTrusted !== false ? `updated ${duration(Math.max(0, Date.now() - hist.updatedMs))} ago` : "robot clock not set, dates are relative";
+  const url = agentUrl("/api/motor-history");
+  setHtml(x.motorCap, `${escapeHtml(when)}. The file is the record: <code>${url ? escapeHtml(url) : "/api/motor-history"}</code>, `
+    + `or <code>.csv</code> for a spreadsheet. The Catalyst App's Motor history tool saves either.`);
+}
+
+function paintAgentCores(x, cpu) {
+  if (!cpu?.cores?.length) return;
+  setHtml(x.cores, cpu.cores.map((c) => {
+    const pct = c.percent;
+    return `<div class="ccore">
+        <span>c${c.core}</span>
+        <div class="ctrack"><i style="width:${pct === null ? 0 : Math.min(100, pct)}%" data-level="${coreLevel(pct)}"></i></div>
+        <b>${pct === null ? "—" : pct.toFixed(0) + "%"}${c.mhz ? `<span class="mhz">${c.mhz} MHz</span>` : ""}</b>
+      </div>`;
+  }).join(""));
+
+  const bits = [];
+  if (cpu.loadAverage) {
+    /* Load is the queue, not the usage. 40% CPU with a load of 6 is a machine waiting on something,
+       and that reads completely differently from 40% with a load of 0.5. */
+    bits.push(`load <b>${cpu.loadAverage.join(" &middot; ")}</b>`);
+  }
+  const t = cpu.throttling;
+  if (t) {
+    /* Now and since-boot are different facts. A robot that throttled during its last match and has
+       since cooled down still carries the since-boot bit, and that is the evidence. */
+    if (t.throttledNow) bits.push('<b class="bad">throttling now</b>');
+    else if (t.throttledSinceBoot) bits.push("throttled earlier this boot");
+    if (t.underVoltageNow) bits.push('<b class="bad">under-voltage now</b>');
+    else if (t.underVoltageSinceBoot) bits.push("under-voltage earlier this boot");
+  }
+  setHtml(x.throttle, bits.join(" &middot; "));
+}
+
+function paintAgentProgram(x, prog) {
+  if (!prog?.state) return;
+  const rows = [];
+  const running = prog.state === "active";
+  rows.push(["State", `${prog.state}${prog.subState ? ` (${prog.subState})` : ""}`, running ? "" : "crit"]);
+  if (prog.runningForSeconds !== null && prog.runningForSeconds !== undefined) {
+    rows.push(["Running for", duration(prog.runningForSeconds * 1000), ""]);
+  }
+  /* The signal people miss entirely. A program that crashes and restarts inside a second looks
+     completely normal from the driver's station. */
+  if (prog.restarts !== null && prog.restarts !== undefined) {
+    rows.push(["Restarts", String(prog.restarts), prog.restarts > 0 ? "warn" : ""]);
+  }
+  if (prog.memoryBytes) rows.push(["Memory", coreBytes(prog.memoryBytes) ?? "—", ""]);
+  if (prog.pid) rows.push(["PID", String(prog.pid), "dim"]);
+  setHtml(x.program, coreRows(rows));
+
+  const log = prog.log || [];
+  x.logWrap.hidden = !log.length;
+  /* Newest last, the way a terminal reads. */
+  setHtml(x.log, log.map((line) => escapeHtml(line)).join("\n"));
+}
+
+function paintAgentLoad(x, a) {
+  const procs = a.processes?.topByCpu || [];
+  setHtml(x.procs, procs.map((row) =>
+    `<div class="crow"><span>${escapeHtml(row.name)}<span class="sub">${row.pid}</span></span>`
+    + `<b>${row.cpuPercent.toFixed(0)}%<span class="sub">${coreBytes(row.rssBytes) ?? ""}</span></b></div>`
+  ).join(""));
+
+  /* Directories, largest first, so the answer to "what do I delete" is the first row. */
+  const dirs = (a.storage?.directories || [])
+    .filter((d) => d.bytes)
+    .sort((p, q) => q.bytes - p.bytes);
+  setHtml(x.dirs, dirs.map((d) =>
+    `<div class="crow"><span>${escapeHtml(d.path)}</span><b>${coreBytes(d.bytes)}</b></div>`
+  ).join(""));
+}
+
+function paintAgentCanCounters(x, buses) {
+  if (!buses?.length) { setHtml(x.canCounters, ""); return; }
+  setHtml(x.canCounters, buses.map((b) => {
+    const errors = (b.rxErrors || 0) + (b.txErrors || 0);
+    const dropped = (b.rxDropped || 0) + (b.txDropped || 0);
+    const frames = (b.rxPackets || 0) + (b.txPackets || 0);
+    const bits = [`<b>${frames.toLocaleString()}</b> frames`];
+    /* Zero errors is the expected case and saying so every time is noise. A non-zero count is the
+       whole reason to look. */
+    if (errors) bits.push(`<b class="bad">${errors}</b> errors`);
+    if (dropped) bits.push(`<b class="bad">${dropped}</b> dropped`);
+    if (b.restarts) bits.push(`<b class="bad">${b.restarts}</b> restarts`);
+    if (b.state && b.state !== "ERROR-ACTIVE") bits.push(`<b>${escapeHtml(b.state)}</b>`);
+    return `<div class="ccounter"><span class="name">${escapeHtml(b.name)}</span> ${bits.join(" &middot; ")}</div>`;
+  }).join(""));
+}
+
+
+/* The OS's own view of the cameras, joined with each camera's status by the agent. This is the
+ * card that works with no robot code at all, which is when an overheating camera is easiest to
+ * do something about. */
+function paintAgentCameras(x, cams) {
+  if (!cams?.cameras?.length) { setHtml(x.cams, ""); return; }
+  setHtml(x.cams, cams.cameras.map((c) => {
+    const hot = Number.isFinite(c.temperatureC) && c.temperatureC >= 80;
+    const state = !c.statusReachable ? "DISCONNECTED" : hot ? "HOT" : c.ntConnected ? "OK" : "NO_NT";
+    const words = state === "DISCONNECTED" ? "not answering"
+      : state === "HOT" ? "running hot"
+      : c.ntConnected ? "talking to the robot" : "no NetworkTables session";
+    const bits = [];
+    if (Number.isFinite(c.fps)) bits.push(`${c.fps.toFixed(0)} fps`);
+    if (Number.isFinite(c.temperatureC)) bits.push(`${c.temperatureC.toFixed(0)}\u00b0C`);
+    if (Number.isFinite(c.cpuPercent)) bits.push(`cpu ${c.cpuPercent.toFixed(0)}%`);
+    const sub = [c.ip, c.pipelineType, words].filter(Boolean).map(escapeHtml).join(" \u00b7 ");
+    return `<div class="gcam" data-state="${state}"><i></i><div class="n">${escapeHtml(c.name || c.host || c.ip || "camera")}`
+      + `<small>${sub}</small></div><div class="m">${bits.join(" \u00b7 ")}</div></div>`;
+  }).join(""));
+}
+
+function paintAgentNote(x) {
+  if (coreAgent.reachable) {
+    const id = coreAgent.data?.identity || {};
+    const parts = [];
+    if (id.os) parts.push(escapeHtml(id.os));
+    if (id.kernel) parts.push(`kernel ${escapeHtml(id.kernel)}`);
+    if (id.uptimeSeconds) parts.push(`up ${duration(id.uptimeSeconds * 1000)}`);
+    setHtml(x.agentNote, parts.length ? parts.join(" &middot; ") : "");
+    return;
+  }
+  /* Not an error state. Most robots will not have the package installed, and this is the only place
+     that says the extra detail exists at all. */
+  setHtml(x.agentNote,
+    "Install <code>catalyst-agent</code> on the Systemcore for per-core load, the robot "
+    + "program&rsquo;s own log, what is using the disk, and CAN frame counters.");
+}
+
+/* Per-bus utilisation, grouped by controller. */
+function paintCoreCan(x) {
+  const util = arr(CORE + "CanUtilization");
+  const card = x.canCard;
+  card.hidden = !util || !util.length;
+  if (card.hidden) return;
+
+  card.hidden = false;
+
+  /* The rows are rebuilt only when the set of buses changes, which is once. Their widths and
+     numbers change every frame and are written straight to the nodes. */
+  const shape = CORE_CAN_GROUPS.map(([, buses]) =>
+    buses.filter((b) => Number(b.slice(-1)) < util.length).join(",")).join("|");
+  setHtml(x.buses, CORE_CAN_GROUPS.map(([title, buses]) => {
+    const rows = buses
+      .filter((bus) => Number(bus.slice(-1)) < util.length)
+      .map((bus) => `<div class="cbus" data-bus="${bus}">
+          <span>${escapeHtml(bus)}</span>
+          <div class="ctrack"><i></i></div>
+          <b></b>
+        </div>`).join("");
+    return rows ? `<div class="cgroup"><h4>${escapeHtml(title)}</h4>${rows}</div>` : "";
+  }).join("") + `<!--${shape}-->`);
+
+  for (const row of x.buses.querySelectorAll(".cbus")) {
+    /* The published contract is a fraction per bus, 0-1, so this scales by 100. A board was seen
+       publishing about 5, which drew "500%" - a utilisation no bus can have.
+
+       Not silently rescaled: "over 1 so divide by 100" is right for a busy bus and wrong for an idle
+       one, because 0.5 is both a legal fraction and a plausible half-percent. So an out-of-range
+       reading is shown pinned at 100% and marked suspect, which says "this number is wrong" instead
+       of quietly inventing a different wrong number. */
+    const raw = util[Number(row.dataset.bus.slice(-1))];
+    const suspect = !(raw >= 0 && raw <= 1);
+    const pct = suspect ? 100 : raw * 100;
+    row.dataset.suspect = String(suspect);
+    row.title = suspect
+      ? `The robot published ${raw} for this bus. Utilisation is meant to be 0-1, so this reading `
+        + `cannot be scaled to a percentage and is shown pinned.`
+      : "";
+    const bar = row.querySelector("i");
+    bar.style.width = `${Math.min(100, pct).toFixed(1)}%`;
+    bar.dataset.level = coreLevel(pct, 70, 85);
+    row.querySelector("b").textContent = `${pct.toFixed(0)}%`;
+    /* A bus with nothing on it is not a problem, and dimming it keeps the eye on the ones carrying
+       load rather than spreading attention over five equal-looking rows. */
+    row.dataset.idle = String(pct < 1);
+  }
+
+  /* Counts since boot, not a live state. A bus that dropped three times and is up now is a
+     different problem from one that is down, and the wording has to keep them apart. */
+  const down = coreNum("CanDownCount");
+  const unavail = coreNum("CanUnavailCount");
+  const nowDown = bool(CORE + "CanDown", false);
+  const bits = [];
+  if (nowDown) bits.push('<b class="bad">a bus is down right now</b>');
+  if (down !== null && down > 0) bits.push(`dropped <b>${down.toFixed(0)}</b> time${down === 1 ? "" : "s"} since boot`);
+  if (unavail !== null && unavail > 0) bits.push(`unavailable <b>${unavail.toFixed(0)}</b> time${unavail === 1 ? "" : "s"}`);
+  setHtml(x.canFaults, bits.join(" &middot; "));
+}
+
+/* eMMC wear. */
+function paintCoreWear(x) {
+  const used = coreNum("EmmcLifeUsed");
+  const preEol = coreNum("EmmcPreEol");
+  x.wearCard.hidden = used === null && preEol === null;
+  if (x.wearCard.hidden) return;
+
+  const pct = used === null ? null : used * 100;
+  x.wearBar.style.width = pct === null ? "0%" : `${Math.min(100, pct).toFixed(0)}%`;
+  const level = coreLevel(pct, 70, 90);
+  if (level) x.wearBar.dataset.level = level; else delete x.wearBar.dataset.level;
+
+  x.wearText.textContent = coreFmt.wearText(used);
+
+  const state = coreFmt.preEolState(preEol);
+  x.wearState.textContent = state ? state.text : "";
+  x.wearState.className = state ? state.level : "";
+}
+
+function paintCorePower(x) {
+  const rows = [];
+  const volts = coreNum("BatteryVolts");
+  const brownedOut = bool(CORE + "BrownedOut", false);
+  const floor = coreNum("BrownoutVolts");
+  const recover = coreNum("RecoveryVolts");
+  const rail = coreNum("Rail3v3Amps");
+
+  if (volts !== null) rows.push(["Battery", `${volts.toFixed(2)} V`, brownedOut ? "crit" : ""]);
+  if (brownedOut) rows.push(["State", "browned out", "crit"]);
+  /* These used to be constants in robot code, copied from the roboRIO. They are the device's own
+     numbers now, and they are not the same numbers. */
+  if (floor !== null) rows.push(["Brownout at", `${floor.toFixed(2)} V`, "dim"]);
+  if (recover !== null) rows.push(["Recovers at", `${recover.toFixed(2)} V`, "dim"]);
+  /* The rail that powers the IO pins, and the reason a servo cannot be driven from one. */
+  if (rail !== null) rows.push(["3.3 V rail", `${rail.toFixed(2)} A`, ""]);
+
+  x.powerCard.hidden = !rows.length;
+  setHtml(x.power, coreRows(rows));
+}
+
+function paintCoreMachine(x) {
+  const rows = [];
+  const team = coreNum("TeamNumber");
+  const hsub = coreNum("HardwareSubRev");
+  const nics = arr(CORE + "NetworkInterfaces");
+
+  if (team !== null) rows.push(["Team", team.toFixed(0), ""]);
+  if (hsub !== null) rows.push(["Hardware rev", hsub.toFixed(0), "dim"]);
+  /* Passed through as the OS words it. Reformatting would mean guessing at a shape that has no
+     documentation, and the question this answers - radio or only USB - survives the raw form. */
+  if (nics && nics.length) rows.push(["Network", nics.join(", "), ""]);
+
+  /* Agent only. The first question when one robot behaves differently from the one beside it is
+     whether they are on the same OS build, and nothing on NetworkTables can answer it. */
+  const id = coreAgent.data?.identity;
+  if (id) {
+    if (id.model) rows.push(["Model", id.model, "dim"]);
+    if (id.os) rows.push(["OS", id.os, ""]);
+    if (id.kernel) rows.push(["Kernel", id.kernel, "dim"]);
+    if (id.hostname) rows.push(["Hostname", id.hostname, "dim"]);
+    if (id.uptimeSeconds) rows.push(["Uptime", duration(id.uptimeSeconds * 1000), ""]);
+  }
+
+  x.idCard.hidden = !rows.length;
+  setHtml(x.ident, coreRows(rows));
+}
+
+function coreRows(rows) {
+  return rows.map(([k, v, cls]) =>
+    `<div class="crow"><span>${escapeHtml(k)}</span><b class="${cls}">${escapeHtml(v)}</b></div>`
+  ).join("");
+}
+
 /* The wiring, which is its own section. Both halves hide themselves when the robot published nothing
  * for them, so the empty state is "neither drew" rather than a flag kept in step by hand. */
+/* ---- a device on a stage ----
+ *
+ * The camera card names the cameras; this draws the one the robot has. The models are baked by
+ * `npm run device-cad` from the vendors' own published CAD (see device3d.js), and a console without them
+ * shows the list and nothing else, which is why every step here checks rather than assumes.
+ */
+let devicePart = null;
+let deviceManifest = null;
+let devicePartWanted = "";
+
+async function paintCameraPart(names) {
+  const holder = $("#gCamPart");
+  if (!holder) return;
+  deviceManifest ??= await loadDevices();
+  const mod = deviceManifest ? await import("./device3d.js") : null;
+  const device = mod ? names.map((n) => mod.deviceFor(deviceManifest, n)).find(Boolean) : null;
+  if (!device) {
+    holder.hidden = true;
+    devicePart?.setActive(false);
+    return;
+  }
+  const name = names.find((n) => mod.deviceFor(deviceManifest, n) === device) ?? device.name;
+  if (devicePartWanted === device.id && !holder.hidden) {
+    $("#gCamPartName").textContent = name;
+    return;
+  }
+  devicePartWanted = device.id;
+  holder.hidden = false;
+  devicePart ??= mod.createDeviceStage($("#gCamCanvas"), {
+    reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  });
+  const ok = await devicePart.show(device);
+  holder.hidden = !ok;
+  if (!ok) return;
+  devicePart.setActive(currentSection === "devices" && $("#settings").dataset.open === "true");
+  $("#gCamPartName").textContent = name;
+  $("#gCamPartNote").textContent = [device.name, partSize(device)].filter(Boolean).join(" · ");
+}
+
+/** A part's real size, longest side first, because the point of drawing the part is that somebody can
+ *  match it to the one in their hand - and nobody measures a box in the order its CAD was drawn. */
+function partSize(device) {
+  if (!Array.isArray(device?.sizeMm) || device.sizeMm.length !== 3) return "";
+  return `${[...device.sizeMm].sort((a, b) => b - a).map((v) => Math.round(v)).join(" × ")} mm`;
+}
+
 function paintDevices() {
   paintDeviceTree();
   paintPowerPanel();
-  const drew = !$("#gTreeCard").hidden || !$("#gPowerCard").hidden;
+  paintCameraCard();
+  const drew = !$("#gTreeCard").hidden || !$("#gPowerCard").hidden || !$("#gCamCard").hidden;
   $("#gViz").hidden = !drew;
   $("#devEmpty").hidden = drew;
 }
@@ -3411,6 +8010,41 @@ function paintDeviceTree() {
       ${devices.map(([id, type]) =>
         `<div class="gdev"><i>${escapeHtml(id)}</i><span>${escapeHtml(type)}</span></div>`).join("")}
     </div>`).join("");
+}
+
+
+/* Every camera the robot declared, with the state its vision health assigned it. The roster says
+ * which cameras exist and whether each answers; the health rows say what is wrong with one that
+ * does. Either alone is enough for the card. */
+function paintCameraCard() {
+  const card = $("#gCamCard");
+  const roster = (arr("/Catalyst/Devices/Cameras/Rows") || []).map((r) => String(r).split("|"));
+  const health = new Map((arr("/Catalyst/Vision/Health/Rows") || [])
+    .map((r) => String(r).split("|")).filter((p) => p.length >= 3).map((p) => [p[0], p]));
+  const names = roster.length ? roster.map((p) => p[0]) : [...health.keys()];
+  card.hidden = names.length === 0;
+  if (card.hidden) return;
+  $("#gCamCount").textContent = String(names.length);
+  paintCameraPart(names);
+  setHtml($("#gCams"), names.map((name) => {
+    const r = roster.find((p) => p[0] === name);
+    const h = health.get(name);
+    const state = h ? h[1] : r ? (r[1] === "true" ? "OK" : "DISCONNECTED") : "UNKNOWN";
+    const detail = h ? h[2] : r ? r[2] : "";
+    const metrics = [];
+    if (h && h[3]) metrics.push(`${Number(h[3]).toFixed(0)} fps`);
+    if (h && h[4]) metrics.push(`${Number(h[4]).toFixed(0)}\u00b0C`);
+    return `<div class="gcam" data-state="${escapeHtml(state)}"><i></i><div class="n">${escapeHtml(name)}`
+      + `<small>${escapeHtml(cameraStateWords(state))}${detail ? ` \u00b7 ${escapeHtml(detail)}` : ""}</small></div>`
+      + `<div class="m">${metrics.join(" \u00b7 ")}</div></div>`;
+  }).join(""));
+}
+
+function cameraStateWords(state) {
+  return {
+    OK: "healthy", NO_TARGETS: "no targets in view", DISCONNECTED: "no data", STALE: "frames stopped",
+    HOT: "running hot", LOW_FPS: "frame rate low", REJECTING: "mostly rejected", UNKNOWN: "unknown",
+  }[state] || String(state).toLowerCase();
 }
 
 /* The distribution panel as a panel. A list of five channels does not show you that channels 9 to 19
@@ -3464,7 +8098,12 @@ function paintSettings() {
   if (!settingsRefs || $("#settings").dataset.open !== "true") return;
   const x = settingsRefs;
 
-  if (currentSection === "robot") { paintAddresses(); paintGarage(); }
+  if (currentSection === "robot") { paintAddresses(); paintGarage(); paintQuick(); }
+  if (currentSection === "drivers") syncDrivers();
+  if (currentSection === "core") {
+    paintCoreHero();
+    paintCore();
+  }
   if (currentSection === "devices") paintDevices();
   if (currentSection !== "about") return;
 
@@ -3525,7 +8164,7 @@ function isLive(word) {
 }
 
 function standDownOverlaysOnEnable() {
-  const word = num("/FMSInfo/FMSControlData", null);
+  const word = controlWord();
   if (word === null) { lastControlWord = null; return; }
 
   const wasLive = lastControlWord !== null && isLive(lastControlWord);
@@ -3539,6 +8178,13 @@ function paint() {
   if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
   standDownOverlaysOnEnable();
   paintHeader();
+  paintNotices();
+  paintMatchCue();
+  fitStatusBar();
+  paintDockAuto();
+  trackMechanisms(performance.now());
+  rememberRobot(performance.now());
+  paintPark();
 
   for (const entry of live.values()) {
     try {
@@ -3550,8 +8196,10 @@ function paint() {
   }
 
   const active = activeView();
+  if (active === "tune") syncTune();
   if (active === "topics") paintTopics();
   if (active === "logs") tickLinkHistory();
+  if (active === "can") paintCan();
   paintSettings();
 }
 
@@ -3571,11 +8219,17 @@ function onFrame() {
     buf.push(v);
     if (buf.length > HIST_LEN) buf.shift();
   }
-  ds.word = num("/FMSInfo/FMSControlData", 0) | 0;
+  ds.word = (controlWord() ?? 0) | 0;
+  /* Every frame, not every paint: a run's numbers should not depend on whether the window was on top. */
+  recordRun();
   if (nt.keysDirty) {
     nt.keysDirty = false;
     refreshTopicList();
   }
+  /* Here rather than in the paint, because a profile chosen in the pit has to reach the robot whether or
+   * not anybody is looking at the Drivers panel when it comes up. Every frame runs through this
+   * function, demo frames included, and it costs one null test when nothing is waiting. */
+  tryPendingRobotSettings();
   schedulePaint();
 }
 
@@ -3736,6 +8390,7 @@ const KEYS = Object.assign(Object.create(null), {
   2: () => showView("tune"),
   3: () => showView("logs"),
   4: () => showView("topics"),
+  5: () => showView("can"),
   d: () => setDemo(!demo.on),
   e: () => $("#editBtn").click(),
   a: () => openPicker(),
@@ -3747,7 +8402,26 @@ const KEYS = Object.assign(Object.create(null), {
   F1: () => setSettings(true, "about"),
 });
 
+/* The press answer, from the identity's own motion module.
+ *
+ * One delegated listener rather than a handler per control, because the dock and the tablist are
+ * rebuilt and the update chip arrives six seconds after launch — a wiring pass would miss it. It is
+ * `pointerdown`, not `click`, because the whole point is to answer at the moment of the press.
+ *
+ * Only controls that are pressed: the views, the dock, the settings rail, its buttons and its quick
+ * controls, and the palette's cards. Not the tiles, which are surfaces repainting at 10 Hz, and not
+ * the chips, which are readouts that happen to be clickable. `stateLayer` declines to run at all under
+ * `prefers-reduced-motion` and removes its own element, so nothing here has to be undone. */
+window.addEventListener("pointerdown", (e) => {
+  const hit = e.target instanceof Element ? e.target.closest(".tab, .dk, .snav, .sbtn, .sclose, .qtile, .item") : null;
+  if (hit && !hit.disabled) stateLayer(hit, e);
+}, { passive: true });
+
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openPart) {
+    showPart(null);
+    return;
+  }
   if (e.key === "Escape") {
     /* Escape inside a field means "abandon what I am typing", not "throw the dialog away". Closing
      * the layout modal blanks the paste box, so a stray Escape after pasting a board someone sent you
