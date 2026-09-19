@@ -94,6 +94,9 @@ jobs:
   # tauri-action uploads only the packaged artefacts.
   attach-bare-exe:
     needs: build
+    # It builds the executable itself and only needs the release to exist, so a failure on the other
+    # platform must not keep it from the app, which bundles this file and nothing else from here.
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     permissions:
       contents: write
