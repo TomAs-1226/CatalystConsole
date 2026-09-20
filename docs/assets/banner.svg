@@ -1,99 +1,152 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 420" width="2400" height="420" role="img"
-     aria-label="Catalyst Console - a driver station companion. It reads, and it never writes.">
-<!-- REV 2 - THE DRAWING SET.  Catalyst Console banner, 2400x420.
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-label="Catalyst Console — it reads, it never writes. A telemetry stream arriving at a console panel and going no further. Telemetry, alerts, a 3D field view and readable Driver Station logs. Version 2.0.0, Windows and macOS.">
+  <title>Catalyst Console</title>
 
-     The three rules were already numbered 01/02/03 in Rev 1, which is exactly what a drawing's
-     GENERAL NOTES block is - so here they simply move into the box they always belonged in.
-     Nothing about them changed; the sheet just stopped pretending they were a design flourish.
+  <!--
+    The same canvas as the library's banner - docs/design.md takes every token in identity.css from
+    that drawing, so this is that drawing with this product's subject on it. Ground, key light, rim
+    light, the mark, the type scale and the pill are unchanged. What differs is what the line is and
+    what it arrives at.
 
-     The drawing is a section through the data path. Console subscribes to NetworkTables and draws
-     what it finds; there is no publish call in the binary. The return leg is therefore a phantom
-     line annotated NO PATH - the same line type the rest of the set uses for "present in the
-     design, not engaged". A drawing can state an absence. A paragraph of reassurance cannot. -->
+    On the library's banner the line is a trajectory and the subject is a robot driving it. Here the
+    line is telemetry and the subject is the panel it arrives at, because that is the whole product:
+    a stream comes in and nothing goes back out. The asymmetry is the promise - the tagline names it,
+    the drawing does not contradict it, and there is deliberately no arrow leaving the panel.
+
+    The panel is drawn the way Console actually looks: one accent on a monochrome ground, a reading
+    rather than a control. 12.4 V is a plausible battery, not a claim about any robot - Console
+    never invents a number, so its banner shows the kind of number it displays, at rest.
+  -->
   <defs>
-    <pattern id="g3" width="30" height="30" patternUnits="userSpaceOnUse">
-      <path d="M30 0H0V30" fill="none" stroke="#C4CAC3" stroke-width="1" opacity="0.9"/>
-    </pattern>
-    <style>
-      .mono { font-family: Consolas,"DejaVu Sans Mono","Liberation Mono",ui-monospace,monospace; }
-      .sans { font-family: "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
-      .lbl  { font-size:12px; letter-spacing:1.2px; fill:#5C635E; }
-    </style>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#191a20"/>
+      <stop offset="55%" stop-color="#101116"/>
+      <stop offset="100%" stop-color="#08090b"/>
+    </linearGradient>
+    <radialGradient id="keyLight" cx="76%" cy="46%" r="50%">
+      <stop offset="0%" stop-color="#e94560" stop-opacity="0.19"/>
+      <stop offset="45%" stop-color="#e94560" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#e94560" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rimLight" cx="16%" cy="16%" r="52%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- The stream bleeds off the left edge rather than starting on the canvas, so it reads as a
+         feed that was already running before anyone opened the window. -->
+    <linearGradient id="feed" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="866" y2="0">
+      <stop offset="0%" stop-color="#e94560" stop-opacity="0"/>
+      <stop offset="28%" stop-color="#e94560" stop-opacity="0.40"/>
+      <stop offset="68%" stop-color="#ff5d76" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#ff6b81" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="feedGlow" gradientUnits="userSpaceOnUse" x1="-20" y1="0" x2="866" y2="0">
+      <stop offset="0%" stop-color="#e94560" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#ff5d76" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#ff5d76" stop-opacity="0.42"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-30%" y="-200%" width="160%" height="500%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <filter id="tightGlow" x="-30%" y="-200%" width="160%" height="500%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+    <filter id="drop" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
+
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e94560" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#e94560" stop-opacity="0"/>
+    </linearGradient>
   </defs>
 
-  <rect width="2400" height="420" fill="#E4E7E1"/>
-  <rect x="24" y="24" width="2352" height="372" fill="url(#g3)"/>
-  <rect x="24" y="24" width="2352" height="372" fill="none" stroke="#1A1E1B" stroke-width="1"/>
-  <rect x="36" y="36" width="2328" height="348" fill="none" stroke="#5C635E" stroke-width="0.5" opacity="0.5"/>
-  <g stroke="#1A1E1B" stroke-width="1">
-    <path d="M1200 24v12M1200 396v-12M24 210h12M2376 210h-12"/>
-  </g>
+  <rect width="1200" height="340" rx="18" fill="url(#ground)"/>
+  <rect width="1200" height="340" rx="18" fill="url(#keyLight)"/>
+  <rect width="1200" height="340" rx="18" fill="url(#rimLight)"/>
 
-  <g transform="translate(76,92)">
-    <text class="mono lbl" x="0" y="5">REV</text>
-    <path d="M48 -13 L62 10 L34 10 Z" fill="none" stroke="#D6412A" stroke-width="1.8"/>
-    <text class="mono" x="48" y="8" font-size="13" font-weight="700" fill="#D6412A" text-anchor="middle">2</text>
-    <text class="mono lbl" x="80" y="5">DRIVER STATION COMPANION &#183; TEAM 5805</text>
-  </g>
+  <!-- Kept subtle and oversized: it gives the right half depth without asking to be read. -->
+  <text x="1168" y="318" text-anchor="end"
+        font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="250" font-weight="700"
+        letter-spacing="-13" fill="#ffffff" fill-opacity="0.032">2.0</text>
 
-  <text class="sans" x="76" y="200" font-size="66" font-weight="800" fill="#1A1E1B" letter-spacing="-1">CATALYST CONSOLE</text>
-  <path d="M76 232H900" stroke="#C4CAC3" stroke-width="1"/>
-  <text class="sans" x="76" y="268" font-size="21" font-weight="500" fill="#5C635E">Telemetry, alerts, live tuning, a 3D field view and readable Driver Station logs.</text>
-  <text class="sans" x="76" y="302" font-size="21" font-weight="700" fill="#1A1E1B">It reads. It never writes.</text>
+  <g clip-path="inset(0 round 18)">
+    <!-- Telemetry, not a trajectory: it wanders the way a sampled signal does while it trends up
+         toward the panel. Two glow passes, the same as the library's route - a wide soft haze for
+         the bloom and a tight one on the line, which is what stops it smearing near the panel. -->
+    <path id="stream" d="M-20 310 C56 306 96 292 148 296 C204 300 236 312 292 306 C348 300 380 288 436 294 C500 301 536 266 600 250 C662 234 698 208 756 191 C806 177 838 175 862 172"
+          fill="none" stroke="url(#feedGlow)" stroke-width="10" stroke-linecap="round" filter="url(#softGlow)"/>
+    <use href="#stream" stroke="url(#feedGlow)" stroke-width="4" filter="url(#tightGlow)"/>
+    <use href="#stream" stroke="url(#feed)" stroke-width="3.2"/>
 
-  <!-- general notes: the three rules, in the box they always belonged in -->
-  <g transform="translate(1000,96)">
-    <text class="mono lbl" x="0" y="0" font-size="11">GENERAL NOTES</text>
-    <rect x="0" y="14" width="560" height="118" fill="none" stroke="#1A1E1B" stroke-width="1"/>
-    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6"><path d="M0 52h560M0 92h560M44 14v118"/></g>
-    <g class="mono" font-size="12.5" fill="#1A1E1B">
-      <text x="14" y="41">1.</text><text x="58" y="41">It never controls the robot.</text>
-      <text x="14" y="81">2.</text><text x="58" y="81">Nothing it does may impede driving.</text>
-      <text x="14" y="120">3.</text><text x="58" y="120">It never invents a number.</text>
-    </g>
-    <text class="mono lbl" x="0" y="158" font-size="10">ENABLE, DISABLE AND E-STOP STAY THE DRIVER STATION&#8217;S, EXCLUSIVELY</text>
-  </g>
+    <!-- Samples on the stream, fading back down it. Console draws points it was sent, so the line
+         is made of them rather than passing through a decorative few.
 
-  <!-- section through the data path -->
-  <g transform="translate(1000,272)">
-    <rect x="0" y="0" width="130" height="52" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
-    <text class="mono" x="65" y="24" font-size="12" fill="#1A1E1B" text-anchor="middle">ROBOT</text>
-    <text class="mono" x="65" y="41" font-size="10" fill="#5C635E" text-anchor="middle">Systemcore</text>
-    <rect x="430" y="0" width="130" height="52" fill="none" stroke="#1A1E1B" stroke-width="1.5"/>
-    <text class="mono" x="495" y="24" font-size="12" fill="#1A1E1B" text-anchor="middle">CONSOLE</text>
-    <text class="mono" x="495" y="41" font-size="10" fill="#5C635E" text-anchor="middle">under 4 MB</text>
-    <g stroke="#1A1E1B" stroke-width="1.5">
-      <path d="M130 18h278"/><path d="M408 18l-9 -5v10z" fill="#1A1E1B" stroke="none"/>
+         The stream stays under y=290 until the copy has ended, for the reason identity.css gives
+         about the key light: decoration never goes where text is without checking the pair. An
+         earlier path climbed sooner and put this second sample inside the word WINDOWS. -->
+    <g fill="#ff8fa0">
+      <circle cx="148" cy="296" r="2.6" fill-opacity="0.16"/>
+      <circle cx="292" cy="306" r="2.8" fill-opacity="0.30"/>
+      <circle cx="436" cy="294" r="3"   fill-opacity="0.44"/>
+      <circle cx="600" cy="250" r="3.2" fill-opacity="0.60"/>
+      <circle cx="756" cy="191" r="3.4" fill-opacity="0.78"/>
     </g>
-    <text class="mono" x="269" y="10" font-size="10.5" fill="#1A1E1B" text-anchor="middle">NetworkTables, subscribe</text>
-    <g stroke="#D6412A" stroke-width="1.25" stroke-dasharray="5 4"><path d="M430 42H140"/></g>
-    <text class="mono" x="285" y="60" font-size="10.5" fill="#D6412A" text-anchor="middle">NO PATH &#8212; NO PUBLISH CALL IN THE BINARY</text>
-  </g>
 
-  <!-- title block -->
-  <g transform="translate(1712,96)">
-    <rect x="0" y="0" width="628" height="230" fill="none" stroke="#1A1E1B" stroke-width="1"/>
-    <g stroke="#5C635E" stroke-width="0.5" opacity="0.6">
-      <path d="M0 54h628M0 98h628M0 142h628M0 186h628M232 54v132"/>
-    </g>
-    <text class="mono lbl" x="16" y="22" font-size="10">TITLE</text>
-    <text class="sans" x="16" y="44" font-size="25" font-weight="800" fill="#1A1E1B" letter-spacing="0.5">CATALYST CONSOLE</text>
-    <text class="mono" x="612" y="44" font-size="18" font-weight="700" fill="#D6412A" text-anchor="end">1.4.3</text>
-    <g class="mono lbl" font-size="10.5">
-      <text x="16" y="80">PLATFORM</text><text x="16" y="124">READS</text><text x="16" y="168">TESTED</text>
-    </g>
-    <g class="mono" font-size="13" fill="#1A1E1B">
-      <text x="248" y="80">Windows x64 &#183; under 4 MB</text>
-      <text x="248" y="124">Catalyst 1.10+ and 2.x</text>
-    </g>
-    <rect x="248" y="157" width="12" height="12" fill="#1A1E1B"/>
-    <text class="mono" x="269" y="168" font-size="13" fill="#1A1E1B">67 tests, 0 failures</text>
-    <g class="mono lbl" font-size="10">
-      <text x="16" y="212">DRAWN BY TEAM 5805</text>
-      <text x="612" y="212" text-anchor="end">SHEET 3 OF 3</text>
+    <!-- The panel. It arrives here and stops: there is no return path, on the drawing or in the
+         binary. -->
+    <g transform="translate(980 168)">
+      <!-- Contact shadow, so the panel sits in the scene instead of floating over it. -->
+      <rect x="-114" y="-70" width="228" height="140" rx="16" fill="#000000" fill-opacity="0.55" filter="url(#drop)"/>
+
+      <rect x="-118" y="-74" width="236" height="148" rx="18" fill="#14151a" stroke="#3d404a" stroke-width="1.4"/>
+      <!-- Top edge picking up the same rim light as the card. -->
+      <path d="M-104 -73.3 h208" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1.4" stroke-linecap="round"/>
+
+      <!-- Receiving. The dot is the only thing on the panel that is not a reading. -->
+      <circle cx="-98" cy="-52" r="3.4" fill="#ff5d76"/>
+      <text x="-87" y="-48" font-family="Consolas, ui-monospace, monospace" font-size="10"
+            font-weight="700" letter-spacing="1.4" fill="#6b6d75">LIVE</text>
+      <text x="100" y="-48" text-anchor="end" font-family="Consolas, ui-monospace, monospace"
+            font-size="10" font-weight="700" letter-spacing="1.4" fill="#6b6d75">BATTERY</text>
+
+      <!-- The reading. Monochrome, because on Console the accent is reserved for the signal. -->
+      <text x="-98" y="0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif"
+            font-size="44" font-weight="600" letter-spacing="-1.4" fill="#e6e7ea">12.4<tspan
+            font-size="19" font-weight="500" fill="#83858d" dx="7">V</tspan></text>
+
+      <!-- The same stream, still arriving, drawn where the panel would draw it. -->
+      <path d="M-98 46 L-76 38 L-56 51 L-34 30 L-10 41 L14 22 L40 33 L64 18 L88 25 L100 20"
+            fill="none" stroke="#ff5d76" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="100" cy="20" r="3.2" fill="#ff8fa0"/>
     </g>
   </g>
 
-  <g transform="translate(76,372)" stroke="#5C635E" stroke-width="0.75" opacity="0.8"><path d="M-6 0h12M0 -6v12"/></g>
-  <text class="mono" x="90" y="375" font-size="9" fill="#5C635E" opacity="0.75">0,0</text>
+  <!-- The mark -->
+  <g transform="translate(76 84) scale(2.5)">
+    <path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5z" fill="#e94560"/>
+  </g>
+
+  <text x="138" y="122" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="54">
+    <tspan font-weight="200" letter-spacing="-1.4" fill="#8d8f97">Catalyst</tspan><tspan
+           font-weight="700" letter-spacing="-2.2" fill="#ffffff" dx="14">Console</tspan>
+  </text>
+
+  <rect x="140" y="146" width="300" height="1.5" fill="url(#hair)"/>
+
+  <text x="139" y="184" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif"
+        font-size="25" font-weight="600" fill="#e6e7ea">It reads. It never writes.</text>
+
+  <text x="140" y="212" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif"
+        font-size="15" font-weight="500" fill="#83858d">Telemetry · Alerts · 3D field · Driver Station logs</text>
+
+  <!-- Version, and the platforms it is built for. -->
+  <g transform="translate(140 240)">
+    <rect width="96" height="30" rx="15" fill="#e94560" fill-opacity="0.14" stroke="#e94560" stroke-opacity="0.6"/>
+    <circle cx="19" cy="15" r="4" fill="#ff5d76"/>
+    <text x="33" y="20" font-family="Consolas, ui-monospace, monospace" font-size="13" font-weight="600" fill="#ff92a3">2.0.0</text>
+  </g>
+  <text x="250" y="260" font-family="Consolas, ui-monospace, monospace" font-size="11" font-weight="700"
+        letter-spacing="1.6" fill="#6b6d75">WINDOWS · MACOS</text>
 </svg>
