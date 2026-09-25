@@ -1,0 +1,512 @@
+{
+  ".claude/launch.json": {
+    "mtime": 1785954956.4398737,
+    "ast_hash": "fb2f0514927faac748b36216bee43263",
+    "semantic_hash": ""
+  },
+  "package.json": {
+    "mtime": 1789694662.3805861,
+    "ast_hash": "920c88ee02092457983f9dbebbdff5d2",
+    "semantic_hash": ""
+  },
+  "scripts/check-identity.mjs": {
+    "mtime": 1789534774.9207582,
+    "ast_hash": "3fc31aab163bf62809846712225b92d9",
+    "semantic_hash": ""
+  },
+  "scripts/device-cad.mjs": {
+    "mtime": 1789698304.8748157,
+    "ast_hash": "569c3bdf97687ddde47efaa0c305b7b5",
+    "semantic_hash": ""
+  },
+  "scripts/driver-cad.mjs": {
+    "mtime": 1789692448.9678879,
+    "ast_hash": "355bd2643c01bf778c59000b83426b8f",
+    "semantic_hash": ""
+  },
+  "scripts/field-cad.mjs": {
+    "mtime": 1785967271.1681015,
+    "ast_hash": "26a3e6c8d2e33bfc3eca3b4984d45141",
+    "semantic_hash": ""
+  },
+  "scripts/field-collision.mjs": {
+    "mtime": 1786042086.1446235,
+    "ast_hash": "80b87415d7b66a79a7dfdfeda86194de",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad-preview.mjs": {
+    "mtime": 1789617751.450951,
+    "ast_hash": "43929f0fa1c8bb4de7227720ef851a8a",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad.mjs": {
+    "mtime": 1789684650.8333144,
+    "ast_hash": "0ddd57d40b06626c406ea2075e220d6d",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/classify.mjs": {
+    "mtime": 1789617672.7724347,
+    "ast_hash": "91895c829f0a1c41a2f237a182fba87e",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/classify.test.mjs": {
+    "mtime": 1789617616.9179506,
+    "ast_hash": "ac6855de0f277da783c3a27296c17adc",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/clearance.mjs": {
+    "mtime": 1789684261.2745328,
+    "ast_hash": "6bf5c7b59c90f42f382b2ba0b7ced25b",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/clearance.test.mjs": {
+    "mtime": 1789684288.2541633,
+    "ast_hash": "539b576f054d931cffcc3b0f7f002288",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/frame.mjs": {
+    "mtime": 1789616427.779183,
+    "ast_hash": "cd34340fad36cdd3b8d0841ec37446e9",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/frame.test.mjs": {
+    "mtime": 1789617652.7699966,
+    "ast_hash": "aff9a1d63c7e4dad37c7b4e3cb6224b0",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/geometry.mjs": {
+    "mtime": 1789617679.869645,
+    "ast_hash": "e09359bd06406858476b0ec1349be709",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/geometry.test.mjs": {
+    "mtime": 1789617681.6977391,
+    "ast_hash": "c0173713fc5079637e96e359fc220c08",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/gltf-read.mjs": {
+    "mtime": 1789614833.1476467,
+    "ast_hash": "c22eced8dddaf31d82dc7ed57283fbb5",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/mechanisms.mjs": {
+    "mtime": 1789617345.1400168,
+    "ast_hash": "f8e8bf4d849be95cd58ede8e9e12b94a",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/mesh.mjs": {
+    "mtime": 1789617251.130282,
+    "ast_hash": "6314d6978b32f53b2f2a082533df0e4f",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/simplify.mjs": {
+    "mtime": 1789616585.3290033,
+    "ast_hash": "5c9d8af20ae15bc89048d5d31dba4cbf",
+    "semantic_hash": ""
+  },
+  "scripts/robot-cad/write-glb.mjs": {
+    "mtime": 1789616725.0650089,
+    "ast_hash": "01520fd42c3362dd0b4d09e248b92a7a",
+    "semantic_hash": ""
+  },
+  "scripts/serve.mjs": {
+    "mtime": 1785954949.547199,
+    "ast_hash": "0ae044cf808b0fd3742a3084854e36fe",
+    "semantic_hash": ""
+  },
+  "scripts/vendor.mjs": {
+    "mtime": 1789686962.125373,
+    "ast_hash": "aee960b2c4cbca1988f01199a3620de8",
+    "semantic_hash": ""
+  },
+  "src-tauri/build.rs": {
+    "mtime": 1785953948.241928,
+    "ast_hash": "1be34a5c61c2c35365de3dab14298f0b",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/schemas/acl-manifests.json": {
+    "mtime": 1786045754.5334895,
+    "ast_hash": "35975c72c44494e6b4bd6095294aa245",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/schemas/capabilities.json": {
+    "mtime": 1785954037.8166933,
+    "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/schemas/desktop-schema.json": {
+    "mtime": 1786045754.539239,
+    "ast_hash": "490ee54020fc9d72969ca03596030855",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/schemas/windows-schema.json": {
+    "mtime": 1786045754.539239,
+    "ast_hash": "490ee54020fc9d72969ca03596030855",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/dslog.rs": {
+    "mtime": 1789167600.4207757,
+    "ast_hash": "23b592bc9eb6927b6cc3c68c6d932b80",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/dslog_tests.rs": {
+    "mtime": 1789167600.4220538,
+    "ast_hash": "1a4b11f7ee1a92114fac0a52079f9e2c",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/main.rs": {
+    "mtime": 1789700856.8436742,
+    "ast_hash": "5ea9eb84f2c0ca21f85dd34a3e94618e",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/mcp.rs": {
+    "mtime": 1789699664.4803162,
+    "ast_hash": "892dae1a8f14193715e2afb4c6a1e98c",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/nt4.rs": {
+    "mtime": 1789700856.8436742,
+    "ast_hash": "806f777e6a0b2586e781f1400350161c",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/wpilog.rs": {
+    "mtime": 1789167600.4259644,
+    "ast_hash": "1706110ff8e22de476027680127843ea",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/wpilog_tests.rs": {
+    "mtime": 1789167600.4269772,
+    "ast_hash": "b1f1c50d8f23720cfa8343b04c975987",
+    "semantic_hash": ""
+  },
+  "src-tauri/tauri.conf.json": {
+    "mtime": 1789861355.550213,
+    "ast_hash": "36dc9b37e27bd85ba869476e9242236a",
+    "semantic_hash": ""
+  },
+  "src/aim-target.js": {
+    "mtime": 1789718561.5606568,
+    "ast_hash": "3431a691f30f0183855c76283300db5d",
+    "semantic_hash": ""
+  },
+  "src/aim-target.test.js": {
+    "mtime": 1789718561.5606568,
+    "ast_hash": "d64ebe96c65af1127d7d3c33a20e00c8",
+    "semantic_hash": ""
+  },
+  "src/app.js": {
+    "mtime": 1789797519.5481994,
+    "ast_hash": "47bd3f13788d0531aabd255d2daffefc",
+    "semantic_hash": ""
+  },
+  "src/board-format.js": {
+    "mtime": 1789612349.195072,
+    "ast_hash": "dba746eac5b16d79a69cf09b1715c235",
+    "semantic_hash": ""
+  },
+  "src/board-format.test.js": {
+    "mtime": 1789612349.1961653,
+    "ast_hash": "c0c28c78a29943f29fbd9be90b0d08f1",
+    "semantic_hash": ""
+  },
+  "src/calibration.js": {
+    "mtime": 1789748419.9926684,
+    "ast_hash": "ebb2be2e20af2afa63b4b42a7fd59802",
+    "semantic_hash": ""
+  },
+  "src/calibration.test.js": {
+    "mtime": 1789748429.2456331,
+    "ast_hash": "beaa40fed5c8cef46802517a65e92102",
+    "semantic_hash": ""
+  },
+  "src/can-model.js": {
+    "mtime": 1789167600.4329755,
+    "ast_hash": "65ec459d93ccc6f8f63c121ce3def1b9",
+    "semantic_hash": ""
+  },
+  "src/can-model.test.js": {
+    "mtime": 1789167600.4329755,
+    "ast_hash": "1d28f1f89ed94e7a37e8d5e508393ab7",
+    "semantic_hash": ""
+  },
+  "src/core-format.js": {
+    "mtime": 1789167600.4339757,
+    "ast_hash": "8c4cd2ca255d956d29163a09a82a3dc9",
+    "semantic_hash": ""
+  },
+  "src/core-format.test.js": {
+    "mtime": 1789167600.4349756,
+    "ast_hash": "acaab4b401cff61a08bf222d62544428",
+    "semantic_hash": ""
+  },
+  "src/demo-match.js": {
+    "mtime": 1789745534.4735432,
+    "ast_hash": "b1e618a79b72dba51c2f054e838437cb",
+    "semantic_hash": ""
+  },
+  "src/demo-match.test.js": {
+    "mtime": 1789623435.0819638,
+    "ast_hash": "db01a6561590c4ff856ff6d4f880d610",
+    "semantic_hash": ""
+  },
+  "src/device3d.js": {
+    "mtime": 1789698062.568484,
+    "ast_hash": "3695f8531961704412c8edec8c04bf21",
+    "semantic_hash": ""
+  },
+  "src/devices.js": {
+    "mtime": 1789698511.8510027,
+    "ast_hash": "1cb108d6bd3aed6190c7f08b57bb9a1e",
+    "semantic_hash": ""
+  },
+  "src/devices.test.js": {
+    "mtime": 1789698511.8510027,
+    "ast_hash": "8bf4bfc50d48027cb4c1be95adf33220",
+    "semantic_hash": ""
+  },
+  "src/driver3d.js": {
+    "mtime": 1789699785.0506475,
+    "ast_hash": "72727627c8a27f1ddf172ac216ede8b8",
+    "semantic_hash": ""
+  },
+  "src/driver3d.test.js": {
+    "mtime": 1789691308.9287758,
+    "ast_hash": "f4fd6439b9a15492e9e8e5e54685b973",
+    "semantic_hash": ""
+  },
+  "src/drivers.js": {
+    "mtime": 1789702694.906212,
+    "ast_hash": "8bfebec1a16d5ce222d2bc720e0d6b09",
+    "semantic_hash": ""
+  },
+  "src/drivers.test.js": {
+    "mtime": 1789693450.539874,
+    "ast_hash": "3484953af734f192415a8a803b65af15",
+    "semantic_hash": ""
+  },
+  "src/field3d.js": {
+    "mtime": 1789835318.4262242,
+    "ast_hash": "7a8e8cab36e6f25eeb8796dbd21d59c7",
+    "semantic_hash": ""
+  },
+  "src/fixtures/x1-2026-09-17.json": {
+    "mtime": 1789702700.2832952,
+    "ast_hash": "fd73609eba17ddb18edfc5a9c234219b",
+    "semantic_hash": ""
+  },
+  "src/hopper3d.js": {
+    "mtime": 1789698407.3086822,
+    "ast_hash": "fd466785d68a8f38585e6a0aa34bbcaa",
+    "semantic_hash": ""
+  },
+  "src/hopper3d.test.js": {
+    "mtime": 1789685131.2523587,
+    "ast_hash": "122f2a06d12f04f913f950b99e71adbe",
+    "semantic_hash": ""
+  },
+  "src/hub.js": {
+    "mtime": 1789613204.2309132,
+    "ast_hash": "3e2a722665253579e492f62aa5d844bd",
+    "semantic_hash": ""
+  },
+  "src/hub.test.js": {
+    "mtime": 1789613220.5429878,
+    "ast_hash": "de590a86c272734b46ade6ab604d6504",
+    "semantic_hash": ""
+  },
+  "src/mechanisms.js": {
+    "mtime": 1789835266.9346502,
+    "ast_hash": "8611c4cec2ac40eff7770f6aa7fd10d5",
+    "semantic_hash": ""
+  },
+  "src/mechanisms.test.js": {
+    "mtime": 1789835340.2324297,
+    "ast_hash": "eb2036d6719c4395d417029165bced58",
+    "semantic_hash": ""
+  },
+  "src/motion-filter.js": {
+    "mtime": 1789627859.030517,
+    "ast_hash": "3137d4d2d66353190fabaa0cc5a1fab0",
+    "semantic_hash": ""
+  },
+  "src/motion-filter.test.js": {
+    "mtime": 1789627811.865345,
+    "ast_hash": "a31d7569a80f4096deef742f76088eb8",
+    "semantic_hash": ""
+  },
+  "src/motion.js": {
+    "mtime": 1789528200.728537,
+    "ast_hash": "81038f196c7a1756a2e00f92ef76dc13",
+    "semantic_hash": ""
+  },
+  "src/overdrive.js": {
+    "mtime": 1789793732.3869445,
+    "ast_hash": "88e2ed177b5aa6b3c1b3213abc9dc680",
+    "semantic_hash": ""
+  },
+  "src/overdrive.test.js": {
+    "mtime": 1789793747.176963,
+    "ast_hash": "1dce9d1996ee06b525b72089cef847e3",
+    "semantic_hash": ""
+  },
+  "src/park3d.js": {
+    "mtime": 1789699785.0486183,
+    "ast_hash": "73ae07d110dacc4310376ca0d4272035",
+    "semantic_hash": ""
+  },
+  "src/park3d.test.js": {
+    "mtime": 1789701274.0388978,
+    "ast_hash": "c7741d7e28dfab7840062337d9074f5f",
+    "semantic_hash": ""
+  },
+  "src/robot-cad.js": {
+    "mtime": 1789620167.0863822,
+    "ast_hash": "b4d79390762a59768db921d9559d80d2",
+    "semantic_hash": ""
+  },
+  "src/robot-cad.test.js": {
+    "mtime": 1789620037.072009,
+    "ast_hash": "19503ed9c9d7bc5313688fa0fc74952e",
+    "semantic_hash": ""
+  },
+  "src/robot3d.js": {
+    "mtime": 1789701269.378002,
+    "ast_hash": "0217943c4e298dda94ee7268a1f061b5",
+    "semantic_hash": ""
+  },
+  "src/runs.js": {
+    "mtime": 1789744554.305514,
+    "ast_hash": "5361581a7f35cb6041ecc8ed2d964f87",
+    "semantic_hash": ""
+  },
+  "src/runs.test.js": {
+    "mtime": 1789744604.8860514,
+    "ast_hash": "5ee3ff99000321a9ec5eeec02926d4c7",
+    "semantic_hash": ""
+  },
+  "src/shots3d.js": {
+    "mtime": 1789835285.6560357,
+    "ast_hash": "ad61a2e232e632194eb3311c3f01e902",
+    "semantic_hash": ""
+  },
+  "src/stagefloor.js": {
+    "mtime": 1789697597.6465173,
+    "ast_hash": "234e9b958c8aa04486daefa08e4bf46d",
+    "semantic_hash": ""
+  },
+  "src/version-files.test.js": {
+    "mtime": 1789167600.4424758,
+    "ast_hash": "e49546ba20b6139b7b5c787d97a450b8",
+    "semantic_hash": ""
+  },
+  "src/x1-contract.test.js": {
+    "mtime": 1789702761.0284364,
+    "ast_hash": "ecb0a0113a141d2afbf4a00b0f8969a5",
+    "semantic_hash": ""
+  },
+  ".github/workflows/build-console.yml": {
+    "mtime": 1789861355.5587373,
+    "ast_hash": "36cee42cb4c6c59844ab9fb18eeff78f",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1789160878.552387,
+    "ast_hash": "ff1f0c9e9ac3e7baf0378ef7561e7d7a",
+    "semantic_hash": ""
+  },
+  "CHANGELOG.md": {
+    "mtime": 1789856985.27455,
+    "ast_hash": "3a1513e231dd7913b8535386e2f3d0f8",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1789160879.8515067,
+    "ast_hash": "312c979e88c4d9c525345198ced93614",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1789857601.706535,
+    "ast_hash": "d49de7fe334a1ffa2d9014116bd46d87",
+    "semantic_hash": ""
+  },
+  "docs/README.md": {
+    "mtime": 1789529807.7597017,
+    "ast_hash": "13ece9d1fe02dc6666f49507a346545b",
+    "semantic_hash": ""
+  },
+  "docs/can-buses.md": {
+    "mtime": 1789529882.853204,
+    "ast_hash": "0b52305cf8d7657518d1d86eb40f91b5",
+    "semantic_hash": ""
+  },
+  "docs/hub-schedule.md": {
+    "mtime": 1789614457.678729,
+    "ast_hash": "a0111e632a7f0bf145ba252883dd709d",
+    "semantic_hash": ""
+  },
+  "docs/installing.md": {
+    "mtime": 1786078340.7039323,
+    "ast_hash": "1103ca66eb5a5ccf54cfd0fd4ea85638",
+    "semantic_hash": ""
+  },
+  "docs/mcp.md": {
+    "mtime": 1786051475.3240638,
+    "ast_hash": "18e79281f39fd62c68ae686f263d5a69",
+    "semantic_hash": ""
+  },
+  "docs/robot-identity.md": {
+    "mtime": 1786084919.727794,
+    "ast_hash": "e7be98e34d49b249bfa05a9d79160197",
+    "semantic_hash": ""
+  },
+  "docs/settings.md": {
+    "mtime": 1789612349.1913645,
+    "ast_hash": "bf877778ff0d08a1203fe9fed4927db2",
+    "semantic_hash": ""
+  },
+  "docs/widgets.md": {
+    "mtime": 1789613645.8615296,
+    "ast_hash": "8041a5b34392f76f77940e7260642c0c",
+    "semantic_hash": ""
+  },
+  "src/index.html": {
+    "mtime": 1789718561.7705486,
+    "ast_hash": "2a2990900b6242cff8b3f381fe1486eb",
+    "semantic_hash": ""
+  },
+  "assets/social-card.png": {
+    "mtime": 1789167600.408156,
+    "ast_hash": "fc0408cbc515e5488daa16edcca01740",
+    "semantic_hash": ""
+  },
+  "assets/social-card.svg": {
+    "mtime": 1789167600.4093544,
+    "ast_hash": "641dad119033af06ff11534558f98cc4",
+    "semantic_hash": ""
+  },
+  "docs/assets/banner.svg": {
+    "mtime": 1789866826.0575795,
+    "ast_hash": "5503b2e9f0df9231929145dc7e0bd30c",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/128x128.png": {
+    "mtime": 1785984510.8943715,
+    "ast_hash": "df1536834fded2c2df7181a05ff4e6de",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/128x128@2x.png": {
+    "mtime": 1785984510.8968978,
+    "ast_hash": "563fd08ad77a7720abbfe138aeb8f66a",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/32x32.png": {
+    "mtime": 1785984510.891781,
+    "ast_hash": "1133271671c3ce7e3139f9ce810b10a0",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/icon.png": {
+    "mtime": 1785984510.897907,
+    "ast_hash": "563fd08ad77a7720abbfe138aeb8f66a",
+    "semantic_hash": ""
+  }
+}
