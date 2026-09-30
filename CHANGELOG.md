@@ -5,6 +5,18 @@ All notable changes to Catalyst Console are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **A Drive status tile** for a robot that says why it is holding a shot (team 5805's Numbers): the
+  blocker as one large line, amber when the driver can fix it, otherwise the robot's state in plain
+  words; an OPERATOR DRIVING chip, the driver's speed limit, the robot's own HUB countdown, and a
+  pose badge by localization level.
+- Capsules for a lost pose and for an auto winner nobody has named in teleop, and a quiet one while
+  a drive assist steers. The Hub activation caption names who won auto, the Shooter caption takes
+  the robot's own shot count, and Park shows pose trust, tag mode and where auto took its pose from.
+
 ## [2.0.0] — 2026-09-19 — The team's own robot, drawn and driven, on a Tesla-style board
 
 ### Added

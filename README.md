@@ -424,6 +424,28 @@ board instead of pushing it down: a camera dropping out mid-match changes what t
 where their tiles are. Like the alerts tile, a notice that clears is held, dimmed, for the alert
 hold time before it goes.
 
+### Shot and pose status (team 5805's Numbers)
+
+A robot that says why it is holding a shot gets the **Drive status** tile (Add component → Match) and a
+few capsules. Numbers publishes these through `CatalystLog`; every one is optional, and a robot that
+publishes none of them leaves the tile saying so and raises nothing.
+
+| Topic | Type | Where it shows |
+| --- | --- | --- |
+| `/Catalyst/RobotManager/BlockedBy` | string | Drive status headline; amber for the five the driver can fix (MOVING TOO FAST, STEADY THE STICK, NEAR TRENCH, OUT OF ZONE, STOP TO SHOOT (NO POSE)), white for the rest |
+| `/Catalyst/RobotManager/State` | string | the headline in plain words when nothing blocks; green while a ball is leaving |
+| `/Catalyst/Numbers/Localization/Level`, `Why`, `SecondsSinceFix` | string, string, double | the pose badge and its caption; a *Robot pose lost* capsule while enabled; the vision callout on Park |
+| `/Catalyst/Numbers/DriveOwner` | string | an inverted OPERATOR DRIVING chip while the operator has the drive |
+| `/Catalyst/Numbers/Driver/Governor` | double | a *Driver 70%* chip below 1.0 |
+| `/Catalyst/HubActivity/ActualHubActive`, `TimeUntilNextShift` | boolean, double | a *HUB OFF · 12 s* chip while enabled |
+| `/Catalyst/HubActivity/WinnerSource`, `WonAuto` | string, string | the Hub activation caption; *Auto winner unknown* capsule once UNKNOWN has lasted 5 s of teleop |
+| `/Catalyst/Numbers/Assist` | string | a quiet grey capsule while TRENCH, BUMP or GO_SHOOT steers |
+| `/Catalyst/Numbers/Vision/TagMode` | string | the Drive status caption and the Park vision callout |
+| `/Catalyst/Numbers/Shots/ThisMatch` | double | the Shooter caption, in place of the console's own estimate |
+| `/Catalyst/Numbers/Auto/PoseFrom` | string | the Autonomous card on Park |
+
+The wording lives in `src/numbers-status.js`, tested without a robot. The console only reads these.
+
 ### Auto chooser
 
 The console reads `options` and `selected` under a chooser path and writes `selected` when you pick

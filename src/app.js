@@ -31,6 +31,10 @@ import { compactFigure, spacedLabel } from "./board-format.js";
 import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hub.js";
 import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { aimCaption } from "./aim-target.js";
+import {
+  assistText, createLineHold, driverLine, governorText, hasNumbersStatus, hubText, locBadge, numbersNotices, ownerText,
+  readNumbersStatus, shotsText, tagModeText, winnerText,
+} from "./numbers-status.js";
 /* OVERDRIVE's debounce - true has to hold before anything shows, and the warp plays once per engage.
    Its own module so the state machine is tested without the field tile (see overdrive.js). */
 import { createOverdriveDebounce } from "./overdrive.js";
@@ -392,6 +396,40 @@ function demoTick() {
   set("/Catalyst/Aim/Ready", "bool", enabled && aim.ready);
   set("/Catalyst/Aim/SpeedCapMps", "num", enabled ? aim.speedCap : Number.NaN);
   set("/Catalyst/Aim/Mode", "str", enabled ? aim.mode : "");
+
+  /* Team 5805's Numbers' drive-team status (see numbers-status.js), scripted so the Drive status tile and
+     its capsules have something to show: why a shot is held, worked from the demo's own aim and flywheel;
+     the pose trusted except for a short patch late in teleop where it degrades and is lost; the operator
+     slowing the driver for a stretch and later taking the drive; nobody saying who won auto for the first
+     ten seconds of teleop; and an assist steering now and then. */
+  const numbersState = enabled ? m.robotState : "IDLE";
+  const lining = numbersState === "PREPARE_SCORE" || numbersState === "PREPARE_FEED";
+  const spun = Math.abs(m.shooterRps - m.shooterGoalRps) < 1;
+  const lostPose = cycle >= 118 && cycle < 124;
+  const blocker = !lining ? ""
+    : lostPose ? "POSE LOST"
+    : numbersState === "PREPARE_SCORE" && speed > 1.2 ? "MOVING TOO FAST"
+    : Math.abs(aim.headingErrorDeg ?? 0) > 4 ? "HEADING"
+    : !spun ? "SPIN-UP" : "";
+  set("/Catalyst/RobotManager/BlockedBy", "str", blocker);
+  const degraded = cycle >= 112 && cycle < 118;
+  set("/Catalyst/Numbers/Localization/Level", "str", lostPose ? "LOST" : degraded ? "DEGRADED" : "TRUSTED");
+  set("/Catalyst/Numbers/Localization/Why", "str", lostPose ? "no tags seen" : degraded ? "one camera only" : "");
+  set("/Catalyst/Numbers/Localization/SecondsSinceFix", "num", lostPose ? cycle - 118 + 0.4 : degraded ? 0.6 : 0.05);
+  const operatorDrives = cycle >= 132 && cycle < 138;
+  set("/Catalyst/Numbers/DriveOwner", "str", auto ? "AUTO" : operatorDrives ? "OPERATOR" : aim.state === "IDLE" || !enabled ? "DRIVER" : "DRIVER_AIMED");
+  set("/Catalyst/Numbers/Driver/Governor", "num", cycle >= 60 && cycle < 80 ? 0.7 : 1.0);
+  const winnerKnown = cycle >= 30;
+  set("/Catalyst/HubActivity/WinnerSource", "str", winnerKnown ? "FMS" : "UNKNOWN");
+  set("/Catalyst/HubActivity/WonAuto", "str", winnerKnown ? "WON" : "?");
+  const robotHub = hubPlan({ t: matchT, auto, enabled, side: "red", first: winnerKnown ? "red" : null });
+  set("/Catalyst/HubActivity/ActualHubActive", "bool", robotHub.active ?? true);
+  set("/Catalyst/HubActivity/TimeUntilNextShift", "num", robotHub.until === "change" ? robotHub.left : 0);
+  set("/Catalyst/HubActivity/CurrentShift", "str", robotHub.segment?.name ?? (auto ? "Auto" : "None"));
+  set("/Catalyst/Numbers/Assist", "str", !enabled ? "NONE" : cycle >= 48 && cycle < 51 ? "TRENCH" : cycle >= 88 && cycle < 91 ? "GO_SHOOT" : "NONE");
+  set("/Catalyst/Numbers/Vision/TagMode", "str", numbersState.includes("SCORE") ? "HUB_TAGS" : "ALL_TAGS");
+  set("/Catalyst/Numbers/Shots/ThisMatch", "num", waiting ? 0 : mechanismState.matchFired);
+  set("/Catalyst/Numbers/Auto/PoseFrom", "str", "VISION");
 
   /* Deliberately no /Catalyst/Game/Tower* here: the hub tile should be seen deriving the schedule
    * from the rules and the FMS game data, which is what it does on a real field. */
@@ -1139,7 +1177,13 @@ define("tower", {
         : active !== null ? `${segment.name} · FMS`
         : side ? `${segment.name} · waiting for FMS` : `${segment.name} · no alliance`;
     }
-    setText(x.src, source);
+    /* Who won auto and on whose word, when the robot says (Numbers' HubActivity/WinnerSource). */
+    const winnerSource = nt.status.connected || demo.on ? str("/Catalyst/HubActivity/WinnerSource", null) : null;
+    /* Nobody knows who won auto before teleop, so "unknown" is only worth saying once teleop has begun. */
+    const winner = winnerSource && (winnerSource.toUpperCase() !== "UNKNOWN" || plan.period === "teleop")
+      ? winnerText({ source: winnerSource, won: str("/Catalyst/HubActivity/WonAuto", null) })
+      : null;
+    setText(x.src, winner ? `${source} · ${winner}` : source);
 
     /* The strip: auto, then teleop, each part green where this alliance's hub scores and dimmed once it
      * has run. The part the match is in shows how far through it is. */
@@ -1230,10 +1274,85 @@ define("shooter", {
 
     const parts = [];
     if (m && Number.isFinite(m.hoodDeg)) parts.push(`<span class="capgrp">Hood <b>${m.hoodDeg.toFixed(0)}°</b></span>`);
-    if (m && mechanismState.matchFired > 0) parts.push(`<span class="capgrp"><b>~${Math.round(mechanismState.matchFired)}</b> shot this match</span>`);
+    /* The robot's own count when it keeps one (Numbers/Shots/ThisMatch), otherwise the console's estimate. */
+    const robotShots = linked ? shotsText(num("/Catalyst/Numbers/Shots/ThisMatch", null)) : null;
+    if (robotShots) parts.push(`<span class="capgrp"><b>${robotShots}</b> shot this match</span>`);
+    else if (m && mechanismState.matchFired > 0) parts.push(`<span class="capgrp"><b>~${Math.round(mechanismState.matchFired)}</b> shot this match</span>`);
     const cap = !linked ? "waiting for robot"
       : !m ? "No mechanism topics from the robot"
       : !readiness ? "No flywheel speed from the robot"
+      : parts.join('<span class="capsep"> · </span>');
+    if (x.cap.innerHTML !== cap) x.cap.innerHTML = cap;
+  },
+});
+
+/* --- drive status ------------------------------------------------------------ */
+
+/* The driver's one line, for a robot that says why it is holding a shot (see numbers-status.js; team
+ * 5805's Numbers is the one that does). Said the way the shooter tile says its state, a lamp and a word as
+ * large as the tile allows: the blocker when there is one - amber only when it is the driver's to fix,
+ * white when the robot is simply waiting - and otherwise what the robot is doing, green while a ball is
+ * leaving it. Under that, chips for the things a driver must not miss: the operator having the drive,
+ * a speed limit the operator has set, and the robot's own HUB state; then how far the robot trusts its
+ * pose. Every part is the robot's own words and figures; a key it does not publish leaves its part out. */
+define("drivestatus", {
+  name: "Drive status",
+  group: "Match",
+  desc: "Why the robot is holding a shot, who has the drive, and how far it trusts its pose",
+  w: 3, h: 2,
+  tileClass: "drivestatus",
+  config: [],
+  render(body) {
+    body.innerHTML = `
+      <div class="fill dstat">
+        <div class="hub-now"><i class="hub-lamp" aria-hidden="true"></i><span class="hub-word" data-x="word">No status</span></div>
+        <div class="dstat-sub" data-x="sub"></div>
+        <div class="dstat-chips">
+          <span class="dstat-chip dstat-owner" data-x="owner" hidden></span>
+          <span class="dstat-chip" data-x="gov" hidden></span>
+          <span class="dstat-chip dstat-hub" data-x="hub" hidden></span>
+          <span class="dstat-chip dstat-loc" data-x="loc" hidden><i aria-hidden="true"></i><span data-x="locWord"></span></span>
+        </div>
+        <div class="cap" data-x="cap">waiting for robot</div>
+      </div>`;
+  },
+  update(body, _cfg, x, tile, state) {
+    const linked = nt.status.connected || demo.on;
+    const st = linked ? readNumbersStatus(ntView) : null;
+    state.hold ??= createLineHold();
+    const line = state.hold.next(st ? driverLine(st) : null, performance.now());
+    setFlag(tile, "kind", line?.kind ?? "none");
+    setText(x.word, line?.text ?? (!linked ? "No robot" : "No status"));
+    x.word.title = line?.text ?? "";
+    setText(x.sub, line?.sub ?? "");
+
+    const show = (el, text) => {
+      if (el.hidden !== !text) el.hidden = !text;
+      if (text) setText(el, text);
+    };
+    const owner = st ? ownerText(st.owner) : null;
+    /* The chip is only there when the driver is not the one driving: that is the news. */
+    show(x.owner, owner && owner.operator ? owner.text.toUpperCase() : null);
+    setFlag(tile, "operator", Boolean(owner?.operator));
+    show(x.gov, st ? governorText(st.governor) : null);
+    const hub = st && ds.enabled ? hubText(st) : null;
+    show(x.hub, hub);
+    if (hub) setFlag(x.hub, "on", st.hub.active === true);
+
+    const badge = st ? locBadge(st) : null;
+    if (x.loc.hidden !== !badge) x.loc.hidden = !badge;
+    if (badge) {
+      setFlag(x.loc, "level", badge.level);
+      setText(x.locWord, badge.word);
+      x.loc.title = badge.detail || badge.word;
+    }
+
+    const tags = st ? tagModeText(st.tagMode) : null;
+    const parts = [];
+    if (badge?.detail) parts.push(`<span class="capgrp">${escapeHtml(badge.detail)}</span>`);
+    if (tags) parts.push(`<span class="capgrp">Tags: <b>${escapeHtml(tags)}</b></span>`);
+    const cap = !linked ? "waiting for robot"
+      : !st || !hasNumbersStatus(st) ? "The robot publishes no shot or pose status"
       : parts.join('<span class="capsep"> · </span>');
     if (x.cap.innerHTML !== cap) x.cap.innerHTML = cap;
   },
@@ -2769,6 +2888,7 @@ $("#cfgClose").onclick = () => {
 const PICK_ICONS = {
   match: `<path d="M5.5 21V4M5.5 4h11l-2.2 4 2.2 4h-11"/>`,
   tower: `<path d="M12 3.5 19.5 7.8v8.4L12 20.5 4.5 16.2V7.8z"/><circle cx="12" cy="12" r="2.6"/>`,
+  drivestatus: `<path d="M4 7h16M4 12h10M4 17h6"/><circle cx="18" cy="16" r="2.6"/>`,
   shooter: `<circle cx="8" cy="15.5" r="4.8"/><circle cx="8" cy="15.5" r="1.3" fill="currentColor"/><path d="M11.8 12.2c2.4-4 5.2-6 8.2-6.6"/><circle cx="19.6" cy="5.4" r="1.5"/>`,
   gauge: `<path d="M4.6 16.5a8 8 0 1 1 14.8 0"/><path d="m12 13 3.6-4"/><circle cx="12" cy="13.5" r="1.3" fill="currentColor"/>`,
   battery: `<rect x="3" y="7" width="16" height="10" rx="2.2"/><path d="M21.2 10.5v3M6.5 10v4M9.8 10v4"/>`,
@@ -4135,7 +4255,9 @@ const NOTICE_ICONS = {
   info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.05" fill="currentColor" stroke="none"/></svg>`,
 };
 
-const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous" : key.startsWith("cal:") ? "Calibration" : "Robot");
+const noticeKind = (key) => (key.startsWith("vision") ? "Vision" : key.startsWith("auto") ? "Autonomous"
+  : key.startsWith("cal:") ? "Calibration" : key.startsWith("loc:") ? "Localization" : key.startsWith("hub:") ? "Match"
+  : key.startsWith("assist:") ? "Drive assist" : "Robot");
 
 /* Turret mode's own status, beside the alerts proper: Tesla says when Autosteer can't help right now
  * instead of staying quiet, and grey because nothing is a fault - the driver's stick already has the
@@ -4162,6 +4284,35 @@ function aimStickNotice(now) {
   return { key: "aim:stick", level: "info", text: "Aim unavailable", detail: "steer with the stick" };
 }
 
+/* Which drive assist is steering (Numbers/Assist): a quiet grey capsule, for the same reason as turret
+ * mode's above - it says what is true right now, so it never joins the alert history. Held a moment before
+ * it shows, so an assist that only touches the drive for a frame does not flash one up. */
+const ASSIST_HOLD_MS = 250;
+const assistSeen = { text: null, since: null };
+function assistNotice(now) {
+  const text = (nt.status.connected || demo.on) && ds.enabled ? assistText(str("/Catalyst/Numbers/Assist", null)) : null;
+  if (text !== assistSeen.text) {
+    assistSeen.text = text;
+    assistSeen.since = now;
+  }
+  if (!text || now - assistSeen.since < ASSIST_HOLD_MS) return null;
+  return { key: "assist:on", level: "info", text, detail: "the robot is steering" };
+}
+
+/* The robot reports no auto winner for the first few seconds of every teleop - FMS sends its message about
+ * three seconds in - so "press won or lost" is only asked once UNKNOWN has lasted longer than that. */
+const WINNER_UNKNOWN_HOLD_MS = 5000;
+let winnerUnknownSince = null;
+function winnerUnknownHeld(st, now) {
+  const unknown = Boolean(st) && ds.enabled && !ds.auto && st.winner.source === "UNKNOWN";
+  if (!unknown) {
+    winnerUnknownSince = null;
+    return false;
+  }
+  winnerUnknownSince ??= now;
+  return now - winnerUnknownSince >= WINNER_UNKNOWN_HOLD_MS;
+}
+
 /* Alerts, the way Tesla shows them. A notice that is new - or has just become more serious - comes up
  * as a pop-up capsule over the board for a few seconds, then goes away on its own and waits in the
  * triangle at the top right, which opens the list of everything active and everything that cleared
@@ -4181,7 +4332,9 @@ function paintNotices() {
   const linked = nt.status.connected || demo.on;
   const now = performance.now();
   if (linked) {
-    for (const n of [...computeNotices(ntView, { enabled: ds.enabled }), ...calibrationNotices(ntView)]) {
+    const st = readNumbersStatus(ntView);
+    const numbers = numbersNotices(st, { enabled: ds.enabled, auto: ds.auto, winnerUnknownHeld: winnerUnknownHeld(st, now) });
+    for (const n of [...computeNotices(ntView, { enabled: ds.enabled }), ...calibrationNotices(ntView), ...numbers]) {
       const prev = noticeSeen.get(n.key);
       noticeSeen.set(n.key, { ...n, at: now, since: prev?.since ?? Date.now() });
     }
@@ -4217,6 +4370,8 @@ function paintNotices() {
   // not in noticeSeen for the rank sort above to have already placed it.
   const stickToast = aimStickNotice(now);
   if (stickToast) toasts.push(stickToast);
+  const assistToast = assistNotice(now);
+  if (assistToast) toasts.push(assistToast);
   paintToasts(bar, toasts.slice(0, 3));
   paintAlertIndicator(active);
   if (!$("#alertPop").hidden) paintAlertPop(active);
@@ -5634,7 +5789,11 @@ function paintParkInfo() {
   const place = linked ? robotPlacement(ntView, { age: poseAge }) : null;
   const cameras = summary?.cameras?.expected ? `${count(summary.cameras)} cameras` : "";
   const placedBy = !place ? "" : !place.placed ? "not placed yet" : place.source === "vision" ? "placed by vision" : "";
-  setText('[data-c="vision"]', [cameras, placedBy].filter(Boolean).join(" · ") || "—");
+  /* Numbers says how far it trusts its pose and which tags it solves from; either is left out when absent. */
+  const numbersSt = linked ? readNumbersStatus(ntView) : null;
+  const trust = numbersSt ? locBadge(numbersSt)?.word.toLowerCase() : null;
+  const tags = numbersSt ? tagModeText(numbersSt.tagMode) : null;
+  setText('[data-c="vision"]', [cameras, placedBy, trust, tags].filter(Boolean).join(" · ") || "—");
   setText('[data-c="battery"]', volts === null ? "—" : `${volts.toFixed(1)} V`);
   const modules = linked ? num(`${SPEC_ROOT}Drivetrain/Modules`, null) : null;
   const drive = linked ? str(`${SPEC_ROOT}Drivetrain/Type`, "") : "";
@@ -5654,7 +5813,10 @@ function paintParkInfo() {
   const options = linked ? (arr("/Auto Selector/options") || []) : [];
   const chosen = str("/Auto Selector/selected", null) ?? str("/Auto Selector/active", null);
   setText("#parkAuto", options.length ? (chosen || options[0]) : "—");
-  setText("#parkAutoSub", options.length ? `${options.length} routines · change it from the dock` : "No chooser published");
+  /* Where the last auto took its starting pose from, when the robot says (Numbers/Auto/PoseFrom). */
+  const poseFrom = numbersSt?.poseFrom ? `pose from ${numbersSt.poseFrom.toLowerCase()}` : null;
+  setText("#parkAutoSub", !options.length ? (poseFrom ? `No chooser published · ${poseFrom}` : "No chooser published")
+    : poseFrom ? `${options.length} routines · ${poseFrom}` : `${options.length} routines · change it from the dock`);
 
   const loop = linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null;
   const active = noticeSeen.size;
