@@ -32,8 +32,8 @@ import { AUTO_S, hubPlan, inactiveFirst, segmentAt, TELEOP_SEGMENTS } from "./hu
 import { createAimDebounce, createHopper, FEED_RATE, hasMechanisms, readAim, readAlign, readMechanisms, shooterReadiness } from "./mechanisms.js";
 import { aimCaption } from "./aim-target.js";
 import {
-  assistText, createLineHold, driverLine, governorText, hasNumbersStatus, hubText, locBadge, numbersNotices, ownerText,
-  readNumbersStatus, shotsText, tagModeText, winnerText,
+  accelLimitText, assistLevelText, assistText, createLineHold, driverLine, governorText, hasNumbersStatus, headingText,
+  hubText, locBadge, numbersNotices, ownerText, profileText, readNumbersStatus, shotsText, tagModeText, winnerText,
 } from "./numbers-status.js";
 /* OVERDRIVE's debounce - true has to hold before anything shows, and the warp plays once per engage.
    Its own module so the state machine is tested without the field tile (see overdrive.js). */
@@ -426,7 +426,20 @@ function demoTick() {
   set("/Catalyst/HubActivity/ActualHubActive", "bool", robotHub.active ?? true);
   set("/Catalyst/HubActivity/TimeUntilNextShift", "num", robotHub.until === "change" ? robotHub.left : 0);
   set("/Catalyst/HubActivity/CurrentShift", "str", robotHub.segment?.name ?? (auto ? "Auto" : "None"));
-  set("/Catalyst/Numbers/Assist", "str", !enabled ? "NONE" : cycle >= 48 && cycle < 51 ? "TRENCH" : cycle >= 88 && cycle < 91 ? "GO_SHOOT" : "NONE");
+  set("/Catalyst/Numbers/Assist", "str", !enabled ? "NONE" : cycle >= 48 && cycle < 51 ? "TRENCH" : cycle >= 88 && cycle < 91 ? "BUMP" : "NONE");
+  /* The shared control: the heading is the aim's while it aims and held otherwise, the operator nudges it
+     for a few seconds, the help is light except for a stretch with none, and shadow mode comes on once. */
+  const nudging = enabled && cycle >= 100 && cycle < 106;
+  const headingOwner = !enabled || auto ? "NONE" : nudging ? "OPERATOR" : cycle >= 88 && cycle < 91 ? "BUMP"
+    : aim.state !== "IDLE" ? "AIM" : Math.abs(omega) > 0.3 ? "DRIVER" : "HOLD";
+  set("/Catalyst/Numbers/Shared/HeadingOwner", "str", headingOwner);
+  set("/Catalyst/Numbers/Shared/Reason", "str", { OPERATOR: "operator stick on the heading", BUMP: "squaring to the bump",
+    AIM: "aiming at the target", HOLD: "holding the last heading", DRIVER: "driver turning", NONE: "" }[headingOwner]);
+  const noHelp = cycle >= 140 && cycle < 150;
+  set("/Catalyst/Numbers/Shared/AssistLevel", "str", noHelp ? "OFF" : "LIGHT");
+  set("/Catalyst/Numbers/Shared/Profile", "str", "NEW_DRIVER");
+  set("/Catalyst/Numbers/Shared/Shadow", "bool", cycle >= 54 && cycle < 60);
+  set("/Catalyst/Numbers/Shared/AccelLimitMps2", "num", noHelp ? -1 : 9.2);
   set("/Catalyst/Numbers/Vision/TagMode", "str", numbersState.includes("SCORE") ? "HUB_TAGS" : "ALL_TAGS");
   set("/Catalyst/Numbers/Shots/ThisMatch", "num", waiting ? 0 : mechanismState.matchFired);
   set("/Catalyst/Numbers/Auto/PoseFrom", "str", "VISION");
@@ -1293,7 +1306,8 @@ define("shooter", {
  * large as the tile allows: the blocker when there is one - amber only when it is the driver's to fix,
  * white when the robot is simply waiting - and otherwise what the robot is doing, green while a ball is
  * leaving it. Under that, chips for the things a driver must not miss: the operator having the drive,
- * a speed limit the operator has set, and the robot's own HUB state; then how far the robot trusts its
+ * who has the heading when it is not the driver, a speed limit the operator has set, how much the robot
+ * is helping, and the robot's own HUB state; then how far the robot trusts its
  * pose. Every part is the robot's own words and figures; a key it does not publish leaves its part out. */
 define("drivestatus", {
   name: "Drive status",
@@ -1309,7 +1323,9 @@ define("drivestatus", {
         <div class="dstat-sub" data-x="sub"></div>
         <div class="dstat-chips">
           <span class="dstat-chip dstat-owner" data-x="owner" hidden></span>
+          <span class="dstat-chip dstat-heading" data-x="heading" hidden></span>
           <span class="dstat-chip" data-x="gov" hidden></span>
+          <span class="dstat-chip dstat-assist" data-x="assist" hidden></span>
           <span class="dstat-chip dstat-hub" data-x="hub" hidden></span>
           <span class="dstat-chip dstat-loc" data-x="loc" hidden><i aria-hidden="true"></i><span data-x="locWord"></span></span>
         </div>
@@ -1334,7 +1350,21 @@ define("drivestatus", {
     /* The chip is only there when the driver is not the one driving: that is the news. */
     show(x.owner, owner && owner.operator ? owner.text.toUpperCase() : null);
     setFlag(tile, "operator", Boolean(owner?.operator));
+    /* Who has the heading, when it is not the driver: the operator nudging it is worded and drawn like
+       the operator driving, the robot's own holds and aims quietly. The robot's reason is the hover. */
+    const heading = st ? headingText(st.shared.headingOwner) : null;
+    show(x.heading, heading?.text ?? null);
+    if (heading) {
+      setFlag(x.heading, "operator", heading.operator);
+      x.heading.title = st.shared.reason || "";
+    }
     show(x.gov, st ? governorText(st.governor) : null);
+    const level = st ? assistLevelText(st.shared.assistLevel) : null;
+    show(x.assist, level?.text ?? null);
+    if (level) {
+      setFlag(x.assist, "off", level.off);
+      x.assist.title = accelLimitText(st.shared.accelLimit) || "";
+    }
     const hub = st && ds.enabled ? hubText(st) : null;
     show(x.hub, hub);
     if (hub) setFlag(x.hub, "on", st.hub.active === true);
@@ -1351,6 +1381,8 @@ define("drivestatus", {
     const parts = [];
     if (badge?.detail) parts.push(`<span class="capgrp">${escapeHtml(badge.detail)}</span>`);
     if (tags) parts.push(`<span class="capgrp">Tags: <b>${escapeHtml(tags)}</b></span>`);
+    const profile = st ? profileText(st.shared.profile) : null;
+    if (profile) parts.push(`<span class="capgrp">${escapeHtml(profile)}</span>`);
     const cap = !linked ? "waiting for robot"
       : !st || !hasNumbersStatus(st) ? "The robot publishes no shot or pose status"
       : parts.join('<span class="capsep"> · </span>');
@@ -5797,7 +5829,11 @@ function paintParkInfo() {
   setText('[data-c="battery"]', volts === null ? "—" : `${volts.toFixed(1)} V`);
   const modules = linked ? num(`${SPEC_ROOT}Drivetrain/Modules`, null) : null;
   const drive = linked ? str(`${SPEC_ROOT}Drivetrain/Type`, "") : "";
-  setText('[data-c="drivetrain"]', modules ? `${drive || "Drive"} · ${modules} modules` : (drive || "—"));
+  /* The driver's preset and launch limit, when the robot's shared control says (Numbers/Shared/*). */
+  const driverNotes = numbersSt
+    ? [profileText(numbersSt.shared.profile), accelLimitText(numbersSt.shared.accelLimit)].filter(Boolean).map((t) => t.toLowerCase())
+    : [];
+  setText('[data-c="drivetrain"]', [modules ? `${drive || "Drive"} · ${modules} modules` : drive, ...driverNotes].filter(Boolean).join(" · ") || "—");
   const kind = linked ? (str("/Catalyst/Devices/Controller/Kind", "") || str(`${SPEC_ROOT}Identity/Controller`, "")) : "";
   setText('[data-c="controllerName"]', kind || "Controller");
   const temp = linked ? num("/Catalyst/Systemcore/TempCelsius", null) : null;

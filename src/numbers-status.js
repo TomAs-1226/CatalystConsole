@@ -4,7 +4,8 @@
  * Numbers publishes these through CatalystLog, so they sit under /Catalyst/: why a shot is being held
  * (RobotManager/BlockedBy) and what the robot is doing (RobotManager/State), how far it trusts its own
  * pose (Numbers/Localization/*), who has the drive and how fast the driver is allowed to go
- * (Numbers/DriveOwner, Numbers/Driver/Governor), who won auto and who said so (HubActivity/WinnerSource,
+ * (Numbers/DriveOwner, Numbers/Driver/Governor), who has the heading and how much the robot helps
+ * (Numbers/Shared/HeadingOwner, Reason, AssistLevel, Profile, Shadow, AccelLimitMps2), who won auto and who said so (HubActivity/WinnerSource,
  * WonAuto), whether its own hub schedule has the HUB on (HubActivity/ActualHubActive,
  * TimeUntilNextShift), which drive assist is steering (Numbers/Assist), which tags vision solves from
  * (Numbers/Vision/TagMode), roughly how many balls it has fired (Numbers/Shots/ThisMatch), and where
@@ -33,6 +34,12 @@ export const KEYS = Object.freeze({
   tagMode: `${ROOT}Numbers/Vision/TagMode`,
   shots: `${ROOT}Numbers/Shots/ThisMatch`,
   poseFrom: `${ROOT}Numbers/Auto/PoseFrom`,
+  headingOwner: `${ROOT}Numbers/Shared/HeadingOwner`,
+  sharedReason: `${ROOT}Numbers/Shared/Reason`,
+  assistLevel: `${ROOT}Numbers/Shared/AssistLevel`,
+  profile: `${ROOT}Numbers/Shared/Profile`,
+  shadow: `${ROOT}Numbers/Shared/Shadow`,
+  accelLimit: `${ROOT}Numbers/Shared/AccelLimitMps2`,
 });
 
 /* The blockers a driver can do something about. Every other one - the heading still turning, the
@@ -71,7 +78,7 @@ const OWNER_WORDS = Object.freeze({
   AUTO: "Auto driving",
 });
 
-const ASSIST_WORDS = Object.freeze({ TRENCH: "Trench assist", BUMP: "Bump assist", GO_SHOOT: "Go-shoot assist" });
+const ASSIST_WORDS = Object.freeze({ TRENCH: "Trench assist", BUMP: "Bump assist" });
 
 const TAG_WORDS = Object.freeze({
   ALL_TAGS: "all tags",
@@ -95,7 +102,12 @@ function plain(word) {
 export function readNumbersStatus(read) {
   const s = (k) => text(read.str(k, null));
   const n = (k) => finite(read.num(k, null));
-  const hubActive = read.has && !read.has(KEYS.hubActive) ? null : read.bool(KEYS.hubActive, null);
+  /* A boolean is only believed from a boolean topic that exists: a view may read a number as one. */
+  const flag = (k) => {
+    const v = read.has && !read.has(k) ? null : read.bool(k, null);
+    return typeof v === "boolean" ? v : null;
+  };
+  const hubActive = flag(KEYS.hubActive);
   const level = s(KEYS.locLevel)?.toUpperCase() ?? null;
   return {
     blockedBy: s(KEYS.blockedBy),
@@ -113,6 +125,14 @@ export function readNumbersStatus(read) {
     tagMode: s(KEYS.tagMode)?.toUpperCase() ?? null,
     shots: n(KEYS.shots),
     poseFrom: s(KEYS.poseFrom),
+    shared: {
+      headingOwner: s(KEYS.headingOwner)?.toUpperCase() ?? null,
+      reason: s(KEYS.sharedReason),
+      assistLevel: s(KEYS.assistLevel)?.toUpperCase() ?? null,
+      profile: s(KEYS.profile)?.toUpperCase() ?? null,
+      shadow: flag(KEYS.shadow),
+      accelLimit: n(KEYS.accelLimit),
+    },
   };
 }
 
@@ -201,6 +221,41 @@ export function governorText(governor) {
   return `Driver ${Math.round(g * 100)}%`;
 }
 
+/**
+ * Who has the robot's heading: `{ text, operator }`, or null when the driver has it, nobody does, or the
+ * robot does not say. The operator nudging the heading is the one the driver must not miss, so it is
+ * worded and flagged like the operator having the drive; the rest are the robot's own word, quietly.
+ */
+export function headingText(owner) {
+  const o = text(owner)?.toUpperCase();
+  if (!o || o === "DRIVER" || o === "NONE") return null;
+  if (o === "OPERATOR") return { text: "OPERATOR STEERING", operator: true };
+  return { text: `Heading: ${plain(o).toLowerCase()}`, operator: false };
+}
+
+/**
+ * How much the robot helps the driver: `{ text, off }`, or null when it does not say. `off` marks the one
+ * level where the driver has no help at all.
+ */
+export function assistLevelText(level) {
+  const l = text(level)?.toUpperCase();
+  if (!l) return null;
+  return { text: `Assist: ${plain(l).toLowerCase()}`, off: l === "OFF" };
+}
+
+/** "Profile: new driver", or null. */
+export function profileText(profile) {
+  const p = text(profile);
+  return p ? `Profile: ${plain(p).toLowerCase()}` : null;
+}
+
+/** "Launch limit 9.2 m/s²", or null when the robot publishes none or says there is no limit (-1). */
+export function accelLimitText(limit) {
+  const a = finite(limit);
+  if (a === null || a < 0) return null;
+  return `Launch limit ${a.toFixed(1)} m/s²`;
+}
+
 /** The robot's own hub schedule: "HUB ON · 12 s" / "HUB OFF · 12 s", or null without the robot's answer. */
 export function hubText(st) {
   const active = st?.hub?.active;
@@ -237,13 +292,19 @@ export function shotsText(shots) {
 
 /**
  * The capsules these keys raise, in the shape devices.js's notices() returns: `{ level, key, text, detail }`.
- * Only while the robot is enabled - a pose that is lost in the pit, or no auto winner before a match, is
- * not news. `winnerUnknownHeld` is the caller's say that the robot has reported UNKNOWN for long enough in
+ * The pose and the auto winner only while the robot is enabled - a pose that is lost in the pit, or no auto
+ * winner before a match, is not news. `winnerUnknownHeld` is the caller's say that the robot has reported UNKNOWN for long enough in
  * teleop to be past the few seconds FMS takes to send its message.
  */
 export function numbersNotices(st, { enabled = false, auto = false, winnerUnknownHeld = false } = {}) {
   const out = [];
-  if (!st || !enabled) return out;
+  if (!st) return out;
+  /* Shadow mode is said enabled or not: the assists are computed and logged but do not act, and a drive
+     team that finds that out mid-match finds it out too late. */
+  if (st.shared.shadow === true) {
+    out.push({ level: "warn", key: "assist:shadow", text: "Assist shadow mode", detail: "the robot is only logging" });
+  }
+  if (!enabled) return out;
   if (st.loc.level === "LOST") {
     /* The reason only, not the seconds since the last fix: a capsule whose words change every tick is
        rebuilt every tick, and its buttons with it. */

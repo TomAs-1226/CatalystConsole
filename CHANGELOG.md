@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **A Drive status tile** for a robot that says why it is holding a shot (team 5805's Numbers): the
   blocker as one large line, amber when the driver can fix it, otherwise the robot's state in plain
-  words; an OPERATOR DRIVING chip, the driver's speed limit, the robot's own HUB countdown, and a
-  pose badge by localization level.
-- Capsules for a lost pose and for an auto winner nobody has named in teleop, and a quiet one while
-  a drive assist steers. The Hub activation caption names who won auto, the Shooter caption takes
+  words; an OPERATOR DRIVING chip, who has the heading (OPERATOR STEERING while the operator nudges
+  it), the driver's speed limit, the assist level and driver profile, the robot's own HUB countdown,
+  and a pose badge by localization level.
+- Capsules for a lost pose, for an auto winner nobody has named in teleop, and for assist shadow
+  mode (the assists are only logging), and a quiet one while a drive assist steers. The Hub activation caption names who won auto, the Shooter caption takes
   the robot's own shot count, and Park shows pose trust, tag mode and where auto took its pose from.
 
 ## [2.0.0] — 2026-09-19 — The team's own robot, drawn and driven, on a Tesla-style board

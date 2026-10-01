@@ -439,7 +439,13 @@ publishes none of them leaves the tile saying so and raises nothing.
 | `/Catalyst/Numbers/Driver/Governor` | double | a *Driver 70%* chip below 1.0 |
 | `/Catalyst/HubActivity/ActualHubActive`, `TimeUntilNextShift` | boolean, double | a *HUB OFF · 12 s* chip while enabled |
 | `/Catalyst/HubActivity/WinnerSource`, `WonAuto` | string, string | the Hub activation caption; *Auto winner unknown* capsule once UNKNOWN has lasted 5 s of teleop |
-| `/Catalyst/Numbers/Assist` | string | a quiet grey capsule while TRENCH, BUMP or GO_SHOOT steers |
+| `/Catalyst/Numbers/Assist` | string | a quiet grey capsule while TRENCH or BUMP steers |
+| `/Catalyst/Numbers/Shared/HeadingOwner` | string | a quiet *Heading: hold* / *aim* / *bump* chip; an inverted OPERATOR STEERING chip while the operator nudges the heading; nothing for DRIVER or NONE |
+| `/Catalyst/Numbers/Shared/Reason` | string | hover text on the heading chip |
+| `/Catalyst/Numbers/Shared/AssistLevel` | string | an *Assist: light* chip; OFF is dashed and bold |
+| `/Catalyst/Numbers/Shared/Profile` | string | *Profile: new driver* in the Drive status caption and Park's drivetrain callout |
+| `/Catalyst/Numbers/Shared/Shadow` | boolean | an *Assist shadow mode · the robot is only logging* capsule while true, enabled or not |
+| `/Catalyst/Numbers/Shared/AccelLimitMps2` | double | *Launch limit 9.2 m/s²* as hover text on the assist chip and on Park; -1 shows nothing |
 | `/Catalyst/Numbers/Vision/TagMode` | string | the Drive status caption and the Park vision callout |
 | `/Catalyst/Numbers/Shots/ThisMatch` | double | the Shooter caption, in place of the console's own estimate |
 | `/Catalyst/Numbers/Auto/PoseFrom` | string | the Autonomous card on Park |

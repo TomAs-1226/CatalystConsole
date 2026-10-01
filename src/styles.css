@@ -858,7 +858,16 @@ button.chip.drops:hover { background: color-mix(in srgb, var(--cat-warn) 26%, tr
   font-variant-numeric: tabular-nums;
 }
 .dstat-chip[hidden] { display: none; }
-.dstat-owner { background: var(--cat-ink-strong); color: var(--cat-ground); box-shadow: none; font-weight: var(--cat-w-bold); letter-spacing: .02em; }
+.dstat-owner, .dstat-chip[data-operator="true"] {
+  background: var(--cat-ink-strong); color: var(--cat-ground); box-shadow: none; font-weight: var(--cat-w-bold); letter-spacing: .02em;
+}
+/* No help at all is the one assist level drawn differently: a dashed outline and heavier words, no colour,
+   because a veteran may drive that way on purpose and it is not a fault. */
+.dstat-assist, .dstat-heading { color: var(--cat-body); }
+.dstat-assist[data-off="true"] {
+  color: var(--cat-ink-strong); font-weight: var(--cat-w-bold);
+  box-shadow: none; outline: 1px dashed var(--cat-ink); outline-offset: -1px;
+}
 .dstat-hub[data-on="true"] { color: var(--cat-ok); }
 .dstat-loc i { width: 7px; height: 7px; border-radius: 50%; background: var(--cat-ok); }
 .dstat-loc[data-level="trusted"] { color: var(--cat-dim); font-weight: var(--cat-w-normal); }

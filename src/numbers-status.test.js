@@ -2,7 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  accelLimitText,
+  assistLevelText,
   assistText,
+  headingText,
+  profileText,
   createLineHold,
   driverLine,
   governorText,
@@ -162,7 +166,7 @@ test("who won auto, and on whose word", () => {
 
 test("assist, shots", () => {
   assert.equal(assistText("NONE"), null);
-  assert.equal(assistText("GO_SHOOT"), "Go-shoot assist");
+  assert.equal(assistText("BUMP"), "Bump assist");
   assert.equal(assistText("TRENCH"), "Trench assist");
   assert.equal(shotsText(23.4), "~23");
   assert.equal(shotsText(-1), null);
@@ -199,4 +203,49 @@ test("the driver's line holds a new blocker back until it has lasted, and clears
   assert.equal(hold.next(b, 500), a);
   assert.equal(hold.next(b, 560), b);   // lasted 260 ms: shown
   assert.equal(hold.next(null, 600), null);
+});
+
+/* ---- shared control ---- */
+
+test("the heading's owner is a quiet chip, except the operator, and nothing for the driver or nobody", () => {
+  assert.equal(headingText("DRIVER"), null);
+  assert.equal(headingText("NONE"), null);
+  assert.equal(headingText(null), null);
+  assert.deepEqual(headingText("OPERATOR"), { text: "OPERATOR STEERING", operator: true });
+  assert.deepEqual(headingText("HOLD"), { text: "Heading: hold", operator: false });
+  assert.equal(headingText("AIM").text, "Heading: aim");
+  assert.equal(headingText("BUMP").text, "Heading: bump");
+});
+
+test("the assist level, with off marked as the one without help", () => {
+  assert.deepEqual(assistLevelText("OFF"), { text: "Assist: off", off: true });
+  assert.deepEqual(assistLevelText("LIGHT"), { text: "Assist: light", off: false });
+  assert.equal(assistLevelText("FULL").text, "Assist: full");
+  assert.equal(assistLevelText(null), null);
+});
+
+test("the profile and the launch limit in words", () => {
+  assert.equal(profileText("NEW_DRIVER"), "Profile: new driver");
+  assert.equal(profileText("VETERAN"), "Profile: veteran");
+  assert.equal(profileText(null), null);
+  assert.equal(accelLimitText(9.24), "Launch limit 9.2 m/s²");
+  assert.equal(accelLimitText(-1), null);
+  assert.equal(accelLimitText(null), null);
+});
+
+test("shadow mode raises its capsule enabled or not, and only from a true boolean", () => {
+  const on = numbers({ [KEYS.shadow]: true });
+  assert.equal(on.shared.shadow, true);
+  const [n] = numbersNotices(on, { enabled: false });
+  assert.equal(n.key, "assist:shadow");
+  assert.equal(n.text, "Assist shadow mode");
+  assert.equal(n.detail, "the robot is only logging");
+  assert.deepEqual(numbersNotices(numbers({ [KEYS.shadow]: false }), { enabled: true }), []);
+  assert.deepEqual(numbersNotices(numbers(), { enabled: true }), []);
+  assert.equal(readNumbersStatus(view({ [KEYS.shadow]: "true" })).shared.shadow, null);
+});
+
+test("shared control absent reads as nulls", () => {
+  const st = readNumbersStatus(view({}));
+  assert.deepEqual(st.shared, { headingOwner: null, reason: null, assistLevel: null, profile: null, shadow: null, accelLimit: null });
 });
