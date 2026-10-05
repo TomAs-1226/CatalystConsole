@@ -183,13 +183,15 @@ test("a lost pose raises a capsule only while the robot is enabled", () => {
   assert.match(n.detail, /no tags/);
 });
 
-test("an unknown auto winner asks the operator, in teleop only, once the caller has held it", () => {
+test("an unknown auto winner tells the driver to watch the hub, in teleop only, once the caller has held it", () => {
   const st = numbers({ [KEYS.winnerSource]: "UNKNOWN", [KEYS.wonAuto]: "?" });
   assert.deepEqual(numbersNotices(st, { enabled: true, auto: false, winnerUnknownHeld: false }), []);
   assert.deepEqual(numbersNotices(st, { enabled: true, auto: true, winnerUnknownHeld: true }), []);
   const [n] = numbersNotices(st, { enabled: true, auto: false, winnerUnknownHeld: true });
   assert.equal(n.key, "hub:winner");
-  assert.match(n.detail, /won or lost/);
+  // Numbers has one driver and no won/lost button: unknown leaves its hub gate open.
+  assert.match(n.detail, /watch the hub/);
+  assert.doesNotMatch(n.detail, /operator/i);
 });
 
 test("the driver's line holds a new blocker back until it has lasted, and clears at once", () => {

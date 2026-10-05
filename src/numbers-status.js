@@ -311,7 +311,7 @@ export function numbersNotices(st, { enabled = false, auto = false, winnerUnknow
     out.push({ level: "warn", key: "loc:lost", text: "Robot pose lost", detail: text(st.loc.why) || "shots are held until vision sees tags" });
   }
   if (!auto && st.winner.source === "UNKNOWN" && winnerUnknownHeld) {
-    out.push({ level: "warn", key: "hub:winner", text: "Auto winner unknown", detail: "Operator: press won or lost" });
+    out.push({ level: "warn", key: "hub:winner", text: "Auto winner unknown", detail: "the robot shoots in every shift: watch the hub" });
   }
   return out;
 }

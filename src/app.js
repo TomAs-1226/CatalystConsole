@@ -4332,7 +4332,8 @@ function assistNotice(now) {
 }
 
 /* The robot reports no auto winner for the first few seconds of every teleop - FMS sends its message about
- * three seconds in - so "press won or lost" is only asked once UNKNOWN has lasted longer than that. */
+ * three seconds in - so the capsule is only raised once UNKNOWN has lasted longer than that. Numbers has one driver and
+ * no won/lost button (2026-10-04): unknown means its hub gate stays open, and the capsule says so. */
 const WINNER_UNKNOWN_HOLD_MS = 5000;
 let winnerUnknownSince = null;
 function winnerUnknownHeld(st, now) {
