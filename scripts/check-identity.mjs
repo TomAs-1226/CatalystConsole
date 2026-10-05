@@ -8,8 +8,14 @@
 //
 // With no library checkout on the machine it says so and exits 0: a contributor without the library
 // should still be able to build, and a check nobody can act on gets ignored.
+//
+// Two things were learned the hard way, when this check went quiet and compared nothing:
+// - the library's 2.0 worktree is now `FrcCatalyst-systemcore-alpha6` (and `FrcCatalyst-alpha7`);
+//   the older names are still tried, so either layout is found;
+// - line endings are not drift. A Windows checkout of the library has CRLF, the copies are LF,
+//   and the two are the same stylesheet.
 
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +29,8 @@ const given = args.find((a) => !a.startsWith("--"));
 const candidates = given
   ? [resolve(given)]
   : [
+      resolve(root, "../_worktrees/FrcCatalyst-systemcore-alpha6/docs/assets"),
+      resolve(root, "../_worktrees/FrcCatalyst-alpha7/docs/assets"),
       resolve(root, "../_worktrees/FrcCatalyst-systemcore/docs/assets"),
       resolve(root, "../FrcCatalyst/docs/assets"),
       resolve(root, "../FrcCatalyst-v1.1.0/docs/assets"),
@@ -32,6 +40,8 @@ const FILES = [
   ["identity.css", join("src", "styles", "identity.css")],
   ["motion.js", join("src", "motion.js")],
 ];
+
+const lf = (text) => text.replace(/\r\n/g, "\n");
 
 const source = candidates.find((p) => FILES.every(([name]) => existsSync(join(p, name))));
 if (!source) {
@@ -44,12 +54,12 @@ let drifted = 0;
 for (const [name, rel] of FILES) {
   const from = join(source, name);
   const to = join(root, rel);
-  const theirs = readFileSync(from, "utf8");
-  const ours = existsSync(to) ? readFileSync(to, "utf8") : null;
+  const theirs = lf(readFileSync(from, "utf8"));
+  const ours = existsSync(to) ? lf(readFileSync(to, "utf8")) : null;
   if (ours === theirs) continue;
   drifted++;
   if (write) {
-    copyFileSync(from, to);
+    writeFileSync(to, theirs);
     console.log(`check-identity: copied ${name} from ${source}`);
   } else {
     console.error(`check-identity: ${rel} differs from ${from}`);
