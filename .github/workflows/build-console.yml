@@ -74,6 +74,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      # The check job vendors for its own tests, on its own runner. This job builds what ships, and
+      # v2.0.0 shipped without src/vendor: no three, no font, a black window. build.rs now refuses to
+      # compile without them, so this has to come before the first cargo command.
+      - name: Vendor the browser dependencies
+        run: npm run vendor
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -109,6 +115,12 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+
+      # The bare executable carries the frontend too, so it needs the same vendored files.
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Vendor the browser dependencies
+        run: npm run vendor
 
       - name: Build the executable
         run: cargo build --release --manifest-path src-tauri/Cargo.toml

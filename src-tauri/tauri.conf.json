@@ -4,6 +4,7 @@
   "version": "2.0.0",
   "identifier": "com.frccatalyst.console",
   "build": {
+    "beforeBuildCommand": "npm run vendor",
     "frontendDist": "../src"
   },
   "app": {

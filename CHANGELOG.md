@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The released build opened a black window.** The release workflow never ran `npm run vendor` in the
+  job that builds the installer, so v2.0.0 shipped without three.js and the interface font and the
+  first import failed. The workflow vendors before it builds, `tauri build` does too, and the Rust
+  build now refuses to compile when the vendored files are missing. The field, robot and driver
+  models are baked from CAD on a development machine and are still not in a build made by CI: the
+  3D views fall back to the drawn robot there.
+
 ### Added
 
 - **A Drive status tile** for a robot that says why it is holding a shot (team 5805's Numbers): the
