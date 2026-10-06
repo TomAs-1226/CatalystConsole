@@ -32,6 +32,13 @@ const REPO = "TomAs-1226/CatalystConsole";
 const stop = (message) => { console.error(`release: ${message}`); process.exit(1); };
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
 const tryOut = (cmd, args) => { try { return out(cmd, args); } catch { return null; } };
+// Content, not timestamps or line endings: the Tauri CLI rewrites Cargo.toml with the endings it
+// prefers, which `git status` reports as modified although nothing in it changed.
+const dirty = () => {
+  tryOut("git", ["update-index", "-q", "--refresh"]);
+  return tryOut("git", ["diff", "--quiet", "HEAD"]) === null
+    || out("git", ["ls-files", "--others", "--exclude-standard"]) !== "";
+};
 
 const version = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8")).version;
 const tag = `v${version}`;
@@ -45,7 +52,7 @@ if (missing.length) {
   stop(`src/vendor is missing ${missing.join(", ")}. Bake the models first (npm run field-cad, robot-cad, driver-cad, device-cad).`);
 }
 
-if (out("git", ["status", "--porcelain"])) stop("the working tree has uncommitted changes.");
+if (dirty()) stop("the working tree has uncommitted changes.");
 const head = out("git", ["rev-parse", "HEAD"]);
 const tagged = tryOut("git", ["rev-parse", `${tag}^{commit}`]);
 if (tagged !== head) {
@@ -73,7 +80,7 @@ const env = {
 };
 const built = spawnSync("npm", ["run", "build", "--", "--bundles", "nsis"], { cwd: root, env, stdio: "inherit", shell: true });
 if (built.status !== 0) stop("the build failed.");
-if (out("git", ["status", "--porcelain"])) stop("the build changed tracked files (the identity copy drifted?). Commit that and release the next version.");
+if (dirty()) stop("the build changed tracked files (the identity copy drifted?). Commit that and release the next version.");
 
 const nsis = join(root, "src-tauri/target/release/bundle/nsis");
 const installer = join(nsis, `Catalyst Console_${version}_x64-setup.exe`);
