@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   models are baked from CAD on a development machine and are still not in a build made by CI: the
   3D views fall back to the drawn robot there.
 
+### Changed
+
+- **Releases are built on the machine that has the models**, with `npm run release`, and published
+  from there. The workflow on GitHub now only checks and proves the build; it no longer releases.
+
 ### Added
 
 - **A Drive status tile** for a robot that says why it is holding a shot (team 5805's Numbers): the

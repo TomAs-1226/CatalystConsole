@@ -1,27 +1,27 @@
-# Build Catalyst Console and publish a signed release.
+# Check Catalyst Console and prove it still builds. This workflow does not release.
 #
-# The console had no release workflow, which broke the chain the desktop app depends on: the app's
-# build fetches `catalyst-console.exe` from this repository's latest release, so without one it kept
-# bundling whatever was released last — and the app's own auto-updater then shipped a current app
-# around a stale console.
+# It used to: a `v*` tag built the installer here and published it. But the field, robot and driver
+# models the 3D views draw are baked from CAD on a development machine into src/vendor, which git
+# does not track, so a runner has never had them. v2.0.0 was built here anyway, without even three
+# or the font, and opened a black window on every computer but the one it was written on. A runner
+# can now vendor those two, but a release built here would still replace the real field and robot
+# with the fallback drawing on every install that auto-updates.
 #
-# It also publishes the signed `latest.json` the console's own updater pulls from.
-#
-# Required repo secrets (Settings -> Secrets and variables -> Actions):
-#   TAURI_SIGNING_PRIVATE_KEY           contents of the console's updater key
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the key password (empty string if none)
-#
-# Tag `v<version>` to release, matching every release this repo already has, or run it by hand.
-name: Build Catalyst Console
+# So a release is built where the models are: `npm run release` on that machine, after
+# `devtools release CatalystConsole <version>` and a push. It publishes the signed installer, the
+# `latest.json` the console's updater reads, and the bare `catalyst-console.exe` the Catalyst app's
+# build fetches. See scripts/release.mjs.
+name: Check Catalyst Console
 
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    branches: [main]
+  pull_request:
 
 jobs:
-  # Fast gate. The heavy matrix below takes minutes per platform, and there is no sense burning that
-  # to discover a broken formatter rule that node --test would have caught in a second.
+  # Fast gate. The build below takes minutes, and there is no sense burning that to discover a
+  # broken formatter rule that node --test would have caught in a second.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -30,8 +30,7 @@ jobs:
         with:
           node-version: 22
       # The 3D views import three from src/vendor, which is copied out of node_modules at build time
-      # rather than checked in. Without this the gate cannot even load driver3d, hopper3d or park3d,
-      # and a release tag fails here nine seconds in - which is how v2.0.0 first failed.
+      # rather than checked in. Without this the gate cannot even load driver3d, hopper3d or park3d.
       - name: Install
         run: npm ci
       - name: Vendor the browser dependencies
@@ -39,73 +38,10 @@ jobs:
       - name: Test
         run: npm test
 
+  # Not shipped anywhere: this is the proof that a clean checkout compiles and bundles.
   build:
     needs: check
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest       # universal (Apple Silicon + Intel)
-            args: "--target universal-apple-darwin"
-          - platform: windows-latest
-            args: ""
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Cache cargo
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
-
-      # tauri-action runs `npm run tauri build`, which needs the Tauri CLI from devDependencies.
-      - name: Install frontend dependencies
-        run: npm install
-
-      # The check job vendors for its own tests, on its own runner. This job builds what ships, and
-      # v2.0.0 shipped without src/vendor: no three, no font, a black window. build.rs now refuses to
-      # compile without them, so this has to come before the first cargo command.
-      - name: Vendor the browser dependencies
-        run: npm run vendor
-
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Build and release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          args: ${{ matrix.args }}
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
-          releaseName: "Catalyst Console v__VERSION__"
-          releaseBody: "Driver station dashboard. Windows installer + universal macOS .dmg, and the signed `latest.json` the console's auto-updater pulls from. The desktop app's build also fetches the bare `catalyst-console.exe` from here."
-          releaseDraft: false
-
-  # The app bundles the bare executable, not the installer, so it has to be attached separately —
-  # tauri-action uploads only the packaged artefacts.
-  attach-bare-exe:
-    needs: build
-    # It builds the executable itself and only needs the release to exist, so a failure on the other
-    # platform must not keep it from the app, which bundles this file and nothing else from here.
-    if: ${{ !cancelled() }}
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,20 +52,17 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
-      # The bare executable carries the frontend too, so it needs the same vendored files.
       - name: Install frontend dependencies
         run: npm ci
+
+      # build.rs refuses to compile without the vendored files, so this comes before any cargo command.
       - name: Vendor the browser dependencies
         run: npm run vendor
 
-      - name: Build the executable
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Attach it to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "v$version" }
-          gh release upload $tag src-tauri/target/release/catalyst-console.exe --clobber
+      # No signing key here on purpose, so no updater artefacts: nothing from this job can be
+      # mistaken for a release.
+      - name: Build the installer
+        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.ci.conf.json

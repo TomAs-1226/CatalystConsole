@@ -17,6 +17,7 @@
     "serve": "node scripts/serve.mjs",
     "dev": "node scripts/vendor.mjs && tauri dev",
     "build": "node scripts/check-identity.mjs --write && node scripts/vendor.mjs && tauri build",
+    "release": "node scripts/release.mjs",
     "identity": "node scripts/check-identity.mjs --write",
     "check-identity": "node scripts/check-identity.mjs"
   },
