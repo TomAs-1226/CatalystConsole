@@ -1,16 +1,16 @@
-# Graph Report - CatalystConsole  (2026-10-08)
+# Graph Report - CatalystConsole  (2026-09-25)
 
 ## Corpus Check
-- 97 files · ~289,723 words
+- 93 files · ~283,075 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1767 nodes · 3829 edges · 97 communities (92 shown, 5 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 90 edges (avg confidence: 0.78)
+- 1702 nodes · 3663 edges · 87 communities (83 shown, 4 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 87 edges (avg confidence: 0.78)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `62c8198f`
+- Built from commit: `3388f8c4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -24,14 +24,14 @@
 - tauri.conf.json
 - paintGarage
 - dslog_tests.rs
-- The widget catalogue
-- Rule 3 — It never invents a number
+- Hub activation tile
+- onFrame
 - el
 - scripts
 - definitions
 - definitions
 - setCamera
-- num
+- update
 - drivers.js
 - hidePark
 - Rule 2 — Nothing it does may impede driving
@@ -45,7 +45,7 @@
 - demo-match.js
 - webviews
 - webviews
-- The Tauri icon set
+- Rule 1 — It never controls the robot
 - worldTriangles
 - CapabilityRemote
 - CapabilityRemote
@@ -57,7 +57,7 @@
 - Capability
 - desktop-schema.json
 - windows-schema.json
-- matchTime
+- Rule 3 — It never invents a number
 - serve.mjs
 - description
 - description
@@ -79,7 +79,7 @@
 - Changelog
 - wpilog_tests.rs
 - device3d.js
-- hubPlan
+- hub.js
 - calibration.js
 - paintRunList
 - hopper3d.js
@@ -95,31 +95,21 @@
 - core-format.js
 - overdrive.js
 - version-files.test.js
-- run_gui
+- The team number lives in the backend config
 - drawRunTraces
 - runFileName
-- update
+- shots3d.js
 - The plan, drawn from the wire
-- release.mjs
-- applyLayoutText
-- Rule 1 — It never controls the robot
-- String
-- setUpdateNote
-- setText
-- Derived rather than passed in
-- probeAssets
-- motion-filter.js
-- board-format.js
 
 ## God Nodes (most connected - your core abstractions)
-1. `update()` - 71 edges
+1. `update()` - 55 edges
 2. `main()` - 48 edges
 3. `escapeHtml()` - 31 edges
 4. `buildSettings()` - 30 edges
-5. `paintParkInfo()` - 28 edges
-6. `Nt4Client` - 24 edges
-7. `Rule 3 — It never invents a number` - 24 edges
-8. `dot()` - 23 edges
+5. `Nt4Client` - 24 edges
+6. `Rule 3 — It never invents a number` - 24 edges
+7. `dot()` - 23 edges
+8. `paintParkInfo()` - 23 edges
 9. `paint()` - 23 edges
 10. `Rule 2 — Nothing it does may impede driving` - 22 edges
 
@@ -130,10 +120,10 @@
   docs/assets/banner.svg → src/index.html
 - `install_update()` --implements--> `Rule 2 — Nothing it does may impede driving`  [INFERRED]
   src-tauri/src/main.rs → README.md
+- `serve()` --implements--> `Failure, quietly and without lying`  [EXTRACTED]
+  src-tauri/src/mcp.rs → docs/mcp.md
 - `ds_events()` --implements--> `A quiet session is not an unreadable file`  [EXTRACTED]
   src-tauri/src/mcp.rs → docs/mcp.md
-- `The plan is not painted in the alliance colour` --references--> `alliance()`  [INFERRED]
-  docs/robot-identity.md → src/app.js
 
 ## Import Cycles
 - None detected.
@@ -149,7 +139,7 @@
 - **The three rules restated across every surface** — docs_assets_banner_three_rules_as_the_product, src_index_three_rules_in_about, docs_readme_three_rules_restated, readme_rule_1_never_controls_the_robot, readme_rule_2_never_impedes_driving, readme_rule_3_never_invents_a_number [EXTRACTED 1.00]
 - **One drawing rasterised at four sizes** — src_tauri_icons_icon_app_icon, src_tauri_icons_32x32_small_icon, src_tauri_icons_128x128_medium_icon, src_tauri_icons_128x128_2x_retina_icon [EXTRACTED 1.00]
 
-## Communities (97 total, 5 thin omitted)
+## Communities (87 total, 4 thin omitted)
 
 ### Community 0 - "field-collision.mjs"
 Cohesion: 0.04
@@ -157,51 +147,51 @@ Nodes (51): also, bboxCentre, binCells, broken, ceiling, clearanceMm, cols, crop
 
 ### Community 1 - "nt4.rs"
 Cohesion: 0.05
-Nodes (81): AtomicBool, AtomicI64, AtomicU64, Absent is not zero, alerts returns null, not an empty list, Failure, quietly and without lying, field_map says which paths it searched, JSON-RPC 2.0 over stdio (+73 more)
+Nodes (82): AtomicBool, AtomicI64, AtomicU64, Absent is not zero, The advisory travels with the numbers, alerts returns null, not an empty list, field_map says which paths it searched, JSON-RPC 2.0 over stdio (+74 more)
 
 ### Community 2 - "main.rs"
-Cohesion: 0.21
-Nodes (18): AppHandle, Default, Signed releases, AppState, install_update(), load_settings(), nt_frame(), nt_set() (+10 more)
+Cohesion: 0.11
+Nodes (40): AppHandle, Default, Signed releases, I, Two modes, one binary, AppState, attach_parent_console(), candidate_addresses() (+32 more)
 
 ### Community 3 - "robot-cad.mjs"
 Cohesion: 0.06
 Nodes (104): buildManifest(), BUMPER, baseName(), CLASS_RULES, classifyFace(), classifyPart(), colourTone(), DROP_RULES (+96 more)
 
 ### Community 4 - "buildSettings"
-Cohesion: 0.28
-Nodes (16): Nothing applies, Searching leaves matches where they live, The Settings panel, section by section, The Settings panel, Settings search leaves matches where they live, applySearch(), buildSettings(), clearSearchState() (+8 more)
+Cohesion: 0.12
+Nodes (31): Bundled but switched off says exactly that, Nothing applies, Release notes are shown as plain text, never rendered, Searching leaves matches where they live, The Settings panel, section by section, Trail length applies on release, The Settings panel, Settings search leaves matches where they live (+23 more)
 
 ### Community 5 - "app.js"
 Cohesion: 0.03
-Nodes (78): agentUrl(), ago(), aimStickNotice(), aimStickSteady, assistNotice(), assistSeen, BAR_STEPS, barOverflows() (+70 more)
+Nodes (74): agentUrl(), ago(), aimStickNotice(), aimStickSteady, BAR_STEPS, barOverflows(), batteryShownState, BIT (+66 more)
 
 ### Community 6 - "tauri.conf.json"
 Cohesion: 0.07
-Nodes (27): dmg, https://github.com/TomAs-1226/CatalystConsole/releases/latest/download/latest.json, icons/icon.ico, nsis, app, security, windows, withGlobalTauri (+19 more)
+Nodes (26): dmg, https://github.com/TomAs-1226/CatalystConsole/releases/latest/download/latest.json, icons/icon.ico, nsis, app, security, windows, withGlobalTauri (+18 more)
 
 ### Community 7 - "paintGarage"
-Cohesion: 0.20
-Nodes (14): Copy the spec sheet, Bumper diagonal and channels used, The Catalyst group leads the sheet, Nothing has to be republished, The nine spec sheet groups, The garage, Absence rather than a dash on the spec sheet, The Catalyst feature inventory (+6 more)
+Cohesion: 0.12
+Nodes (22): A builder for the facts no API can answer, Copy the spec sheet, The demo sheet is deliberately incomplete, Derived rather than passed in, Bumper diagonal and channels used, The Catalyst group leads the sheet, Gear ratios and mass are the exceptions, The library omits rather than zeroes (+14 more)
 
 ### Community 8 - "dslog_tests.rs"
 Cohesion: 0.07
 Nodes (49): A quiet session is not an unreadable file, Drop, Driver Station logs, The .dslog parser fails closed, classify(), default_log_dir(), DsEvent, DsSamples (+41 more)
 
-### Community 9 - "The widget catalogue"
-Cohesion: 0.14
-Nodes (15): The board, suggested rather than drawn, Alternating shifts 1-4, The hub schedule, Auto, transition and end game need no game data, Six teleop segments, Table 6-2, The advisory travels with the numbers, The widget catalogue, Shortest distinguishing path suffix (+7 more)
+### Community 9 - "Hub activation tile"
+Cohesion: 0.29
+Nodes (8): Alternating shifts 1-4, The hub schedule, Auto, transition and end game need no game data, Six teleop segments, Table 6-2, Hub activation tile, HUB versus TOWER terminology, A robot-published answer always wins, REBUILT teleop shift schedule
 
-### Community 10 - "Rule 3 — It never invents a number"
-Cohesion: 0.21
-Nodes (15): The demo sheet is deliberately incomplete, The library omits rather than zeroes, Why a missing fact is missing rather than dashed, Partial figures give a partial drawing, Demo data is amber, alone among the switches, The power board is drawn only from a published channel count, Demo data, Rule 3 — It never invents a number (+7 more)
+### Community 10 - "onFrame"
+Cohesion: 0.24
+Nodes (13): Demo data is amber, alone among the switches, Demo data, applyFrame(), controlWord(), demoCarried(), demoTick(), onFrame(), recordRun() (+5 more)
 
 ### Community 11 - "el"
-Cohesion: 0.11
-Nodes (25): Reset arms itself rather than opening a dialog, Trail length applies on release, The component registry, buildBoard(), clock(), defaults(), define(), dispose() (+17 more)
+Cohesion: 0.09
+Nodes (36): An import is checked whole before anything is applied, Reset arms itself rather than opening a dialog, The component registry, Layout export and import, applyLayoutText(), buildBoard(), clock(), copyText() (+28 more)
 
 ### Community 12 - "scripts"
 Cohesion: 0.06
-Nodes (34): @fontsource-variable/figtree, @gltf-transform/core, @gltf-transform/extensions, meshoptimizer, description, devDependencies, @fontsource-variable/figtree, @gltf-transform/core (+26 more)
+Nodes (33): @fontsource-variable/figtree, @gltf-transform/core, @gltf-transform/extensions, meshoptimizer, description, devDependencies, @fontsource-variable/figtree, @gltf-transform/core (+25 more)
 
 ### Community 13 - "definitions"
 Cohesion: 0.12
@@ -212,24 +202,24 @@ Cohesion: 0.12
 Nodes (16): anyOf, description, definitions, Application, Number, PermissionEntry, Target, Value (+8 more)
 
 ### Community 15 - "setCamera"
-Cohesion: 0.19
-Nodes (16): One camera, two surfaces, one function, Storage is read one key at a time and every key is checked, The chase camera swings around occluding field elements, Auto chooser, Settings storage is validated key by key, applyFieldCamera(), CAMERAS, clamp() (+8 more)
+Cohesion: 0.18
+Nodes (17): One camera, two surfaces, one function, Storage is read one key at a time and every key is checked, The chase camera swings around occluding field elements, Auto chooser, Settings storage is validated key by key, applyFieldCamera(), CAMERAS, clamp() (+9 more)
 
-### Community 16 - "num"
-Cohesion: 0.11
-Nodes (24): The plan is not painted in the alliance colour, alliance(), applyFrame(), batteryReadiness(), batteryShown(), batteryVolts(), clamp01(), controlWord() (+16 more)
+### Community 16 - "update"
+Cohesion: 0.06
+Nodes (49): A count and a list answer different questions, The plan is not painted in the alliance colour, The Devices section, The power board is drawn only from a published channel count, activeView(), agoText(), alliance(), arcPath() (+41 more)
 
 ### Community 17 - "drivers.js"
 Cohesion: 0.07
-Nodes (64): The tunables manifest, applyRobotSettings(), commitRobotSetting(), controlBindings(), declaredTunables(), driversSignature(), liveTunable(), ntSet() (+56 more)
+Nodes (65): The tunables manifest, applyRobotSettings(), commitRobotSetting(), controlBindings(), declaredTunables(), driversSignature(), has(), liveTunable() (+57 more)
 
 ### Community 18 - "hidePark"
-Cohesion: 0.21
-Nodes (17): fieldHandover(), fieldTileNow(), groundNow(), hidePark(), loadParkScene(), moveTile(), paintPark(), paintPart() (+9 more)
+Cohesion: 0.18
+Nodes (19): fieldHandover(), fieldTileNow(), groundNow(), hidePark(), layout, loadParkScene(), moveTile(), onShow() (+11 more)
 
 ### Community 19 - "Rule 2 — Nothing it does may impede driving"
-Cohesion: 0.12
-Nodes (21): The quiet update check, Alert hold, Nothing is modal, Every binding is a single unmodified key, Alerts are held after they clear, update must be cheap and must not throw, A stored board that cannot be read does not take the console with it, Field render cost control (+13 more)
+Cohesion: 0.11
+Nodes (24): The three rules set in monospace on the banner, The quiet update check, Documentation index, The three rules, restated in the docs index, About lays the three rules across on a wide window, Alert hold, Nothing is modal, Every binding is a single unmodified key (+16 more)
 
 ### Community 20 - "paintLinkHistory"
 Cohesion: 0.20
@@ -244,8 +234,8 @@ Cohesion: 0.15
 Nodes (13): properties, Identifier, description, oneOf, type, default, description, type (+5 more)
 
 ### Community 23 - "Catalyst Console"
-Cohesion: 0.22
-Nodes (11): The console's own palette, The project banner, Bundled with the Catalyst desktop app, Documentation index, Alert group topics, Catalyst Console, FrcCatalyst, app (+3 more)
+Cohesion: 0.15
+Nodes (15): The console's own palette, The project banner, The board, suggested rather than drawn, Bundled with the Catalyst desktop app, Installing Catalyst Console, The widget catalogue, Alert group topics, Catalyst Console (+7 more)
 
 ### Community 24 - "permissions"
 Cohesion: 0.17
@@ -256,32 +246,32 @@ Cohesion: 0.17
 Nodes (12): $ref, array, null, description, items, type, uniqueItems, description (+4 more)
 
 ### Community 26 - "createField"
-Cohesion: 0.19
-Nodes (12): The optional field bakes, The baked field model, Field material re-grounding, The procedural field outline, root, scratch, vendor, bakedAssets (+4 more)
+Cohesion: 0.14
+Nodes (13): The optional field bakes, The baked field model, Field material re-grounding, The procedural field outline, root, scratch, vendor, bakedAssets (+5 more)
 
 ### Community 27 - "demo-match.js"
 Cohesion: 0.05
 Nodes (36): AIM, AIM_STATES, BUMP_X, DEPLOY_POSE_NAMES, DEPLOY_POSES, DEPOT, FEED_HOOD, FEED_LOWER (+28 more)
 
 ### Community 28 - "webviews"
-Cohesion: 0.20
-Nodes (10): type, webviews, windows, items, description, items, type, description (+2 more)
+Cohesion: 0.22
+Nodes (9): type, webviews, windows, description, items, type, description, items (+1 more)
 
 ### Community 29 - "webviews"
 Cohesion: 0.20
 Nodes (10): type, webviews, windows, items, description, items, type, description (+2 more)
 
-### Community 30 - "The Tauri icon set"
-Cohesion: 0.24
-Nodes (11): Installing Catalyst Console, The standalone installer, Two NetworkTables clients are ordinary, Competition legality, NetworkTables, One console at a time, The 128px @2x application icon, The 128px application icon (+3 more)
+### Community 30 - "Rule 1 — It never controls the robot"
+Cohesion: 0.19
+Nodes (15): The standalone installer, Diagnosis has never needed control, There is no drive tool, and there will not be one, Two NetworkTables clients are ordinary, NetworkTables, NI Driver Station, One console at a time, Rule 1 — It never controls the robot (+7 more)
 
 ### Community 31 - "worldTriangles"
 Cohesion: 0.31
 Nodes (9): apply(), boundsOf(), identity(), instanceCount(), instanceMatrix(), isLooseGamePiece(), multiply(), placementPoints() (+1 more)
 
 ### Community 32 - "CapabilityRemote"
-Cohesion: 0.22
-Nodes (9): description, properties, required, type, CapabilityRemote, urls, urls, description (+1 more)
+Cohesion: 0.20
+Nodes (10): description, properties, required, type, CapabilityRemote, urls, urls, description (+2 more)
 
 ### Community 33 - "CapabilityRemote"
 Cohesion: 0.22
@@ -292,8 +282,8 @@ Cohesion: 0.43
 Nodes (8): It stands down, Settings stands down when the robot goes live, closeOverlays(), isLive(), MODALS, overlayOpen(), settingsOpen(), standDownOverlaysOnEnable()
 
 ### Community 35 - "paint"
-Cohesion: 0.16
-Nodes (14): Opens on applies at launch only, activeView(), BOOT, onShow(), paint(), paintTopics(), parkWanted(), settings (+6 more)
+Cohesion: 0.14
+Nodes (20): Opens on applies at launch only, BOOT, buildCanProbes(), canShapeOf(), paint(), paintCan(), paintTopics(), setFlag() (+12 more)
 
 ### Community 36 - "vendor.mjs"
 Cohesion: 0.38
@@ -319,9 +309,9 @@ Nodes (4): anyOf, description, $schema, title
 Cohesion: 0.40
 Nodes (4): anyOf, description, $schema, title
 
-### Community 42 - "matchTime"
-Cohesion: 0.29
-Nodes (8): /FMSInfo carries no match clock, Game data is empty until after auto, Published-and-empty is not absent, /FMSInfo topics, The /FMSInfo write guard, /FMSInfo/GameSpecificMessage, Match clock topic fallback chain, matchTime()
+### Community 42 - "Rule 3 — It never invents a number"
+Cohesion: 0.19
+Nodes (13): /FMSInfo carries no match clock, Game data is empty until after auto, Published-and-empty is not absent, Failure, quietly and without lying, Partial figures give a partial drawing, /FMSInfo topics, The /FMSInfo write guard, /FMSInfo/GameSpecificMessage (+5 more)
 
 ### Community 43 - "serve.mjs"
 Cohesion: 0.50
@@ -340,28 +330,28 @@ Cohesion: 0.67
 Nodes (3): floodInterior(), isWall(), seedCell()
 
 ### Community 49 - "mechanisms.js"
-Cohesion: 0.09
-Nodes (30): paintQuick(), trackMechanisms(), ballAt(), createAimDebounce(), FEED_RATE, fitKeep(), FUEL_DIAMETER_M, GRAVITY (+22 more)
+Cohesion: 0.10
+Nodes (27): trackMechanisms(), ballAt(), createAimDebounce(), FEED_RATE, fitKeep(), hasMechanisms(), INTAKE_LOAD_AMPS, isEjecting() (+19 more)
 
 ### Community 50 - "runs.js"
 Cohesion: 0.07
-Nodes (24): readTunables(), AIM_CODE, AIM_ERROR, AIM_FIELDS, AIM_NAMES, AIM_STATE, AIM_TARGET, BATTERY_KEYS (+16 more)
+Nodes (23): AIM_CODE, AIM_ERROR, AIM_FIELDS, AIM_NAMES, AIM_STATE, AIM_TARGET, BATTERY_KEYS, COLUMNS (+15 more)
 
 ### Community 51 - "escapeHtml"
-Cohesion: 0.12
-Nodes (37): A count and a list answer different questions, The Devices section, arr(), buildCanGroups(), buildCanProbes(), cameraStateWords(), canBusHtml(), canShapeOf() (+29 more)
+Cohesion: 0.15
+Nodes (29): buildCanGroups(), cameraStateWords(), canBusHtml(), coreNum(), coreRows(), duration(), escapeHtml(), fraction() (+21 more)
 
 ### Community 52 - "can-model.js"
 Cohesion: 0.14
 Nodes (25): barWidth(), busIndex(), busKind(), BUSY_DEVICE_COUNT, contentionWarnings(), controllerGroup(), CONTROLLERS, ERROR_PASSIVE (+17 more)
 
 ### Community 53 - "devices.js"
-Cohesion: 0.11
-Nodes (26): fraction(), paintDeviceStrip(), cameraTables(), clampToField(), countState(), deviceSummary(), drivePath(), engagedAutopilot() (+18 more)
+Cohesion: 0.13
+Nodes (21): cameraTables(), clampToField(), deviceSummary(), drivePath(), engagedAutopilot(), limelightFix(), notices(), parseBool() (+13 more)
 
 ### Community 54 - "demo-match.test.js"
-Cohesion: 0.08
-Nodes (21): HOPPER, RED_HUB, ROBOT, scoreHoodDegAt, scoreRpmAt, scoreTimeOfFlightAt, START_POSE, DEPOT (+13 more)
+Cohesion: 0.09
+Nodes (20): HOPPER, RED_HUB, ROBOT, scoreHoodDegAt, scoreRpmAt, scoreTimeOfFlightAt, START_POSE, DEPOT (+12 more)
 
 ### Community 55 - "field3d.js"
 Cohesion: 0.08
@@ -372,8 +362,8 @@ Cohesion: 0.15
 Nodes (21): ARRIVED_S, buildMannequin(), clamp01(), createDriver(), createDriverStage(), createModelDriver(), DRIVER_HEIGHT_M, driverPose() (+13 more)
 
 ### Community 57 - "robot3d.js"
-Cohesion: 0.16
-Nodes (20): addBumpers(), arcPlate(), axle(), BATTERY, buildRobot(), BUMPER_FADE_MS, bumperNumber(), createRobotModel() (+12 more)
+Cohesion: 0.17
+Nodes (19): addBumpers(), arcPlate(), axle(), BATTERY, buildRobot(), BUMPER_FADE_MS, bumperNumber(), createRobotModel() (+11 more)
 
 ### Community 58 - "robot-cad.js"
 Cohesion: 0.25
@@ -392,8 +382,8 @@ Cohesion: 0.18
 Nodes (16): MATCH_S, noise(), createRunRecorder(), frameState(), RUNS_KEPT, SAMPLE_CAPACITY, SPEED_BANDS, aimAtSpeeds() (+8 more)
 
 ### Community 62 - "Changelog"
-Cohesion: 0.10
-Nodes (19): [0.2.0] — 2026-08-05 — Impacts and swerve tiles., [0.3.0] — 2026-08-06 — In-place updates., [0.4.0] — 2026-08-06 — About page, layout portability, shortcuts, connection history, a read-only diagnostics MCP., [0.5.0] — 2026-08-06 — Settings, and the robot's own spec sheet., [0.5.1] — 2026-08-06 — The garage, properly., [0.6.0] — 2026-08-06 — What the robot is made to do., [0.7.0] — 2026-08-06 — Search, release notes, and documentation that is true., [0.8.0] — 2026-08-06 — Less text, more robot. (+11 more)
+Cohesion: 0.12
+Nodes (15): [0.2.0] — 2026-08-05 — Impacts and swerve tiles., [0.3.0] — 2026-08-06 — In-place updates., [0.4.0] — 2026-08-06 — About page, layout portability, shortcuts, connection history, a read-only diagnostics MCP., [0.5.0] — 2026-08-06 — Settings, and the robot's own spec sheet., [0.5.1] — 2026-08-06 — The garage, properly., [0.6.0] — 2026-08-06 — What the robot is made to do., [0.7.0] — 2026-08-06 — Search, release notes, and documentation that is true., [0.8.0] — 2026-08-06 — Less text, more robot. (+7 more)
 
 ### Community 63 - "wpilog_tests.rs"
 Cohesion: 0.27
@@ -403,9 +393,9 @@ Nodes (11): a_file_that_is_not_a_wpilog_is_refused_rather_than_decoded(), a_real
 Cohesion: 0.21
 Nodes (11): paintCameraPart(), paintCoreHero(), partSize(), CLAY, createDeviceStage(), deviceById(), loadDevices(), studioEnvironment() (+3 more)
 
-### Community 65 - "hubPlan"
-Cohesion: 0.26
-Nodes (13): gameMessage(), paintMatchCue(), matchClock(), redHubActive(), redHubActive(), activeIn(), clamp01(), hubPlan() (+5 more)
+### Community 65 - "hub.js"
+Cohesion: 0.27
+Nodes (12): matchClock(), redHubActive(), redHubActive(), activeIn(), AUTO_S, clamp01(), hubPlan(), inactiveFirst() (+4 more)
 
 ### Community 66 - "calibration.js"
 Cohesion: 0.29
@@ -444,7 +434,7 @@ Cohesion: 0.25
 Nodes (7): Absent is not zero, CAN buses, Error counters, The pair figure, What it deliberately does not do, What the console works out, and what the robot said, Where the numbers come from
 
 ### Community 75 - "check-identity.mjs"
-Cohesion: 0.25
+Cohesion: 0.29
 Nodes (6): args, FILES, given, root, source, write
 
 ### Community 76 - "driver-cad.mjs"
@@ -463,9 +453,9 @@ Nodes (4): bytes(), level(), preEolState(), wearText()
 Cohesion: 0.60
 Nodes (4): createOverdriveDebounce(), OVERDRIVE_COOLDOWN_MS, OVERDRIVE_ENGAGE_MS, OVERDRIVE_WARP_MS
 
-### Community 81 - "run_gui"
-Cohesion: 0.18
-Nodes (14): The diagnostics MCP server, I, The read-only diagnostics MCP server, The team number lives in the backend config, Two modes, one binary, attach_parent_console(), main(), Mode (+6 more)
+### Community 81 - "The team number lives in the backend config"
+Cohesion: 0.50
+Nodes (5): The diagnostics MCP server, Candidate address cycling, The read-only diagnostics MCP server, The team number lives in the backend config, candidateAddresses()
 
 ### Community 82 - "drawRunTraces"
 Cohesion: 0.40
@@ -475,42 +465,6 @@ Nodes (5): drawRunTraces(), drawTrace(), tokenAlpha(), traceSegments(), valueRan
 Cohesion: 0.50
 Nodes (4): exportRun(), selectedRun(), runCsv(), runFileName()
 
-### Community 84 - "update"
-Cohesion: 0.13
-Nodes (40): agoText(), arcPath(), cadFits(), history(), motorRowsFromNt(), paintParkInfo(), poseAge(), update() (+32 more)
-
-### Community 87 - "release.mjs"
-Cohesion: 0.11
-Nodes (18): bare, built, dirty(), dryRun, env, files, head, installer (+10 more)
-
-### Community 88 - "applyLayoutText"
-Cohesion: 0.13
-Nodes (18): An import is checked whole before anything is applied, Layout export and import, applyLayoutText(), copyText(), distinctLabels(), downloadText(), exportLayoutToFile(), importLayoutFromFile() (+10 more)
-
-### Community 89 - "Rule 1 — It never controls the robot"
-Cohesion: 0.31
-Nodes (10): The three rules set in monospace on the banner, Diagnosis has never needed control, There is no drive tool, and there will not be one, The three rules, restated in the docs index, About lays the three rules across on a wide window, NI Driver Station, Rule 1 — It never controls the robot, The second control path hazard (+2 more)
-
-### Community 90 - "String"
-Cohesion: 0.28
-Nodes (9): Candidate address cycling, candidateAddresses(), candidate_addresses(), ds_events(), ds_log_dir(), ds_samples(), ds_sessions(), String (+1 more)
-
-### Community 91 - "setUpdateNote"
-Cohesion: 0.36
-Nodes (8): Release notes are shown as plain text, never rendered, applyTeam(), applyUpdateInfo(), paintAddresses(), refreshTeam(), setNote(), setUpdateNote(), Release notes render into a pre, never as markup
-
-### Community 92 - "setText"
-Cohesion: 0.53
-Nodes (6): setFlag(), setLevel(), setText(), setWidth(), writeCanBus(), writeCanPair()
-
-### Community 93 - "Derived rather than passed in"
-Cohesion: 0.40
-Nodes (5): A builder for the facts no API can answer, Derived rather than passed in, Gear ratios and mass are the exceptions, One line of adoption, RobotIdentity.declare
-
-### Community 94 - "probeAssets"
-Cohesion: 0.50
-Nodes (5): Bundled but switched off says exactly that, ABOUT_LINKS, assetLabel(), probeAssets(), The live diagnostics grid
-
 ## Ambiguous Edges - Review These
 - `Rule 1 — It never controls the robot` → `The steering wheel motif`  [AMBIGUOUS]
   src-tauri/icons/icon.png · relation: conceptually_related_to
@@ -518,9 +472,9 @@ Nodes (5): Bundled but switched off says exactly that, ABOUT_LINKS, assetLabel()
   src-tauri/icons/32x32.png · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **449 isolated node(s):** `name`, `version`, `private`, `description`, `type` (+444 more)
+- **424 isolated node(s):** `name`, `version`, `private`, `description`, `type` (+419 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **5 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **4 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -529,13 +483,13 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `One console at a time` and `The 32px application icon`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `update()` connect `update` to `robot-cad.mjs`, `app.js`, `el`, `num`, `drivers.js`, `hidePark`, `paint`, `matchTime`, `mechanisms.js`, `escapeHtml`, `can-model.js`, `devices.js`, `aim-target.test.js`, `hubPlan`, `core-format.js`, `overdrive.js`, `applyLayoutText`, `setText`, `board-format.js`?**
-  _High betweenness centrality (0.124) - this node is a cross-community bridge._
-- **Why does `scale()` connect `robot-cad.mjs` to `update`?**
-  _High betweenness centrality (0.063) - this node is a cross-community bridge._
+- **Why does `update()` connect `update` to `hub.js`, `robot-cad.mjs`, `paint`, `app.js`, `Rule 3 — It never invents a number`, `el`, `core-format.js`, `overdrive.js`, `drivers.js`, `hidePark`, `escapeHtml`, `can-model.js`, `devices.js`, `mechanisms.js`, `aim-target.test.js`?**
+  _High betweenness centrality (0.131) - this node is a cross-community bridge._
 - **Why does `sub()` connect `robot-cad.mjs` to `update`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
-- **Are the 10 inferred relationships involving `update()` (e.g. with `scale()` and `sub()`) actually correct?**
-  _`update()` has 10 INFERRED edges - model-reasoned connections that need verification._
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Why does `scale()` connect `robot-cad.mjs` to `update`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
+- **Are the 9 inferred relationships involving `update()` (e.g. with `scale()` and `sub()`) actually correct?**
+  _`update()` has 9 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 2 inferred relationships involving `escapeHtml()` (e.g. with `Release notes are shown as plain text, never rendered` and `paintAgentCameras()`) actually correct?**
   _`escapeHtml()` has 2 INFERRED edges - model-reasoned connections that need verification._
