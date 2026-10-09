@@ -22,6 +22,7 @@
  */
 
 import { readTunables } from "./drivers.js";
+import { hasUtilityControlWord, readMatchField } from "./driver-station.js";
 
 /** How many runs the page keeps, with their traces, and how many summaries it stores. */
 export const RUNS_KEPT = 20;
@@ -48,10 +49,6 @@ export const VISION_REJECTED = "/Catalyst/Vision/TotalRejected";
 const CAMERA_NAMES = "/Catalyst/Vision/Health/Names";
 const TAG_COUNT = /^\/Catalyst\/Vision\/([^/]+)\/TagCount$/;
 const ROBOT_NAME = "/Catalyst/Robot/Identity/Name";
-const OP_MODE = "/FMSInfo/OpMode";
-/* 2027's control word; a robot that publishes it calls test mode utility (see ds.mode in app.js). */
-const CONTROL_WORD_2027 = "/FMSInfo/ControlWord";
-
 /* The control word's bits, as app.js decodes them. */
 const ENABLED = 1;
 const AUTONOMOUS = 2;
@@ -304,8 +301,8 @@ export function createRunRecorder({ sampleS = SAMPLE_S, capacity = SAMPLE_CAPACI
       wall: finite(wall) ? wall : null,
       partial: !armed,
       robot: textOf(read, ROBOT_NAME),
-      opMode: textOf(read, OP_MODE),
-      testName: read.has(CONTROL_WORD_2027) ? "Utility" : "Test",
+      opMode: readMatchField(read, "OpMode", "str"),
+      testName: hasUtilityControlWord(read) ? "Utility" : "Test",
       tunables: snapshotTunables(read),
       cameras: cameraKeys(read),
       modes: [0, 0, 0],

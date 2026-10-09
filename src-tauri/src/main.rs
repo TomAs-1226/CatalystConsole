@@ -274,11 +274,12 @@ fn nt_frame(state: tauri::State<'_, AppState>) -> Frame {
 
 /// Namespaces the console will not write to, whatever the frontend asks for.
 ///
-/// `/FMSInfo` is the driver station's own view of the match — alliance, station, and the control word
-/// that says whether the robot is enabled. Robot code and dashboards read it; only the DS writes it.
+/// `/DriverStation` and its older `/FMSInfo` name are the driver station's own view of the match —
+/// alliance, station, and the control word that says whether the robot is enabled. Robot code and
+/// dashboards read it; only the DS writes it.
 /// Nothing in this app has a reason to touch it, so the guard lives here at the boundary rather than
 /// relying on the UI to never ask.
-const PROTECTED: &[&str] = &["/FMSInfo", "/.schema"];
+const PROTECTED: &[&str] = &["/FMSInfo", "/DriverStation", "/.schema"];
 
 /// Write a value to NetworkTables.
 ///

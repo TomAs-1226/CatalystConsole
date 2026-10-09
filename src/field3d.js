@@ -28,6 +28,7 @@ import { createRobotModel, studioEnvironment } from "./robot3d.js";
 import { createShots } from "./shots3d.js";
 import { FEED_RATE, FEED_TRAVEL_S, FUEL_DIAMETER_M, LAUNCH_KEEP, launchSpeed, lobVelocity, SHOOTER_LANES } from "./mechanisms.js";
 import { createMotionFilter } from "./motion-filter.js";
+import { shotAtFieldPose } from "./park-state.js";
 import { aimedAt, enterSquare, faceSpan, standoffPose, TAG_SIZE } from "./aim-target.js";
 /* OVERDRIVE's own duration (see overdrive.js), so the sweep drawn here can never run longer or shorter
    than the debounce that triggers it - one number, not copied. */
@@ -2384,8 +2385,11 @@ export function createField(canvas, opts) {
      * with eye and look as [x, y, z] in the robot's own frame (x front, y up, z right, the floor under
      * its centre at the origin). Null when there is no robot on the field to hand over.
      */
-    shot() {
-      if (disposed || !robot.visible) return null;
+    shot(pose = null) {
+      if (disposed || !robot.visible || (unplaced && !pose)) return null;
+      // A visual auto handover can target the published start without moving the live model,
+      // its estimator, motion filter, trail or camera. Field telemetry remains authoritative.
+      if (pose) return shotAtFieldPose({ eye: camera.position.toArray(), look: target.toArray(), fov: camera.fov }, pose, poseLength, poseWidth);
       robot.updateMatrixWorld();
       const inverse = robot.matrixWorld.clone().invert();
       const eye = camera.position.clone().applyMatrix4(inverse);

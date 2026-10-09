@@ -559,9 +559,9 @@ fn decode_struct(type_str: &str, bytes: &[u8]) -> Option<NtValue> {
     Some(NtValue::Nums(nums))
 }
 
-/// WPILib 2027's control word, as the bits of the 2026 `/FMSInfo/FMSControlData` the page already reads.
+/// WPILib 2027's control word, as the bits of the 2026 control word the page already reads.
 ///
-/// 2027 stopped publishing FMSControlData. It publishes `/FMSInfo/ControlWord` instead, a
+/// Alpha 7 publishes this as `/DriverStation/ControlWord` (earlier 2027 builds used `/FMSInfo`), a
 /// `struct:ControlWord`: one little-endian uint64 whose schema (read off a Systemcore on image 13) is
 /// "uint64 opModeHash:56; robotMode:2 (0 unknown, 1 autonomous, 2 teleoperated, 3 utility); bool
 /// enabled:1; bool eStop:1; bool fmsAttached:1; bool dsAttached:1", with the masks HAL's ControlWord.java

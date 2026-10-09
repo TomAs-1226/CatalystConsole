@@ -39,6 +39,9 @@ import {
    Its own module so the state machine is tested without the field tile (see overdrive.js). */
 import { createOverdriveDebounce } from "./overdrive.js";
 import { demoMatch, START_POSE } from "./demo-match.js";
+import { hasUtilityControlWord, readAlliance, readControlWord, readGameData, readMatchField } from "./driver-station.js";
+import { parkIdentity, selectedAutoStart } from "./park-state.js";
+import { readLoopTiming } from "./loop-timing.js";
 /* Every enabled stretch, written up for the run review on Park. Its own module so every number it prints is
    tested against X1's real topics. */
 import {
@@ -122,22 +125,16 @@ function has(key) {
 
 /* --------------------------------------------------------- driver station state */
 
-/* WPILib packs the control word into /FMSInfo/FMSControlData. The bit layout is part of the DS
- * protocol and has been stable for years, but we only ever read it. 2027 publishes a struct at
- * /FMSInfo/ControlWord instead, and the backend hands that over in these same bits (see control_word in
- * nt4.rs); whichever of the two the robot publishes is the one read. */
+/* The backend flattens WPILib alpha-7's DriverStation/ControlWord into the legacy bits. New namespace
+ * wins; old FMSInfo names are read only when the native topic is absent. */
 const BIT = { enabled: 1, auto: 2, test: 4, estop: 8, fms: 16, ds: 32 };
 
-/** The robot's control word, from whichever topic its WPILib publishes it on; null when neither. */
-function controlWord() {
-  return num("/FMSInfo/ControlWord", null) ?? num("/FMSInfo/FMSControlData", null);
-}
+/** The robot's control word; null when neither namespace has a valid value. */
+const controlWord = () => readControlWord(ntView);
 
 /** What the FMS says about the match - the hub schedule's first inactive alliance - from 2026's topic
  *  or 2027's. */
-function gameMessage() {
-  return str("/FMSInfo/GameData", null) ?? str("/FMSInfo/GameSpecificMessage", "");
-}
+const gameMessage = () => readGameData(ntView);
 
 const ds = {
   word: 0,
@@ -151,22 +148,20 @@ const ds = {
     if (this.estop) return "E-STOP";
     if (!this.enabled) return "Disabled";
     /* 2027 calls it utility, and a robot on 2027 publishes the struct word. */
-    if (this.test) return has("/FMSInfo/ControlWord") ? "Utility" : "Test";
+    if (this.test) return hasUtilityControlWord(ntView) ? "Utility" : "Test";
     if (this.auto) return "Autonomous";
     return "Teleop";
   },
 };
 
 function alliance() {
-  const red = bool("/FMSInfo/IsRedAlliance", null);
-  if (red === null) return null;
-  return red ? "red" : "blue";
+  return readAlliance(ntView);
 }
 
 /**
  * Seconds left in the current period.
  *
- * The robot has to publish this. WPILib's `/FMSInfo` table carries the control word, the alliance, the
+ * The robot has to publish this. WPILib's `/DriverStation` table carries the control word, the alliance, the
  * event and the game-specific message — but **not** the match clock, so there is nothing to read
  * unless robot code puts `DriverStation.getMatchTime()` somewhere. One line in `robotPeriodic`; see
  * README. Everything here degrades to a dash without it rather than inventing a countdown.
@@ -275,7 +270,9 @@ function demoTick() {
   set("/Catalyst/Drive/Overdrive", "bool", overdriving);
   set("/Catalyst/Drive/SpeedCapMps", "num", overdriving ? DEMO_OVERDRIVE_CAP_MPS : Number.NaN);
   set("/Catalyst/Shooter/Velocity", "num", shooterRps);
-  set("/Catalyst/Loop/Robot/AverageMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
+  set("/Catalyst/Loop/Robot/AverageMs", "num", 20);
+  set("/Catalyst/Loop/Robot/AverageWorkMs", "num", 6.4 + 1.6 * Math.abs(Math.sin(t * 3)));
+  set("/Catalyst/Loop/Robot/OverBudget", "bool", false);
   set("/Catalyst/Status/CanUtilization", "num", 0.42 + 0.09 * Math.sin(t * 0.9));
   set("/Catalyst/Brownout/MeasuredVoltage", "num", volts);
 
@@ -1760,7 +1757,7 @@ define("health", {
   w: 3, h: 2,
   config: [
     { key: "loopKey", label: "Loop time topic", type: "topic", def: "/Catalyst/Loop/Robot/AverageMs",
-      hint: "Catalyst's LoopMonitor publishes this once you construct one." },
+      hint: "For Robot/AverageMs, Console shows measured work when available and labels the loop period separately. Custom topics use your configured budget." },
     { key: "canKey", label: "CAN utilisation topic", type: "topic", def: "/Catalyst/Status/CanUtilization",
       hint: "Nothing publishes this by default. One line in robotPeriodic: CatalystLog.log(\"Status/CanUtilization\", RobotController.getCANStatus().percentBusUtilization)." },
     { key: "budget", label: "Loop budget (ms)", type: "number", def: 20 },
@@ -1770,7 +1767,7 @@ define("health", {
     body.innerHTML = `
       <div class="fill">
         <div class="m3">
-          <div><div class="mv" data-x="loop">—</div><div class="ml">Loop ms</div></div>
+          <div><div class="mv" data-x="loop">—</div><div class="ml" data-x="loopLabel">Loop ms</div></div>
           <div><div class="mv" data-x="can">—</div><div class="ml">CAN %</div></div>
           <div><div class="mv" data-x="rtt">—</div><div class="ml">RTT ms</div></div>
         </div>
@@ -1779,20 +1776,25 @@ define("health", {
       </div>`;
   },
   update(body, cfg, x) {
-    const loop = num(cfg.loopKey, null);
+    const timing = readLoopTiming(ntView, cfg);
     const can = num(cfg.canKey, null);
-    x.loop.textContent = fmt(loop, 1);
-    x.loop.className = `mv ${loop === null ? "" : loop > cfg.budget ? "crit" : loop > cfg.budget * 0.75 ? "warn" : "ok"}`;
+    x.loop.textContent = fmt(timing.value, 1);
+    x.loopLabel.textContent = timing.kind === "work" ? "Measured work ms" : timing.kind === "period" ? "Period ms" : "Loop ms";
+    x.loop.className = `mv ${timing.state === "bad" ? "crit" : timing.state}`;
     x.can.textContent = can === null ? "—" : (can * 100).toFixed(0);
     x.can.className = `mv ${can === null ? "" : can > 0.85 ? "crit" : can > 0.7 ? "warn" : ""}`;
     x.rtt.textContent = nt.status.rtt_ms ? nt.status.rtt_ms.toFixed(1) : "—";
 
-    const frac = loop === null ? 0 : clamp01(loop / cfg.budget);
+    const frac = timing.kind === "work" && Number.isFinite(cfg.budget) && cfg.budget > 0
+      ? clamp01(timing.work / cfg.budget) : timing.headroom === null ? 0 : 1 - timing.headroom;
     x.bar.style.width = `${frac * 100}%`;
-    x.bar.style.background = frac > 1 ? "var(--crit)" : frac > 0.75 ? "var(--warn)" : "var(--cat-data)";
-    x.cap.innerHTML = loop === null
+    x.bar.style.background = timing.state === "bad" ? "var(--crit)" : timing.state === "warn" ? "var(--warn)" : "var(--cat-data)";
+    x.cap.innerHTML = timing.value === null
       ? "waiting for the robot to publish loop time"
-      : `<b>${((1 - frac) * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`;
+      : timing.kind === "work" ? `Measured work · ${timing.period === null ? "period unknown" : `${timing.period.toFixed(1)} ms period`}`
+      : timing.headroom === null ? "Work time unavailable; period does not measure CPU load"
+      : `<b>${(timing.headroom * 100).toFixed(0)}%</b> of the ${cfg.budget} ms budget spare`
+        + (timing.period === null ? "" : ` · ${timing.period.toFixed(1)} ms period`);
   },
 });
 
@@ -4058,8 +4060,8 @@ function paintHeader() {
   app.dataset.estop = String(linked && ds.estop);
 
   const side = alliance();
-  const event = str("/FMSInfo/EventName", "");
-  const match = num("/FMSInfo/MatchNumber", null);
+  const event = readMatchField(ntView, "EventName", "str", "");
+  const match = readMatchField(ntView, "MatchNumber", "num");
   const sideText = `${side ? (side === "red" ? "Red" : "Blue") : "No"} alliance`;
   const matchText = event ? (match ? `Match ${match}` : "") : "no match";
   /* The status line carries the match, not the product: Tesla's bar has no wordmark on it, and the mark
@@ -4117,9 +4119,11 @@ function paintHeader() {
   $("#dDs").className = `d ${ds.dsAttached ? "ok" : ""}`;
   $("#dFms").className = `d ${ds.fms ? "ok" : ""}`;
 
-  const loop = num("/Catalyst/Loop/Robot/AverageMs", null);
-  $("#dLoop").className = `d ${loop === null ? "" : loop > 20 ? "bad" : loop > 15 ? "warn" : "ok"}`;
-  $("#loopText").textContent = loop === null ? "— ms" : `${loop.toFixed(1)} ms`;
+  const timing = readLoopTiming(ntView);
+  $("#dLoop").className = `d ${timing.state}`;
+  $("#loopText").textContent = timing.value === null ? "— ms" : `${timing.kind === "work" ? "Work" : "Period"} ${timing.value.toFixed(1)} ms`;
+  $("#loopText").parentElement.title = timing.work === null ? "Work time unavailable"
+    : `Measured work between begin/end; ${timing.period === null ? "period unknown" : `${timing.period.toFixed(1)} ms loop period`}`;
   $("#rttChip").textContent = nt.status.rtt_ms ? `RTT ${nt.status.rtt_ms.toFixed(1)} ms` : "RTT —";
 
   $("#stateName").textContent = linked ? ds.mode : "No robot";
@@ -4753,8 +4757,7 @@ function parkSpec(linked) {
 
 /** The number on the bumpers, the same way round: the connected robot's, or the remembered one's. */
 function parkTeam(linked) {
-  if (!linked) return lastRobot?.team ?? null;
-  return num("/Catalyst/Systemcore/TeamNumber", null) || num(`${SPEC_ROOT}Identity/TeamNumber`, null) || null;
+  return parkIdentity(ntView, { linked, configuredTeam: teamNumber, rememberedTeam: lastRobot?.team }).team;
 }
 
 function parkWanted(now) {
@@ -5097,7 +5100,12 @@ function hidePark() {
     hand.scene.settle();
   }
   for (const entry of live.values()) entry.spec.onShow?.(entry.state);
-  const shot = hand ? hand.scene.shot() : null;
+  const autoHandover = ntView.linked && ds.enabled && ds.auto;
+  const autoStart = autoHandover && hand
+    ? selectedAutoStart(ntView, { length: hand.entry.item.cfg.length, width: hand.entry.item.cfg.width }) : null;
+  // An auto handover belongs to its published start, not the robot's parked/staging coordinates.
+  // With no published start, fade over the live field; never invent a landing location.
+  const shot = hand ? (autoHandover ? autoStart && hand.scene.shot(autoStart) : hand.scene.shot()) : null;
 
   if (!hand || !shot) {
     /* Nothing to land on: fade out over the board, whose field view swings in from above. */
@@ -5131,7 +5139,7 @@ function hidePark() {
       /* Read again every frame: the robot is enabled and may already be driving, and the field view's
          camera follows it, so the shot to land on at the end is not the one there was at take-off. */
       to: () => {
-        const now = hand.scene.shot();
+        const now = hand.scene.shot(autoStart);
         return now ? { ...now, rect: hand.rect } : null;
       },
       duration: DRIVE_MOVE_MS,
@@ -5387,11 +5395,12 @@ const PART_PAGES = {
     kind: "Control system",
     title: "Robot controller",
     lede: "The computer that runs the robot's code. It reads every sensor and writes every motor on a fixed "
-      + "loop - twenty milliseconds on this robot - and everything else waits for that loop. The loop time is "
-      + "how long the code actually took; if it creeps toward the budget, something in it is too slow and the "
-      + "robot starts responding late. The CAN figure is how full the wire to the motors is.",
+      + "loop - twenty milliseconds on this robot. The period is the interval between starts; measured work is "
+      + "the code inside the robot's timing boundaries, which may omit other callbacks. Work approaching the "
+      + "budget warrants a closer look. The CAN figure is how full the wire to the motors is.",
     rows: (ctx) => [
-      ["Loop", ctx.loop === null ? "—" : `${ctx.loop.toFixed(1)} ms of 20`],
+      ["Measured work", ctx.timing.work === null ? "—" : `${ctx.timing.work.toFixed(1)} ms`],
+      ["Period", ctx.timing.period === null ? "—" : `${ctx.timing.period.toFixed(1)} ms`],
       ["CAN", ctx.can === null ? "—" : `${Math.round(ctx.can * 100)}%`],
       ["Round trip", ctx.rtt === null ? "—" : `${ctx.rtt.toFixed(1)} ms`],
     ],
@@ -5419,7 +5428,7 @@ function partContext() {
       const w = num(`${SPEC_ROOT}Chassis/BumperWidthMeters`, null) ?? num(`${SPEC_ROOT}Chassis/FrameWidthMeters`, null);
       return l !== null && w !== null ? [l, w] : null;
     })() : null,
-    loop: linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null,
+    timing: readLoopTiming(ntView),
     can: linked ? num("/Catalyst/Status/CanUtilization", null) : null,
     /* Demo data has no round trip, and a zero there would be the console inventing a number about
        itself. */
@@ -5842,8 +5851,8 @@ function paintParkInfo() {
   setText('[data-c="controller"]',
     [temp !== null && `${temp.toFixed(0)} °C`, cpu !== null && `CPU ${cpu.toFixed(0)}%`].filter(Boolean).join(" · ") || "—");
 
-  const event = linked ? str("/FMSInfo/EventName", "") : "";
-  const match = linked ? num("/FMSInfo/MatchNumber", null) : null;
+  const event = linked ? readMatchField(ntView, "EventName", "str", "") : "";
+  const match = linked ? readMatchField(ntView, "MatchNumber", "num") : null;
   setText("#parkMatch", match ? `Match ${match}` : linked ? "Practice" : "—");
   setText("#parkMatchSub", [event, side && `${side === "red" ? "Red" : "Blue"} alliance`].filter(Boolean).join(" · ") || "No event");
 
@@ -5855,11 +5864,13 @@ function paintParkInfo() {
   setText("#parkAutoSub", !options.length ? (poseFrom ? `No chooser published · ${poseFrom}` : "No chooser published")
     : poseFrom ? `${options.length} routines · ${poseFrom}` : `${options.length} routines · change it from the dock`);
 
-  const loop = linked ? num("/Catalyst/Loop/Robot/AverageMs", null) : null;
+  const timing = readLoopTiming(ntView);
   const active = noticeSeen.size;
   setText("#parkHealth", !linked ? "—" : active ? `${active} alert${active === 1 ? "" : "s"}` : "All clear");
   setText("#parkHealthSub",
-    [summary?.motors?.expected && `${count(summary.motors)} motors`, loop !== null && `loop ${loop.toFixed(1)} ms`]
+    [summary?.motors?.expected && `${count(summary.motors)} motors`,
+      timing.work !== null && `work ${timing.work.toFixed(1)} ms`,
+      timing.period !== null && `period ${timing.period.toFixed(1)} ms`]
       .filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase()) || "Loop time unknown");
 
   /* The latest run. One read back from storage is from an earlier session, so it says when it was. */
@@ -5995,6 +6006,13 @@ async function probeAssets() {
  * it is what the MCP server reads, and it has to outlive anything the browser side forgets. So there
  * is exactly one place to set it, and this is it. */
 let teamNumber = null;
+// Park also needs the saved connection identity before Settings has ever been opened.
+if (invoke) invoke("team_number").then((n) => {
+  if (Number.isInteger(n) && n >= 1 && n <= 9999) {
+    teamNumber = n;
+    schedulePaint();
+  }
+}).catch(() => {});
 
 /* Mirrors candidate_addresses() in src-tauri/src/main.rs. Two copies exist because the console has to
  * be able to say what it is about to try before anything has answered — but they are the same list in

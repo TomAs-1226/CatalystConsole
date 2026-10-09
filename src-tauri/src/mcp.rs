@@ -402,8 +402,8 @@ impl Server {
     fn match_state(&self) -> Value {
         let (values, _) = self.nt.snapshot();
 
-        // WPILib packs the control word into /FMSInfo/FMSControlData. The bit layout is part of the
-        // DS protocol and has been stable for years; we only ever read it.
+        // WPILib alpha-7 moved these fields to /DriverStation. Keep the previous names as
+        // absent-only compatibility fallbacks; a malformed native value must not be masked.
         const ENABLED: i64 = 1;
         const AUTO: i64 = 2;
         const TEST: i64 = 4;
@@ -411,10 +411,7 @@ impl Server {
         const FMS: i64 = 16;
         const DS: i64 = 32;
 
-        // 2027 publishes a ControlWord struct instead, which nt4.rs hands over in these same bits.
-        let word = num_of(&values, "/FMSInfo/FMSControlData")
-            .or_else(|| num_of(&values, "/FMSInfo/ControlWord"))
-            .map(|w| w as i64);
+        let word = control_word_of(&values);
         let bit = |mask: i64| word.map(|w| (w & mask) != 0);
 
         // Without the control word there is no mode. "Disabled" would be a plausible answer and a
@@ -433,13 +430,18 @@ impl Server {
             }
         });
 
-        let alliance = match bool_of(&values, "/FMSInfo/IsRedAlliance") {
+        let alliance_key = if values.contains_key("/DriverStation/IsRedAlliance") {
+            "/DriverStation/IsRedAlliance"
+        } else {
+            "/FMSInfo/IsRedAlliance"
+        };
+        let alliance = match bool_of(&values, alliance_key) {
             Some(true) => json!("red"),
             Some(false) => json!("blue"),
             None => Value::Null,
         };
 
-        // /FMSInfo carries the control word, the alliance and the game data but *not* the clock, so
+        // DriverStation carries the control word, alliance and game data but *not* the clock, so
         // there is nothing to read unless robot code publishes DriverStation.getMatchTime()
         // somewhere. These are the three places it usually lands, in the order the dashboard tries.
         const CLOCKS: &[&str] =
@@ -461,7 +463,9 @@ impl Server {
         // An empty game-specific message is a real, meaningful state — FMS has not sent it yet — and
         // is not the same as the topic being absent. The hub schedule depends on telling them apart.
         // 2027 renamed the topic to GameData; whichever the robot publishes is the one reported.
-        let gsm: &str = if str_of(&values, "/FMSInfo/GameSpecificMessage").is_none()
+        let gsm: &str = if values.contains_key("/DriverStation/GameData") {
+            "/DriverStation/GameData"
+        } else if str_of(&values, "/FMSInfo/GameSpecificMessage").is_none()
             && str_of(&values, "/FMSInfo/GameData").is_some()
         {
             "/FMSInfo/GameData"
@@ -940,6 +944,51 @@ fn num_of(values: &HashMap<String, NtValue>, key: &str) -> Option<f64> {
     match values.get(key)? {
         NtValue::Num(n) => Some(*n),
         _ => None,
+    }
+}
+
+/// Only the six decoded DS bits are valid. Invalid native data never falls back to stale legacy data.
+fn control_word_of(values: &HashMap<String, NtValue>) -> Option<i64> {
+    let key = ["/DriverStation/ControlWord", "/FMSInfo/ControlWord", "/FMSInfo/FMSControlData"]
+        .into_iter()
+        .find(|key| values.contains_key(*key))?;
+    let word = num_of(values, key)?;
+    (word.is_finite() && word.fract() == 0.0 && (0.0..=63.0).contains(&word))
+        .then_some(word as i64)
+}
+
+#[cfg(test)]
+mod control_word_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_words_do_not_invent_a_robot_mode() {
+        for key in ["/DriverStation/ControlWord", "/FMSInfo/ControlWord", "/FMSInfo/FMSControlData"] {
+            for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, 1.5, 64.0] {
+                let values = HashMap::from([(key.to_owned(), NtValue::Num(invalid))]);
+                assert_eq!(control_word_of(&values), None, "{key}: {invalid}");
+            }
+            for valid in [0, 1, 3, 32, 63] {
+                let values = HashMap::from([(key.to_owned(), NtValue::Num(valid as f64))]);
+                assert_eq!(control_word_of(&values), Some(valid));
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_primary_never_uses_legacy_robot_mode() {
+        let mut values = HashMap::from([
+            ("/FMSInfo/FMSControlData".to_owned(), NtValue::Num(3.0)),
+            ("/FMSInfo/ControlWord".to_owned(), NtValue::Num(1.0)),
+            ("/DriverStation/ControlWord".to_owned(), NtValue::Str("invalid".to_owned())),
+        ]);
+        assert_eq!(control_word_of(&values), None);
+        values.remove("/DriverStation/ControlWord");
+        assert_eq!(control_word_of(&values), Some(1));
+        values.remove("/FMSInfo/ControlWord");
+        assert_eq!(control_word_of(&values), Some(3));
+        values.clear();
+        assert_eq!(control_word_of(&values), None);
     }
 }
 
