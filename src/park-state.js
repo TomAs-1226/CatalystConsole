@@ -1,5 +1,6 @@
 /* Read-only Park identity and visual handover data. These never change robot telemetry. */
 import { readAlliance } from "./driver-station.js";
+import { chooserSelection } from "./auto-chooser.js";
 
 const team = (value) => Number.isInteger(value) && value >= 1 && value <= 9999 ? value : null;
 
@@ -19,7 +20,7 @@ export function parkIdentity(read, { linked = read.linked, configuredTeam = null
 /** A selected auto's published start for the visual transition, never its current/parked pose. */
 export function selectedAutoStart(read, { length = 16.54, width = 8.07 } = {}) {
   if (!read.linked) return null;
-  const selected = read.str("/Auto Selector/selected", null) ?? read.str("/Auto Selector/active", null);
+  const selected = chooserSelection(read).chosen;
   if (typeof selected !== "string" || !selected.trim()) return null;
   const available = read.raw("/Catalyst/Auto/StartCheck/Available");
   if (available?.t !== "bool" || available.v !== true) return null;

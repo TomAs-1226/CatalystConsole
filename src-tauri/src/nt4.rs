@@ -602,6 +602,82 @@ fn control_word(bytes: &[u8]) -> Option<f64> {
 mod struct_tests {
     use super::*;
 
+    #[tokio::test]
+    async fn chooser_write_reaches_server_and_active_changes_only_on_acknowledgement() {
+        // This is a local protocol server, never a robot or Driver Station connection.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:5810").await.unwrap();
+        let values = Arc::new(Mutex::new(HashMap::new()));
+        let status = Arc::new(Mutex::new(NtStatus::default()));
+        let dirty = Arc::new(AtomicBool::new(false));
+        let rtt = Arc::new(AtomicU64::new(0));
+        let offset = Arc::new(AtomicI64::new(0));
+        let (set_tx, mut set_rx) = mpsc::unbounded_channel();
+        let observed = Arc::clone(&values);
+        let session = tokio::spawn(async move {
+            run_session("127.0.0.1", &values, &status, &dirty, &rtt, &offset, &mut set_rx).await
+        });
+        let server = async {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_hdr_async(tcp, |_: &tokio_tungstenite::tungstenite::handshake::server::Request, mut response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+                response.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
+                Ok(response)
+            }).await.unwrap();
+            let announcement = json!([{
+                "method": "announce", "params": {
+                    "name": "/Auto Selector/active", "id": 7, "type": "string", "properties": {}
+                }
+            }]);
+            socket.send(Message::Text(announcement.to_string())).await.unwrap();
+            let active_frame = |name: &str| {
+                let frame = rmpv::Value::Array(vec![7.into(), 0.into(), 4.into(), name.into()]);
+                let mut bytes = Vec::new();
+                rmpv::encode::write_value(&mut bytes, &frame).unwrap();
+                Message::Binary(bytes)
+            };
+            socket.send(active_frame("Do Nothing")).await.unwrap();
+            while observed.lock().unwrap().get("/Auto Selector/active").is_none() {
+                tokio::task::yield_now().await;
+            }
+            set_tx.send(SetRequest {
+                key: "/Tunables/Auto Selector/selected/tune".into(),
+                value: SetValue::Str("Leave".into()),
+            }).unwrap();
+            let mut publisher = None;
+            loop {
+                match socket.next().await.unwrap().unwrap() {
+                    Message::Text(text) => {
+                        let messages: serde_json::Value = serde_json::from_str(&text).unwrap();
+                        for message in messages.as_array().unwrap() {
+                            if message["method"] == "publish" {
+                                assert_eq!(message["params"]["name"], "/Tunables/Auto Selector/selected/tune");
+                                assert_eq!(message["params"]["type"], "string");
+                                publisher = message["params"]["pubuid"].as_i64();
+                            }
+                        }
+                    }
+                    Message::Binary(bytes) => {
+                        let frame = rmpv::decode::read_value(&mut bytes.as_slice()).unwrap();
+                        let frame = frame.as_array().unwrap();
+                        if frame[0].as_i64() == publisher && publisher.is_some() {
+                            assert_eq!(frame[2].as_i64(), Some(4));
+                            assert_eq!(frame[3].as_str(), Some("Leave"));
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(observed.lock().unwrap()["/Auto Selector/active"], NtValue::Str("Do Nothing".into()));
+            socket.send(active_frame("Leave")).await.unwrap();
+            while observed.lock().unwrap()["/Auto Selector/active"] != NtValue::Str("Leave".into()) {
+                tokio::task::yield_now().await;
+            }
+            socket.close(None).await.unwrap();
+        };
+        tokio::time::timeout(Duration::from_secs(5), server).await.unwrap();
+        session.abort();
+    }
+
     fn packed(values: &[f64]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_le_bytes()).collect()
     }

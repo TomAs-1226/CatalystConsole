@@ -42,6 +42,7 @@ import { demoMatch, START_POSE } from "./demo-match.js";
 import { hasUtilityControlWord, readAlliance, readControlWord, readGameData, readMatchField } from "./driver-station.js";
 import { parkIdentity, selectedAutoStart } from "./park-state.js";
 import { readLoopTiming } from "./loop-timing.js";
+import { chooserSelection } from "./auto-chooser.js";
 /* Every enabled stretch, written up for the run review on Park. Its own module so every number it prints is
    tested against X1's real topics. */
 import {
@@ -2032,7 +2033,7 @@ function escapeHtml(s) {
 define("auto", {
   name: "Auto chooser",
   group: "Match",
-  desc: "Pick the autonomous routine — writes the same key SendableChooser reads",
+  desc: "Pick the autonomous routine — supports SendableChooser and WPILib Selectable",
   w: 3, h: 1,
   config: [
     { key: "base", label: "Chooser path", type: "topic", def: "/Auto Selector" },
@@ -2045,10 +2046,8 @@ define("auto", {
   },
   update(body, cfg, x) {
     const options = arr(`${cfg.base}/options`) || [];
-    const selected = str(`${cfg.base}/selected`, null);
-    const active = str(`${cfg.base}/active`, null);
-    const chosen = selected ?? active;
-    const signature = `${cfg.style}::${options.join("|")}::${chosen}`;
+    const { chosen, writeKey } = chooserSelection({ str }, cfg.base);
+    const signature = `${cfg.style}::${options.join("|")}::${chosen}::${ds.enabled}::${writeKey}`;
     if (x.list.dataset.sig === signature) return;
     x.list.dataset.sig = signature;
 
@@ -2061,13 +2060,17 @@ define("auto", {
     if (cfg.style === "compact") {
       const picker = el("select");
       picker.style.width = "100%";
+      picker.disabled = ds.enabled;
       for (const option of options) {
         const o = el("option", null, option);
         o.value = option;
         picker.appendChild(o);
       }
       picker.value = chosen ?? options[0];
-      picker.onchange = () => ntSet(`${cfg.base}/selected`, picker.value);
+      picker.onchange = () => {
+        ntSet(writeKey, picker.value);
+        picker.value = chosen ?? options[0];
+      };
       x.list.appendChild(picker);
       return;
     }
@@ -2077,7 +2080,7 @@ define("auto", {
       row.setAttribute("aria-checked", String(option === chosen));
       row.appendChild(el("i"));
       row.appendChild(el("span", null, option));
-      row.onclick = () => ntSet(`${cfg.base}/selected`, option);
+      row.onclick = () => { if (!ds.enabled) ntSet(writeKey, option); };
       x.list.appendChild(row);
     }
   },
@@ -2437,7 +2440,7 @@ define("field", {
     if (x.head.dataset.warp !== String(warping)) x.head.dataset.warp = String(warping);
     const routines = linked ? (arr("/Auto Selector/options") || []) : [];
     const driving = linked && ds.enabled && ds.auto && !ds.estop;
-    const routine = str("/Auto Selector/active", null) ?? str("/Auto Selector/selected", null);
+    const routine = chooserSelection({ str }).chosen;
     if (x.ap.hidden !== !(driving || routines.length)) x.ap.hidden = !(driving || routines.length);
     if (x.ap.dataset.on !== String(driving)) x.ap.dataset.on = String(driving);
     const apTitle = `Autonomous ${driving ? "driving" : "ready"}${routine ? `: ${routine}` : ""}`;
@@ -4592,7 +4595,7 @@ function paintDockAuto() {
   const options = (nt.status.connected || demo.on) ? (arr(`${AUTO_BASE}/options`) || []) : [];
   box.hidden = options.length === 0;
   if (!options.length) return;
-  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const chosen = chooserSelection({ str }, AUTO_BASE).chosen ?? "—";
   const name = $("#autoName");
   if (name.textContent !== chosen) name.textContent = chosen;
   box.title = chosen;
@@ -4604,9 +4607,9 @@ function paintDockAuto() {
 function stepAuto(dir) {
   const options = arr(`${AUTO_BASE}/options`) || [];
   if (!options.length || ds.enabled) return;
-  const chosen = str(`${AUTO_BASE}/selected`, null) ?? str(`${AUTO_BASE}/active`, null) ?? options[0];
+  const chosen = chooserSelection({ str }, AUTO_BASE).chosen ?? "—";
   const at = Math.max(0, options.indexOf(chosen));
-  ntSet(`${AUTO_BASE}/selected`, options[(at + dir + options.length) % options.length]);
+  ntSet(chooserSelection({ str }, AUTO_BASE).writeKey, options[(at + dir + options.length) % options.length]);
   paintDockAuto();
 }
 $("#autoPrev").onclick = () => stepAuto(-1);
@@ -5857,7 +5860,7 @@ function paintParkInfo() {
   setText("#parkMatchSub", [event, side && `${side === "red" ? "Red" : "Blue"} alliance`].filter(Boolean).join(" · ") || "No event");
 
   const options = linked ? (arr("/Auto Selector/options") || []) : [];
-  const chosen = str("/Auto Selector/selected", null) ?? str("/Auto Selector/active", null);
+  const chosen = chooserSelection({ str }).chosen;
   setText("#parkAuto", options.length ? (chosen || options[0]) : "—");
   /* Where the last auto took its starting pose from, when the robot says (Numbers/Auto/PoseFrom). */
   const poseFrom = numbersSt?.poseFrom ? `pose from ${numbersSt.poseFrom.toLowerCase()}` : null;
