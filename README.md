@@ -13,7 +13,7 @@ The driver-station dashboard for a robot running **FrcCatalyst**: it sits next t
 Station and shows what the robot is doing — telemetry, alerts, live tuning, Physics Core state, a 3D
 field view, the robot's own spec sheet, and readable Driver Station logs.
 
-**Console 2.0.0** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
+**Console 2.1.1** · Windows x64. Its defaults are aimed at a 2.x robot; a 1.x one works too, with the
 auto chooser tile pointed at that robot's chooser path. The spec sheet reads from 1.10 on, and every
 tile's topics are editable.
 
@@ -23,28 +23,34 @@ design-time tools. **Catalyst Console** is the driver-station dashboard that wat
 [Catalyst X1](https://github.com/TomAs-1226/CatalystX1) is team 5805's swerve test drivebase, where
 2.x is being brought up on hardware.
 
-A note on what it is watching: Catalyst **2.0.0-beta.1 is a pre-season beta**, pinned to a WPILib
-alpha, and it has never been driven on a robot — it has run on a bench. The console itself is not a
-beta and does not care which line the robot is on. If you are competing this season, run 1.x on the
-robot (tag `v1.12.0`, WPILib 2026, roboRIO) and point this at it.
+Console supports both the roboRIO/WPILib 2026 and Systemcore/WPILib 2027 lines.
+Choose the robot's actual NetworkTables host and chooser path; Console does not install robot
+libraries, flash firmware, enable the robot, or replace Driver Station. Check the library's
+[compatibility map](https://tomas-1226.github.io/FrcCatalyst/versions.html) before changing its stack.
 
 It is a Tauri app: a small Rust backend and a plain HTML/CSS/JS frontend running in the WebView2 that
 ships with Windows. There is no framework and no bundler, and nothing it draws comes off the network —
 three.js is vendored and the field is built locally, because a dashboard that needs the internet to
 draw a field fails in exactly the venue it is meant for. The one request it ever makes is the update
-check described below, which fails harmlessly when there is no route out. The whole installer is
-under four megabytes.
+check described below, which fails harmlessly when there is no route out. The release includes the locally baked field, robot and driver models.
 
 ## Versions and compatibility
 
 | The robot runs | Console |
 |---|---|
-| Catalyst 1.12.0 on a roboRIO | **1.0.0** (branch `main`, the latest GitHub release), or this one with the auto chooser tile at `/SmartDashboard/Auto Selector` |
-| Catalyst 2.0.0-alpha.5 on Systemcore OS image 13 (WPILib alpha-6) | **2.0.0**, with the auto chooser tile at `/SmartDashboard/Auto Selector` |
-| Catalyst 2.0.0-beta.2 on Systemcore OS image 14 (WPILib alpha-7) | **2.0.0**; its defaults, `/Auto Selector` included, are the beta line's |
+| Catalyst 1.x on a roboRIO | Console 2.1.1; set the chooser path to the robot's published path, commonly `/SmartDashboard/Auto Selector`. |
+| Catalyst 2.x on Systemcore | Console 2.1.1; supports the 2027 Driver Station control word and the robot's published chooser acknowledgement. |
 
-Console 1.1.0 to 1.4.3 were on this branch, `systemcore`, and were never published; 2.0.0 is the
-first release from it. The whole map is on [Versions and compatibility](https://tomas-1226.github.io/FrcCatalyst/versions.html).
+## Changes in 2.1.1
+
+- Correctly reads WPILib 2027 enabled/autonomous state and shows the selected autonomous starting
+  pose before handing the field view to measured robot pose.
+- Uses the robot's robust chooser tune topic when available. A pending dashboard selection stays
+  pending until the robot acknowledges it; the active value is not invented locally.
+- Shows the connected team number on disabled bumpers and distinguishes loop execution time from
+  the normal 20 ms periodic interval.
+- Ships the field, robot and driver models from the local release build. Runtime telemetry and
+  robot-control authority are unchanged.
 
 ---
 

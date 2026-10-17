@@ -11,7 +11,7 @@ robot. Add, remove, resize and rearrange from the dock; the layout is remembered
 | **Match timer** | phase, shift name, countdown, and the shape of the match as three bars |
 | **Hub activation** | whether your alliance hub is scoring now, how long until that changes, and the rest of the match |
 | **Drive status** | why the robot is holding a shot, who has the drive and the heading, the driver's speed limit, how much the robot is helping, and how far the robot trusts its pose — for a robot that publishes them (see [the contract](../README.md#shot-and-pose-status-team-5805s-numbers)) |
-| **Auto chooser** | pick the routine — writes the key `SendableChooser` reads |
+| **Auto chooser** | pick the routine through its published chooser/tune topic; wait for the robot acknowledgement |
 
 The hub tile works the schedule out from the rules plus the FMS game-specific message rather than
 needing the robot to tell it. See [the hub schedule](hub-schedule.md).

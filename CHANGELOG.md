@@ -5,6 +5,23 @@ All notable changes to Catalyst Console are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] — 2026-10-17
+
+### Fixed
+
+- Decode the WPILib 2027 Driver Station control word and autonomous handover correctly.
+- Start the autonomous field view at the selected routine's published start pose; retain measured
+  robot telemetry after handover.
+- Use the robust chooser tune topic and robot acknowledgement instead of presenting a local
+  selection as accepted before the robot has applied it.
+- Keep the connected team number on disabled bumpers and distinguish execution time from the
+  normal periodic interval in loop timing.
+
+### Documentation
+
+- Refresh compatibility and operating instructions for the current Console release. The dashboard
+  remains advisory; only Driver Station enables the robot.
+
 ## [2.1.0] — 2026-10-05
 
 ### Fixed
