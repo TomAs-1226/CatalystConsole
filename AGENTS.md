@@ -11,8 +11,8 @@ A driver station companion dashboard for FrcCatalyst robots, built on Tauri 2:
   MCP server behind `--mcp`.
 - **Frontend:** plain HTML/CSS/JS, with no framework or bundler.
 
-Active work is on `systemcore` (the 2027 port); `main` is the 2026 line. Run
-`git branch --show-current` first. README "Layout of the source" maps the files.
+The shipping dashboard is on `main` and supports published telemetry from both the 2026
+roboRIO and 2027 Systemcore lines. Run `git branch --show-current` first. README "Layout of the source" maps the files.
 
 ## The three rules
 
