@@ -1,8 +1,11 @@
 import {createSurroundPolicy, cameraRoster, DRIVER_VIEW_STATE, ROLES, NOMINAL_MOUNTS, projectionColumn, smallSeams} from './surround.js';
+import {cameraDemoValues,createCameraFrameSource,createDemoCameraRenderer} from './surround-demo.js';
 export function createSurroundView({invoke}) {
   const policy = createSurroundPolicy();
+  let isDemo=false,demoStart=0,generation=0;
+  const imageSource=createCameraFrameSource({live:url=>invoke?invoke('camera_frame',{url}):Promise.reject(Error('desktop required')),demo:createDemoCameraRenderer()});
   const root = document.createElement('section'); root.className = 'surround'; root.setAttribute('aria-label','Driver cameras');
-  root.innerHTML = `<div class="surround-tools"><b>Cameras</b><select aria-label="Driver camera view"><option value="auto">Automatic</option><option value="all">Three views</option><option value="panorama">Panorama</option><option value="left">Left</option><option value="rear">Rear</option><option value="right">Right</option><option value="off">Off</option></select><span class="surround-zone">Zone unknown</span></div><div class="surround-panel" hidden><header><strong>Driver view</strong><button type="button" aria-label="Dismiss driver cameras">Close</button></header><div class="surround-panorama" hidden><div class="surround-directions"><span>Forward</span><span>Right</span><span>Rear</span><span>Left</span><span>Forward</span></div><canvas width="960" height="240" aria-label="Approximate cylindrical panorama with uncovered angles marked"></canvas><p>Approximate panorama · blended seams (estimated pixels) · nominal lens and mounts</p></div><div class="surround-frames"></div><p>Small gaps blended for display · front not covered · check raw views</p><details><summary>Camera orientation</summary><p>Check against the physical robot before driving. Images are uncalibrated.</p><div class="surround-orientation"></div></details></div>`;
+  root.innerHTML = `<div class="surround-tools"><b>Cameras</b><select aria-label="Driver camera view"><option value="auto">Camera: Auto</option><option value="all">Camera: Three</option><option value="panorama">Camera: Panorama</option><option value="left">Camera: Left</option><option value="rear">Camera: Rear</option><option value="right">Camera: Right</option><option value="off">Camera: Off</option></select><span class="surround-zone">Zone unknown</span></div><div class="surround-demo-note" hidden></div><div class="surround-panel" hidden><header><strong>Driver view</strong><button type="button" aria-label="Dismiss driver cameras">Close</button></header><div class="surround-panorama" hidden><div class="surround-directions"><span>Forward</span><span>Right</span><span>Rear</span><span>Left</span><span>Forward</span></div><canvas width="960" height="240" aria-label="Approximate cylindrical panorama with uncovered angles marked"></canvas><p>Approximate panorama · blended seams (estimated pixels) · nominal lens and mounts</p></div><div class="surround-frames"></div><p>Small gaps blended for display · front not covered · check raw views</p><details><summary>Camera orientation</summary><p>Check against the physical robot before driving. Images are uncalibrated.</p><div class="surround-orientation"></div></details></div>`;
   document.querySelector('.views').append(root);
   const dock=document.querySelector('.dock');
   const tools=root.querySelector('.surround-tools');
@@ -69,12 +72,23 @@ export function createSurroundView({invoke}) {
     ctx.fillStyle='#a0a0a5';ctx.font='14px sans-serif';ctx.textAlign='center';
     let start=0;while(start<w){if(covered[start]){start++;continue;}let end=start;while(end<w&&!covered[end])end++;if(end-start>40)ctx.fillText('No coverage',(start+end)/2,h/2);start=end;}
   }
+  const demoNote=root.querySelector('.surround-demo-note');
   return {
-    ingest(values,connected,now) {if (!connected || Object.hasOwn(values,DRIVER_VIEW_STATE)) policy.ingest(values[DRIVER_VIEW_STATE]?.v,now,connected);},
+    setDemo(on,now){
+      isDemo=on===true;demoStart=now;generation++;imageSource.setDemo(isDemo);
+      // Manual choice survives a source change; sample freshness, dismissed state and images do not.
+      policy.reset();drawnAt=-Infinity;
+      for(const s of Object.values(slots)){s.url=null;s.last=-Infinity;s.next=0;s.busy=false;clear(s,'No image');}
+      panel.hidden=true;demoNote.hidden=!isDemo;
+      if(isDemo)demoNote.textContent='DEMO camera scenario · generated images';
+      else {ctx.clearRect(0,0,canvas.width,canvas.height);zone.textContent='Zone unknown';}
+    },
+    ingest(values,connected,now) {if (!isDemo && (!connected || Object.hasOwn(values,DRIVER_VIEW_STATE))) policy.ingest(values[DRIVER_VIEW_STATE]?.v,now,connected);},
     paint(values,now) {
+      if(isDemo){const generated=cameraDemoValues(Math.max(0,(now-demoStart)/1000));values=generated.values;policy.ingest(values[DRIVER_VIEW_STATE].v,now,true);demoNote.textContent=`DEMO camera scenario · ${generated.scenario.description} · generated images`; }
       const state=policy.update(now),roster=cameraRoster(values);panel.hidden=!state.view;
       zone.textContent=state.zone === 'unknown' ? 'Zone unknown' : `${state.zone === 'home' ? 'Home' : state.zone[0].toUpperCase()+state.zone.slice(1)} zone`;
-      panel.querySelector('strong').textContent=`Driver view · ${state.manual?'manual':state.view || ''} · ${zone.textContent}`;
+      panel.querySelector('strong').textContent=`${isDemo?'DEMO camera scenario':'Driver view'} · ${state.manual?'manual':state.view || ''} · ${zone.textContent}`;
       frames.dataset.view=state.view || '';
       panorama.hidden=state.view!=='panorama';frames.hidden=state.view==='panorama';
       for(const role of ROLES) {
@@ -84,15 +98,15 @@ export function createSurroundView({invoke}) {
         if(!cam||cam.ambiguous||!cam.url){s.url=null;clear(s,cam?.ambiguous?'Camera role ambiguous':'Not configured');continue;}
         if(s.url!==cam.url){s.url=cam.url;s.last=-Infinity;clear(s,'Connecting');}
         if(now-s.last>500)clear(s,s.last===-Infinity?'No recent image':'Image stale');
-        if(!invoke){s.status.textContent='Video requires desktop Console';continue;}
+        if(!invoke&&!isDemo){s.status.textContent='Video requires desktop Console';continue;}
         if(s.busy||now<s.next)continue;
         s.busy=true;s.next=now+(state.view==='all'||state.view==='panorama'?350:150);
-        const url=s.url;
-        invoke('camera_frame',{url}).then(bytes=>{
-          if(s.url!==url)return;
+        const url=s.url,requestGeneration=generation;
+        imageSource.frame({role,url,now}).then(bytes=>{
+          if(bytes===null||generation!==requestGeneration||s.url!==url)return;
           const blob=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'image/jpeg'}));
-          if(s.blob)URL.revokeObjectURL(s.blob);s.blob=blob;s.img.src=blob;s.img.hidden=false;s.empty.hidden=true;s.last=performance.now();s.status.textContent='Recent image · orientation unverified';
-        }).catch(()=>{if(s.url===url){clear(s,'Unavailable');s.next=performance.now()+1500;}}).finally(()=>{s.busy=false;});
+          if(s.blob)URL.revokeObjectURL(s.blob);s.blob=blob;s.img.src=blob;s.img.hidden=false;s.empty.hidden=true;s.last=performance.now();s.status.textContent=isDemo?'DEMO · generated illustration':'Recent image · orientation unverified';
+        }).catch(()=>{if(generation===requestGeneration&&s.url===url){clear(s,'Unavailable');s.next=performance.now()+1500;}}).finally(()=>{if(generation===requestGeneration)s.busy=false;});
       }
       if(state.view==='panorama')drawPanorama(now);
     },

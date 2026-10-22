@@ -3172,3 +3172,10 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 .dock .surround-tools select {width:106px;min-width:0;max-width:106px;background:var(--cat-surface-1);color:var(--cat-body);border:0;border-radius:4px;padding:7px;font:inherit;font-size:12px;}
 .dock .surround-zone {display:none;}
 @media(max-width:1150px){.dock .surround-tools b{display:none;}.dock .surround-tools select{width:88px;max-width:88px;}}
+
+.dock .surround-tools b{display:none;}
+.surround-demo-note{background:var(--cat-surface-1);color:var(--cat-body);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px;max-width:55vw;pointer-events:none;}
+.surround-demo-note[hidden]{display:none;}
+
+.dock .surround-tools select{width:126px;max-width:126px;}
+@media(max-width:1150px){.dock .surround-tools select{width:112px;max-width:112px;}}

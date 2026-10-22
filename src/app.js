@@ -641,6 +641,7 @@ function setDemo(on) {
      as a link that went away, rather than running on into data that is not its own. */
   if (runRecorder.recording) recordRun(false);
   demo.on = on;
+  surroundView.setDemo(on, performance.now());
   $("#demoBtn").setAttribute("aria-pressed", String(on));
   /* Two controls, one state. The dock button is the one that has to be visible while it runs; the
    * Settings row is where the explanation lives. Neither may ever disagree with the other. */

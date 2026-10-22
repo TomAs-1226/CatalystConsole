@@ -21,6 +21,7 @@ export function createSurroundPolicy() {
       if (!next) { sample = null; return; }
       if (sequence === null || next.sequence > sequence) { sample = next; sequence = next.sequence; received = now; }
     },
+    reset() { sample=null;sequence=null;received=-Infinity;selected=null;candidate=null;candidateAt=0;selectedAt=0;suppressed=false; },
     choose(mode) { if (['auto','off','all','panorama',...ROLES].includes(mode)) { manual = mode; selected = null; candidate = null; suppressed = false; } },
     dismiss() { manual = 'auto'; selected = null; candidate = null; suppressed = true; },
     update(now) {
