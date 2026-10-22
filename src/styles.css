@@ -3129,3 +3129,46 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 .gpartwho { position: absolute; left: 14px; bottom: 12px; display: grid; gap: 1px; }
 .gpartwho b { font-size: var(--fs-15); color: var(--cat-white); font-weight: var(--cat-w-medium); }
 .gpartwho span { font-size: var(--fs-12); color: var(--cat-dim); }
+
+/* Driver cameras remain a small, dismissible island; the board keeps receiving input around it. */
+.surround { position:absolute; right:20px; top:10px; z-index:12; max-width:calc(100% - 40px); pointer-events:none; }
+.surround-tools,.surround-panel { pointer-events:auto; background:var(--cat-surface-1); color:var(--cat-body); border-radius:8px; }
+.surround-tools { display:flex; align-items:center; gap:12px; padding:8px 12px; margin-left:auto; width:max-content; font-size:12px; }
+.surround select,.surround button { background:var(--cat-surface-2); color:var(--cat-ink); border:0; border-radius:4px; padding:6px 8px; font:inherit; }
+.surround button:active { background:var(--cat-surface-3); }
+.surround-zone { color:var(--cat-dim); }
+.surround-panel { width:min(650px,55vw); margin-top:8px; padding:12px; }
+.surround-panel header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:14px; }
+.surround-frames { display:flex; gap:14px; }
+.surround figure { margin:0; flex:1; min-width:0; }
+.surround figure[hidden],.surround-panel[hidden] { display:none; }
+.surround figcaption { font-size:13px; margin-bottom:6px; }
+.surround figcaption span { display:block; color:var(--cat-dim); font-size:10px; margin-top:3px; }
+.surround-image { aspect-ratio:4/3; overflow:hidden; background:#000; display:grid; place-items:center; position:relative; }
+.surround img { width:100%; height:100%; object-fit:contain; position:absolute; }
+.surround-empty { color:var(--cat-dim); font-size:13px; }
+.surround p,.surround summary { font-size:11px; color:var(--cat-dim); margin:10px 0 0; }
+.surround-orientation { display:flex; flex-wrap:wrap; gap:10px; padding:10px 0; font-size:12px; }
+.surround-orientation input { vertical-align:middle; }
+@media(max-width:1100px) { .surround-panel { width:55vw; } }
+
+.surround-panorama[hidden],.surround-frames[hidden] { display:none; }
+.surround-panorama canvas { display:block;width:100%;height:auto;background:#000; }
+.surround-directions {display:flex;justify-content:space-between;font-size:11px;color:var(--cat-dim);padding-bottom:6px;}
+.surround-orientation label {display:block;width:100%;}
+.surround-orientation input[type=number] {width:48px;background:var(--cat-surface-2);color:var(--cat-ink);border:0;padding:5px;font:inherit;}
+
+.surround-orientation select {width:68px;min-width:0;}
+.surround-orientation input[type=number] {width:52px;min-width:0;}
+.surround-panel {max-height:calc(100vh - 170px);overflow:auto;}
+
+/* Park's Dashboard action occupies top:24px/right:28px; keep it clear and reachable. */
+.app:has(#park:not([hidden])) .surround {top:88px;right:28px;}
+.app:has(#park:not([hidden])) .surround-panel {max-height:calc(100vh - 330px);}
+
+/* Persistent camera selection belongs in the dock, never over telemetry or Park navigation. */
+.dock .surround-tools {background:transparent;margin:0;padding:0;gap:5px;flex:none;}
+.dock .surround-tools b {font-weight:400;color:var(--cat-dim);font-size:11px;}
+.dock .surround-tools select {width:106px;min-width:0;max-width:106px;background:var(--cat-surface-1);color:var(--cat-body);border:0;border-radius:4px;padding:7px;font:inherit;font-size:12px;}
+.dock .surround-zone {display:none;}
+@media(max-width:1150px){.dock .surround-tools b{display:none;}.dock .surround-tools select{width:88px;max-width:88px;}}

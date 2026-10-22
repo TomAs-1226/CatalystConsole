@@ -15,6 +15,7 @@
  * persisted locally. Nothing is hard-coded to one robot or one season.
  */
 
+import { createSurroundView } from "./surround-ui.js";
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
 import { clampToField, countState, deviceSummary, drivePath, matchReadiness, notices as computeNotices, robotPlacement, startGuide, systemChecks } from "./devices.js";
@@ -59,6 +60,7 @@ import {
 
 const invoke = window.__TAURI__?.core?.invoke;
 const listen = window.__TAURI__?.event?.listen;
+const surroundView = createSurroundView({ invoke });
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -8397,6 +8399,7 @@ function standDownOverlaysOnEnable() {
 function paint() {
   if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
   standDownOverlaysOnEnable();
+  surroundView.paint(nt.v, performance.now());
   paintHeader();
   paintNotices();
   paintMatchCue();
@@ -8535,6 +8538,7 @@ function applyFrame(frame) {
   else if (wasConnected) nt.v = Object.create(null);
   wasConnected = connected;
 
+  surroundView.ingest(connected ? frame.values : {}, connected, performance.now());
   nt.status = frame.status;
   if (Object.keys(nt.v).length !== before) nt.keysDirty = true;
   onFrame();

@@ -16,6 +16,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod camera;
 mod dslog;
 mod wpilog;
 mod mcp;
@@ -443,6 +444,7 @@ fn run_gui() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            camera::camera_frame,
             ds_sessions,
             ds_support_note,
             ds_events,
