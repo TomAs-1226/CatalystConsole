@@ -27,7 +27,7 @@ export function createSurroundPolicy() {
     update(now) {
       const fresh = sample && now >= received && now - received <= 500;
       const trusted = fresh && sample.poseTrusted && sample.poseAgeSec <= .5 && ['red','blue'].includes(sample.alliance) && sample.zone !== 'unknown';
-      const allowed = trusted && sample.enabled && sample.teleop && sample.commandFresh && ['neutral','opponent'].includes(sample.zone);
+      const allowed = trusted && sample.enabled && sample.teleop && sample.commandFresh && sample.zone === 'opponent';
       const zone = trusted ? sample.zone : 'unknown';
       let wanted = null;
       if (allowed) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSurroundPolicy,parseDriverView,cameraRoster} from './surround.js';
-const sample=(extra={})=>({schemaVersion:1,sequence:1,robotRelativeVxMps:0,robotRelativeVyMps:1,robotRelativeOmegaRadps:0,enabled:true,teleop:true,commandFresh:true,zone:'neutral',poseTrusted:true,poseAgeSec:.01,alliance:'blue',...extra});
+const sample=(extra={})=>({schemaVersion:1,sequence:1,robotRelativeVxMps:0,robotRelativeVyMps:1,robotRelativeOmegaRadps:0,enabled:true,teleop:true,commandFresh:true,zone:'opponent',poseTrusted:true,poseAgeSec:.01,alliance:'blue',...extra});
 const feed=(p,t,extra={})=>p.ingest(JSON.stringify(sample({sequence:t+1,...extra})),t,true);
 test('strict schema refuses unknown and malformed telemetry',()=>{
   assert.equal(parseDriverView('{}'),null);
@@ -10,11 +10,11 @@ test('strict schema refuses unknown and malformed telemetry',()=>{
 for(const alliance of ['red','blue'])for(const zone of ['neutral','opponent'])test(`${alliance} ${zone}: robot-relative left, right, reverse`,()=>{
   for(const [view,motion] of [['left',{}],['right',{robotRelativeVyMps:-1}],['rear',{robotRelativeVxMps:-1,robotRelativeVyMps:0}]]) {
     const p=createSurroundPolicy();feed(p,0,{alliance,zone,...motion});assert.equal(p.update(0).view,null);
-    feed(p,200,{alliance,zone,...motion});assert.equal(p.update(200).view,view);
+    feed(p,200,{alliance,zone,...motion});assert.equal(p.update(200).view,zone==='opponent'?view:null);
   }
 });
 test('home, unknown pose/alliance, stale pose, disabled and auto never open automatically',()=>{
-  for(const invalid of [{commandFresh:false},{zone:'home'},{zone:'unknown'},{poseTrusted:false},{poseAgeSec:.6},{alliance:'unknown'},{enabled:false},{teleop:false}]) {
+  for(const invalid of [{commandFresh:false},{zone:'neutral'},{zone:'home'},{zone:'unknown'},{poseTrusted:false},{poseAgeSec:.6},{alliance:'unknown'},{enabled:false},{teleop:false}]) {
     const p=createSurroundPolicy();feed(p,0,invalid);p.update(0);feed(p,200,invalid);assert.equal(p.update(200).view,null);
   }
 });
@@ -81,4 +81,14 @@ test('older out-of-order state never renews receipt freshness',()=>{
  const p=createSurroundPolicy();feed(p,0,{sequence:100});p.update(0);feed(p,200,{sequence:101});assert.equal(p.update(200).view,'left');
  feed(p,650,{sequence:100});assert.equal(p.update(701).view,null);
  p.ingest(null,800,false);feed(p,900,{sequence:1});p.update(900);feed(p,1100,{sequence:2});assert.equal(p.update(1100).view,'left');
+});
+
+for(const alliance of ['red','blue'])test(`${alliance}: entering neutral closes immediately despite motion and minimum hold`,()=>{
+ const p=createSurroundPolicy();feed(p,0,{alliance});p.update(0);feed(p,200,{alliance});assert.equal(p.update(200).view,'left');
+ feed(p,201,{alliance,zone:'neutral'});assert.equal(p.update(201).view,null);assert.equal(p.update(201).zone,'neutral');
+ feed(p,202,{alliance,zone:'home'});assert.equal(p.update(202).view,null);
+});
+import {CAMERA_ANCHORS,cameraAnchors,nearestCameraAnchor} from './surround-position.js';
+test('camera snap placements remain inside the field and below top readouts',()=>{
+ for(const [w,h]of [[360,510],[460,690]]){const anchors=cameraAnchors(w,h,320,180);for(const key of CAMERA_ANCHORS){const p=anchors[key];assert.ok(p.left>=12&&p.top>=150);assert.ok(p.left+320<=w-12&&p.top+180<=h-12);assert.equal(nearestCameraAnchor(p.left,p.top,anchors),key);}}
 });

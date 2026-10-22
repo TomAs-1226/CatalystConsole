@@ -15,6 +15,7 @@
  * persisted locally. Nothing is hard-coded to one robot or one season.
  */
 
+import { cameraDemoRoute } from "./surround-demo.js";
 import { createSurroundView } from "./surround-ui.js";
 import * as coreFmt from "./core-format.js";
 import * as canModel from "./can-model.js";
@@ -39,7 +40,7 @@ import {
 /* OVERDRIVE's debounce - true has to hold before anything shows, and the warp plays once per engage.
    Its own module so the state machine is tested without the field tile (see overdrive.js). */
 import { createOverdriveDebounce } from "./overdrive.js";
-import { demoMatch, START_POSE } from "./demo-match.js";
+import { demoMatch, START_POSE, ROBOT as DEMO_ROBOT } from "./demo-match.js";
 import { hasUtilityControlWord, readAlliance, readControlWord, readGameData, readMatchField } from "./driver-station.js";
 import { parkIdentity, selectedAutoStart } from "./park-state.js";
 import { readLoopTiming } from "./loop-timing.js";
@@ -226,6 +227,15 @@ function demoTick() {
   /* The robot, from the scripted match (see demo-match.js): at its start while it waits for the match, and
    * where the match left it afterwards. */
   const play = demoMatch(Math.min(DEMO_MATCH_S, Math.max(0, cycle)));
+  if(enabled&&!auto){
+    const leg=cameraDemoRoute(cycle,demoMatch(20).pose,demoMatch(56).pose);
+    if(leg){
+      play.pose=leg.pose;play.fieldVelocity=leg.fieldVelocity;play.path=null;play.autopilotPhase='DriverControl';play.phase='Camera demonstration';
+      const [,,heading]=leg.pose,c=Math.cos(heading),s=Math.sin(heading),v=leg.fieldVelocity;
+      const xr=v.vx*c+v.vy*s,yr=-v.vx*s+v.vy*c;
+      play.modules=DEMO_ROBOT.modules.flatMap(([mx,my])=>{const x=xr-v.omega*my,y=yr+v.omega*mx;return [Math.hypot(x,y),Math.atan2(y,x)];});
+    }
+  }
   const { vx, vy, omega } = enabled ? play.fieldVelocity : { vx: 0, vy: 0, omega: 0 };
   const speed = Math.hypot(vx, vy);
   /* How hard it is being pushed about: the change in its velocity since the last tick, smoothed over a
@@ -8400,7 +8410,7 @@ function standDownOverlaysOnEnable() {
 function paint() {
   if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
   standDownOverlaysOnEnable();
-  surroundView.paint(nt.v, performance.now());
+  surroundView.paint(nt.v, performance.now(), demo.on ? {pose:arr("/Catalyst/Physics/PoseArray"),alliance:alliance(),enabled:ds.enabled,teleop:ds.enabled&&!ds.auto&&!ds.test,velocity:arr("/Catalyst/Swerve/ChassisVelocities")} : null);
   paintHeader();
   paintNotices();
   paintMatchCue();

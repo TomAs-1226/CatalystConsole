@@ -1,11 +1,12 @@
 import {createSurroundPolicy, cameraRoster, DRIVER_VIEW_STATE, ROLES, NOMINAL_MOUNTS, projectionColumn, smallSeams} from './surround.js';
+import {CAMERA_ANCHORS,cameraAnchors,nearestCameraAnchor} from './surround-position.js';
 import {cameraDemoValues,createCameraFrameSource,createDemoCameraRenderer} from './surround-demo.js';
 export function createSurroundView({invoke}) {
   const policy = createSurroundPolicy();
   let isDemo=false,demoStart=0,generation=0;
   const imageSource=createCameraFrameSource({live:url=>invoke?invoke('camera_frame',{url}):Promise.reject(Error('desktop required')),demo:createDemoCameraRenderer()});
   const root = document.createElement('section'); root.className = 'surround'; root.setAttribute('aria-label','Driver cameras');
-  root.innerHTML = `<div class="surround-tools"><b>Cameras</b><select aria-label="Driver camera view"><option value="auto">Camera: Auto</option><option value="all">Camera: Three</option><option value="panorama">Camera: Panorama</option><option value="left">Camera: Left</option><option value="rear">Camera: Rear</option><option value="right">Camera: Right</option><option value="off">Camera: Off</option></select><span class="surround-zone">Zone unknown</span></div><div class="surround-demo-note" hidden></div><div class="surround-panel" hidden><header><strong>Driver view</strong><button type="button" aria-label="Dismiss driver cameras">Close</button></header><div class="surround-panorama" hidden><div class="surround-directions"><span>Forward</span><span>Right</span><span>Rear</span><span>Left</span><span>Forward</span></div><canvas width="960" height="240" aria-label="Approximate cylindrical panorama with uncovered angles marked"></canvas><p>Approximate panorama · blended seams (estimated pixels) · nominal lens and mounts</p></div><div class="surround-frames"></div><p>Small gaps blended for display · front not covered · check raw views</p><details><summary>Camera orientation</summary><p>Check against the physical robot before driving. Images are uncalibrated.</p><div class="surround-orientation"></div></details></div>`;
+  root.innerHTML = `<div class="surround-tools"><b>Cameras</b><select aria-label="Driver camera view"><option value="auto">Camera: Auto</option><option value="all">Manual: Three</option><option value="panorama">Manual: Panorama</option><option value="left">Manual: Left</option><option value="rear">Manual: Rear</option><option value="right">Manual: Right</option><option value="off">Camera: Off</option></select><span class="surround-zone">Zone unknown</span></div><div class="surround-demo-note" hidden></div><div class="surround-panel" hidden><header><strong>Driver view</strong><div class="surround-actions"><button class="surround-position" type="button" aria-label="Move automatic camera position">↕</button><button class="surround-close" type="button" aria-label="Dismiss driver cameras">×</button></div></header><div class="surround-panorama" hidden><div class="surround-directions"><span>Forward</span><span>Right</span><span>Rear</span><span>Left</span><span>Forward</span></div><canvas width="960" height="240" aria-label="Approximate cylindrical panorama with uncovered angles marked"></canvas><p>Approximate panorama · blended seams (estimated pixels) · nominal lens and mounts</p></div><div class="surround-frames"></div><p>Small gaps blended for display · front not covered · check raw views</p><details><summary>Camera orientation</summary><p>Check against the physical robot before driving. Images are uncalibrated.</p><div class="surround-orientation"></div></details></div>`;
   document.querySelector('.views').append(root);
   const dock=document.querySelector('.dock');
   const tools=root.querySelector('.surround-tools');
@@ -29,8 +30,8 @@ export function createSurroundView({invoke}) {
     rotate.onchange=save;mirror.onchange=save;yaw.onchange=save;hfov.onchange=save;save(); label.append(rotate,mirror,document.createTextNode(' Mirror · yaw '),yaw,document.createTextNode('° · HFOV '),hfov,document.createTextNode('°')); root.querySelector('.surround-orientation').append(label);
   }
   modeSelect.onchange=e=>policy.choose(e.target.value);
-  panel.querySelector('button').onclick=()=>{policy.dismiss();modeSelect.value='auto';};
-  function clear(s,message) { if(s.blob)URL.revokeObjectURL(s.blob);s.blob=null;s.img.removeAttribute('src');s.img.hidden=true;s.empty.hidden=false;s.status.textContent=message; }
+  panel.querySelector('.surround-close').onclick=()=>{policy.dismiss();modeSelect.value='auto';};
+  function clear(s,message) { if(s.blob)URL.revokeObjectURL(s.blob);s.blob=null;s.img.removeAttribute('src');s.img.hidden=true;s.empty.hidden=false;s.empty.textContent=message;s.status.textContent=message; }
   const panorama=root.querySelector('.surround-panorama'), canvas=panorama.querySelector('canvas'),ctx=canvas.getContext('2d');
   const sources={}; for(const role of ROLES)sources[role]=document.createElement('canvas');
   let drawnAt=-Infinity;
@@ -73,6 +74,25 @@ export function createSurroundView({invoke}) {
     let start=0;while(start<w){if(covered[start]){start++;continue;}let end=start;while(end<w&&!covered[end])end++;if(end-start>40)ctx.fillText('No coverage',(start+end)/2,h/2);start=end;}
   }
   const demoNote=root.querySelector('.surround-demo-note');
+  let anchor='lower-left',drag=null,placement=null;
+  try{const saved=localStorage.getItem('catalyst.console.cameraAnchor');if(CAMERA_ANCHORS.includes(saved))anchor=saved;}catch{}
+  const positionButton=panel.querySelector('.surround-position'),header=panel.querySelector('header');
+  function saveAnchor(){try{localStorage.setItem('catalyst.console.cameraAnchor',anchor);}catch{}positionButton.title=`Position: ${anchor.replaceAll('-',' ')}. Press to move.`;}
+  function positionAutomatic(){
+    const area=document.querySelector('.views').getBoundingClientRect();
+    const field=[...document.querySelectorAll('.fieldcanvas')].find(n=>n.getBoundingClientRect().width>0);
+    const rect=field?field.getBoundingClientRect():{left:area.left,top:area.top,width:Math.min(420,area.width),height:area.height};
+    const width=Math.max(180,Math.min(320,rect.width-24)),height=width*9/16;
+    const anchors=cameraAnchors(rect.width,rect.height,width,height),offset={left:rect.left-area.left,top:rect.top-area.top};
+    placement={anchors,offset,width,height};
+    if(drag)return;
+    root.style.left=`${offset.left+anchors[anchor].left}px`;root.style.top=`${offset.top+anchors[anchor].top}px`;root.style.right='auto';root.style.width=`${width}px`;
+  }
+  positionButton.onclick=()=>{anchor=CAMERA_ANCHORS[(CAMERA_ANCHORS.indexOf(anchor)+1)%CAMERA_ANCHORS.length];saveAnchor();positionAutomatic();};
+  header.onpointerdown=e=>{if(root.dataset.manual!=='false'||e.target.closest('button')||!placement)return;drag={x:e.clientX,y:e.clientY,left:parseFloat(root.style.left),top:parseFloat(root.style.top)};header.setPointerCapture(e.pointerId);};
+  header.onpointermove=e=>{if(!drag)return;root.style.left=`${drag.left+e.clientX-drag.x}px`;root.style.top=`${drag.top+e.clientY-drag.y}px`;};
+  function finishDrag(){if(!drag)return;anchor=nearestCameraAnchor(parseFloat(root.style.left)-placement.offset.left,parseFloat(root.style.top)-placement.offset.top,placement.anchors);drag=null;saveAnchor();positionAutomatic();}
+  header.onpointerup=finishDrag;header.onpointercancel=finishDrag;saveAnchor();
   return {
     setDemo(on,now){
       isDemo=on===true;demoStart=now;generation++;imageSource.setDemo(isDemo);
@@ -84,11 +104,16 @@ export function createSurroundView({invoke}) {
       else {ctx.clearRect(0,0,canvas.width,canvas.height);zone.textContent='Zone unknown';}
     },
     ingest(values,connected,now) {if (!isDemo && (!connected || Object.hasOwn(values,DRIVER_VIEW_STATE))) policy.ingest(values[DRIVER_VIEW_STATE]?.v,now,connected);},
-    paint(values,now) {
-      if(isDemo){const generated=cameraDemoValues(Math.max(0,(now-demoStart)/1000));values=generated.values;policy.ingest(values[DRIVER_VIEW_STATE].v,now,true);demoNote.textContent=`DEMO camera scenario · ${generated.scenario.description} · generated images`; }
+    paint(values,now,demoContext=null) {
+      if(isDemo){const generated=cameraDemoValues(Math.max(0,(now-demoStart)/1000),demoContext);values=generated.values;policy.ingest(values[DRIVER_VIEW_STATE].v,now,true);demoNote.hidden=true; }
       const state=policy.update(now),roster=cameraRoster(values);panel.hidden=!state.view;
       zone.textContent=state.zone === 'unknown' ? 'Zone unknown' : `${state.zone === 'home' ? 'Home' : state.zone[0].toUpperCase()+state.zone.slice(1)} zone`;
       panel.querySelector('strong').textContent=`${isDemo?'DEMO camera scenario':'Driver view'} · ${state.manual?'manual':state.view || ''} · ${zone.textContent}`;
+      root.dataset.manual=String(state.manual);
+      if(!state.manual&&state.view){
+        panel.querySelector('strong').textContent=`${isDemo?'DEMO · ':''}${state.view==='rear'?'Rear':state.view==='left'?'Left side':'Right side'}`;
+        positionAutomatic();
+      }else{drag=null;root.style.left='';root.style.top='';root.style.right='';root.style.width='';}
       frames.dataset.view=state.view || '';
       panorama.hidden=state.view!=='panorama';frames.hidden=state.view==='panorama';
       for(const role of ROLES) {

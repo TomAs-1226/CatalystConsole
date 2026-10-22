@@ -3179,3 +3179,19 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 
 .dock .surround-tools select{width:126px;max-width:126px;}
 @media(max-width:1150px){.dock .surround-tools select{width:112px;max-width:112px;}}
+
+/* Automatic intent camera: image first, compact, and anchored inside the field visualization. */
+.surround-actions{display:flex;gap:4px;align-items:center;}
+.surround-position{display:none;}
+.surround[data-manual="false"]{max-width:none;}
+.surround[data-manual="false"] .surround-panel{width:100%;margin:0;padding:0;border-radius:10px;overflow:hidden;max-height:none;position:relative;background:#000;}
+.surround[data-manual="false"] .surround-panel>header{position:absolute;z-index:2;top:0;left:0;right:0;margin:0;padding:7px 8px 7px 12px;background:rgba(0,0,0,.55);font-size:12px;cursor:grab;touch-action:none;}
+.surround[data-manual="false"] .surround-panel>header:active{cursor:grabbing;}
+.surround[data-manual="false"] .surround-panel>header strong{font-weight:500;}
+.surround[data-manual="false"] .surround-panel button{padding:1px 5px;background:transparent;color:#fff;font-size:18px;line-height:22px;}
+.surround[data-manual="false"] .surround-position{display:block;}
+.surround[data-manual="false"] .surround-panel>p,.surround[data-manual="false"] .surround-panel>details,.surround[data-manual="false"] figcaption{display:none;}
+.surround[data-manual="false"] .surround-image{aspect-ratio:16/9;}
+.surround[data-manual="false"] .surround-frames{gap:0;}
+.surround[data-manual="false"] .surround-empty{font-size:12px;padding-top:30px;}
+.surround-demo-note{display:none;}
