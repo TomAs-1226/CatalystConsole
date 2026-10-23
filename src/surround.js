@@ -61,26 +61,4 @@ export function cameraRoster(values) {
   return found;
 }
 
-export const NOMINAL_MOUNTS = {left:{yaw:90,hfov:82},rear:{yaw:180,hfov:82},right:{yaw:270,hfov:82}};
-// Robot yaw: forward 0, left 90, rear 180, right 270 degrees. Panorama x increases leftward
-// around the robot. A raw camera image's right edge has DECREASING robot yaw (camera looks out).
-export function projectionColumn(yaw, mount, width, height, panoramaWidth) {
-  if (!mount || ![yaw,mount.yaw,mount.hfov,width,height,panoramaWidth].every(Number.isFinite)
-      || mount.hfov < 10 || mount.hfov > 170 || width <= 0 || height <= 0 || panoramaWidth <= 0) return null;
-  const delta = ((yaw - mount.yaw + 540) % 360) - 180;
-  if (Math.abs(delta) > mount.hfov/2) return null;
-  const angle=delta*Math.PI/180, tanHalf=Math.tan(mount.hfov*Math.PI/360);
-  const u=(1-Math.tan(angle)/tanHalf)/2;
-  // Driver display uses level rectangular strips; only horizontal rays are rectified.
-  return {u, height:panoramaWidth/4};
-}
-
-// Estimated display pixels only: bridge a small angular hole when real pixels bound BOTH edges.
-export function smallSeams(coverage, maxDegrees=12) {
-  const seams=[];let start=0;
-  while(start<coverage.length){if(coverage[start]){start++;continue;}let end=start;while(end<coverage.length&&!coverage[end])end++;
-    if(start>0&&end<coverage.length&&(end-start)/coverage.length*360<=maxDegrees)seams.push({start,end});
-    start=end;
-  }
-  return seams;
-}
+export const NOMINAL_MOUNTS = {left:{yaw:90,pitch:15,hfov:82,vfov:56.2},rear:{yaw:180,pitch:20,hfov:82,vfov:56.2},right:{yaw:270,pitch:15,hfov:82,vfov:56.2}};

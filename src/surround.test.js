@@ -44,39 +44,6 @@ test('camera roster refuses duplicate physical roles',()=>{
  assert.equal(cameraRoster(values).left.url,'http://10.1.1.12:5800/');values[p+'duplicate/Role']={t:'str',v:'left'};assert.equal(cameraRoster(values).left.ambiguous,true);
 });
 
-import {projectionColumn,NOMINAL_MOUNTS} from './surround.js';
-test('cylindrical projection centers each camera and reverses raw horizontal direction',()=>{
- for(const mount of Object.values(NOMINAL_MOUNTS)){
-  const center=projectionColumn(mount.yaw,mount,640,480,960);assert.equal(center.u,.5);
-  const left=projectionColumn(mount.yaw+41,mount,640,480,960),right=projectionColumn(mount.yaw-41,mount,640,480,960);
-  assert.ok(Math.abs(left.u)<1e-10);assert.ok(Math.abs(right.u-1)<1e-10);assert.equal(left.height,center.height);assert.equal(right.height,center.height);assert.equal(center.height,240);
- }
-});
-test('nominal panorama has real eight degree side/rear gaps and forward blind area',()=>{
- const coverage=yaw=>Object.values(NOMINAL_MOUNTS).some(m=>projectionColumn(yaw,m,640,480,960));
- for(const blind of [0,30,135,225,330,359])assert.equal(coverage(blind),false,`${blind}`);
- for(const seen of [60,90,120,150,180,210,240,270,300])assert.equal(coverage(seen),true,`${seen}`);
- assert.equal(projectionColumn(90,{yaw:90,hfov:180},640,480,960),null);
-});
-
-test('outward panorama decreases yaw across screen to preserve readable raw horizontal orientation',()=>{
- for(const mount of Object.values(NOMINAL_MOUNTS)){
-  const screenLeft=projectionColumn(mount.yaw+10,mount,640,480,960);
-  const screenRight=projectionColumn(mount.yaw-10,mount,640,480,960);
-  assert.ok(screenLeft.u<screenRight.u);
- }
-});
-
-import {smallSeams} from './surround.js';
-test('only small gaps between two fresh camera sectors get estimated seam pixels',()=>{
- const coverage=(mounts)=>Array.from({length:3600},(_,x)=>mounts.some(m=>projectionColumn((360-(x+.5)/10)%360,m,640,480,3600)));
- const mounts=Object.values(NOMINAL_MOUNTS);
- const seams=smallSeams(coverage(mounts));assert.equal(seams.length,2);assert.ok(seams.every(s=>Math.abs((s.end-s.start)/10-8)<.2));
- assert.equal(smallSeams(coverage([NOMINAL_MOUNTS.left,NOMINAL_MOUNTS.right])).length,0,'missing rear cannot be filled');
- assert.equal(smallSeams(coverage(mounts.map(m=>({...m,hfov:65})))).length,0,'larger edited gaps remain blank');
- assert.ok(seams.every(s=>s.start>400&&s.end<3200),'front blind zone never bridged');
-});
-
 test('older out-of-order state never renews receipt freshness',()=>{
  const p=createSurroundPolicy();feed(p,0,{sequence:100});p.update(0);feed(p,200,{sequence:101});assert.equal(p.update(200).view,'left');
  feed(p,650,{sequence:100});assert.equal(p.update(701).view,null);

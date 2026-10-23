@@ -445,6 +445,7 @@ fn run_gui() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             camera::camera_frame,
+            camera::camera_identity,
             ds_sessions,
             ds_support_note,
             ds_events,

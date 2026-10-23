@@ -3195,3 +3195,10 @@ button.pcard:focus-visible { outline: 2px solid var(--cat-signal); outline-offse
 .surround[data-manual="false"] .surround-frames{gap:0;}
 .surround[data-manual="false"] .surround-empty{font-size:12px;padding-top:30px;}
 .surround-demo-note{display:none;}
+
+.surround[data-panorama="true"] .surround-panel{width:min(1100px,calc(100vw - 80px));}
+.surround-directions span{width:32%;text-align:center;}
+
+.surround-panorama{position:relative;}
+.surround-demo-label{position:absolute;left:10px;top:28px;padding:4px 7px;color:#fff;background:rgba(0,0,0,.7);font-size:11px;}
+.surround-demo-label[hidden]{display:none;}

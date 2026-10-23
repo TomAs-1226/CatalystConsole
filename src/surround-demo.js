@@ -1,4 +1,4 @@
-import {DRIVER_VIEW_STATE,ROLES} from './surround.js';
+import {DRIVER_VIEW_STATE,ROLES,NOMINAL_MOUNTS} from './surround.js';
 /* Main Demo and camera Demo share the SAME pose, alliance, chassis velocity and robot mode. */
 export function cameraDemoAt(context) {
  const pose=context?.pose,alliance=context?.alliance;
@@ -41,15 +41,30 @@ export function createDemoCameraRenderer() {
   return async(role,now)=>{
     let canvas=canvases.get(role);if(!canvas){canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;canvases.set(role,canvas);}
     const ctx=canvas.getContext('2d'),w=640,h=360,t=now/1000;
-    ctx.fillStyle='#242426';ctx.fillRect(0,0,w,h);
-    ctx.fillStyle='#404044';ctx.fillRect(0,110,w,h-110);
-    ctx.strokeStyle='#77777c';ctx.lineWidth=2;
-    const shift=Math.sin(t*.65+(role==='left'?0:role==='right'?2:4))*80;
-    for(let x=-700;x<1400;x+=125){ctx.beginPath();ctx.moveTo(320+(x-320)*.1+shift*.2,110);ctx.lineTo(x+shift,h);ctx.stroke();}
-    for(let y=0;y<7;y++){const p=((y+t*.5)%7)/7,at=110+p*p*250;ctx.beginPath();ctx.moveTo(0,at);ctx.lineTo(w,at);ctx.stroke();}
-    for(let i=0;i<4;i++){const x=((i*210+t*22+(role==='right'?100:0))%840)-100;ctx.fillStyle='#19191b';ctx.fillRect(x,65,95,70);ctx.strokeStyle='#ddd';ctx.strokeRect(x+8,73,79,54);ctx.fillStyle='#ddd';ctx.font='20px sans-serif';ctx.fillText('TEST '+(i+1),x+14,107);}
-    ctx.fillStyle='#000';ctx.fillRect(0,0,w,42);ctx.fillStyle='#fff';ctx.font='bold 21px sans-serif';ctx.fillText(`DEMO · ${role.toUpperCase()}`,18,29);
-    ctx.fillStyle='#000';ctx.fillRect(0,h-31,w,31);ctx.fillStyle='#ddd';ctx.font='15px sans-serif';ctx.fillText('Generated illustration · not a real camera',18,h-10);
+    // All three images observe the SAME illustrative world through their own pinhole mounts.
+    // This makes pitch rectification and the shared horizon inspectable without real camera IPC.
+    const mount=NOMINAL_MOUNTS[role],yaw=mount.yaw*Math.PI/180,pitch=mount.pitch*Math.PI/180;
+    const fx=w/(2*Math.tan(mount.hfov*Math.PI/360)),fy=h/(2*Math.tan(mount.vfov*Math.PI/360));
+    const ox=Math.sin(t*.3)*.6,oy=Math.cos(t*.3)*.6;
+    const project=([x,y,z])=>{
+      x-=ox;y-=oy;z-=.45;
+      const forward=x*Math.cos(yaw)+y*Math.sin(yaw),right=x*Math.sin(yaw)-y*Math.cos(yaw);
+      const depth=forward*Math.cos(pitch)+z*Math.sin(pitch),up=z*Math.cos(pitch)-forward*Math.sin(pitch);
+      return depth>.2?[w/2+fx*right/depth,h/2-fy*up/depth]:null;
+    };
+    const line=(a,b)=>{const p=project(a),q=project(b);if(!p||!q)return;ctx.beginPath();ctx.moveTo(...p);ctx.lineTo(...q);ctx.stroke();};
+    ctx.fillStyle='#303035';ctx.fillRect(0,0,w,h);
+    const horizon=h/2+fy*Math.tan(pitch);
+    ctx.fillStyle='#505054';ctx.fillRect(0,horizon,w,h-horizon);
+    ctx.strokeStyle='#939398';ctx.lineWidth=1;
+    for(let a=-24;a<=24;a+=2)for(let b=-24;b<24;b+=.5){line([a,b,0],[a,b+.5,0]);line([b,a,0],[b+.5,a,0]);}
+    for(let i=0;i<12;i++){
+      const angle=(i*30+10)*Math.PI/180,cx=Math.cos(angle)*12,cy=Math.sin(angle)*12,dx=-Math.sin(angle)*.8,dy=Math.cos(angle)*.8;
+      const corners=[[cx-dx,cy-dy,0],[cx+dx,cy+dy,0],[cx+dx,cy+dy,2],[cx-dx,cy-dy,2]].map(project);
+      if(corners.some(p=>!p))continue;
+      ctx.beginPath();ctx.moveTo(...corners[0]);for(const p of corners.slice(1))ctx.lineTo(...p);ctx.closePath();ctx.fillStyle='#19191b';ctx.fill();ctx.strokeStyle='#ddd';ctx.lineWidth=2;ctx.stroke();
+      const label=project([cx,cy,1.25]);ctx.fillStyle='#eee';ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillText(`TEST ${i+1}`,...label);ctx.textAlign='start';
+    }
     // This small DEMO illustration is encoded in the paint turn. Chromium may defer toBlob's
     // idle callback behind the 3D scene long enough to miss a short automatic intent window.
     const encoded=canvas.toDataURL('image/jpeg',.7).split(',')[1];
