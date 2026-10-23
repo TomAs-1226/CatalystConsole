@@ -1,17 +1,17 @@
 # Graph Report - CatalystConsole  (2026-10-22)
 
 ## Corpus Check
-- 115 files · ~296,801 words
+- 119 files · ~297,169 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: .css 2, (none) 1, .ico 1)
 
 ## Summary
-- 1794 nodes · 4055 edges · 88 communities (81 shown, 7 thin omitted)
+- 1810 nodes · 4084 edges · 93 communities (86 shown, 7 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 65 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b8b5be3f`
+- Built from commit: `ba4cff65`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -30,9 +30,9 @@
 - el
 - scripts
 - nt4.rs
-- createRunRecorder
+- finish
 - Nt4Client
-- arr
+- paintParkInfo
 - drivers.js
 - hidePark
 - paintLinkHistory
@@ -43,9 +43,9 @@
 - package.json
 - createField
 - demo-match.js
-- ref_node_test
+- park-state.test.js
 - NtValue
-- driver-station.js
+- createRunRecorder
 - worldTriangles
 - Settings
 - Installing Catalyst Console
@@ -53,7 +53,7 @@
 - placeCamera
 - ref_node_fs
 - park3d.js
-- SetValue
+- devices.js
 - docs/README.md
 - Widgets
 - devDependencies
@@ -68,7 +68,7 @@
 - runs.js
 - escapeHtml
 - can-model.js
-- surround-ui.js
+- createSurroundView
 - demo-match.test.js
 - field3d.js
 - driver3d.js
@@ -79,11 +79,11 @@
 - runs.test.js
 - Changelog
 - camera.rs
-- paint
+- createPark
 - hub.js
 - calibration.js
 - paintRunList
-- surround-demo.test.js
+- surround-ui.js
 - finite
 - robot-cad-preview.mjs
 - demoMatch
@@ -92,14 +92,19 @@
 - CAN buses
 - check-identity.mjs
 - driver-cad.mjs
+- hopper3d.js
 - core-format.js
 - overdrive.js
+- device3d.js
 - Mode
 - drawRunTraces
+- buildRobot
 - update
+- createRobotModel
 - release.mjs
+- surround-panorama.test.js
 - The three rules set in monospace on the banner
-- paintCan
+- setText
 - createMotionFilter
 - ref_node_assert
 
@@ -134,7 +139,7 @@
 - **One drawing rasterised at four sizes** — src_tauri_icons_icon_app_icon, src_tauri_icons_32x32_small_icon, src_tauri_icons_128x128_medium_icon, src_tauri_icons_128x128_2x_retina_icon [EXTRACTED 1.00]
 - **Rule 2 written into the markup itself** — src_index_settings_has_no_aria_modal, src_index_drop_chip_hidden_by_default, src_index_status_under_the_rows, src_index_paste_by_hand_floor [EXTRACTED 1.00]
 
-## Communities (88 total, 7 thin omitted)
+## Communities (93 total, 7 thin omitted)
 
 ### Community 0 - "field-collision.mjs"
 Cohesion: 0.04
@@ -142,7 +147,7 @@ Nodes (51): also, bboxCentre, binCells, broken, ceiling, clearanceMm, cols, crop
 
 ### Community 1 - "mcp.rs"
 Cohesion: 0.12
-Nodes (17): content(), DEFAULT_ALERT_GROUP, DEFAULT_PROTOCOL_VERSION, ds_events(), ds_sessions(), error(), field_map(), field_map_candidates() (+9 more)
+Nodes (18): content(), DEFAULT_ALERT_GROUP, DEFAULT_PROTOCOL_VERSION, ds_events(), ds_sessions(), error(), field_map(), field_map_candidates() (+10 more)
 
 ### Community 2 - "main.rs"
 Cohesion: 0.13
@@ -158,15 +163,15 @@ Nodes (33): ABOUT_LINKS, applyFieldCamera(), applySearch(), applyTeam(), applyUp
 
 ### Community 5 - "app.js"
 Cohesion: 0.03
-Nodes (76): agentUrl(), aimStickSteady, assistSeen, bakedAssets, BAR_STEPS, batteryShownState, BIT, BOOT (+68 more)
+Nodes (86): agentUrl(), aimStickSteady, assistSeen, bakedAssets, BAR_STEPS, barOverflows(), batteryShownState, BIT (+78 more)
 
 ### Community 6 - "tauri.conf.json"
 Cohesion: 0.08
 Nodes (23): app, security, windows, withGlobalTauri, build, beforeBuildCommand, frontendDist, bundle (+15 more)
 
 ### Community 7 - "The garage"
-Cohesion: 0.20
-Nodes (10): Copying it out, Seeing it without a robot, The garage, The plan, Units, What a team has to do, What appears, What the robot is made to do (+2 more)
+Cohesion: 0.22
+Nodes (9): Copying it out, Seeing it without a robot, The garage, The plan, Units, What a team has to do, What appears, What the robot is made to do (+1 more)
 
 ### Community 8 - "dslog.rs"
 Cohesion: 0.10
@@ -177,8 +182,8 @@ Cohesion: 0.20
 Nodes (10): Alerts, Auto chooser, Health, Live tuning, Physics Core, Shot and pose status (team 5805's Numbers), The contract with the robot, The robot's own account of itself (+2 more)
 
 ### Community 10 - "onFrame"
-Cohesion: 0.15
-Nodes (15): applyFrame(), closeOverlays(), controlWord(), demoCarried(), demoTick(), isLive(), KEYS, onFrame() (+7 more)
+Cohesion: 0.25
+Nodes (7): applyFrame(), demoCarried(), demoTick(), KEYS, onFrame(), refreshTopicList(), setDemo()
 
 ### Community 11 - "el"
 Cohesion: 0.09
@@ -189,28 +194,28 @@ Cohesion: 0.12
 Nodes (16): scripts, build, check-identity, dev, device-cad, driver-cad, field-cad, field-collision (+8 more)
 
 ### Community 13 - "nt4.rs"
-Cohesion: 0.13
-Nodes (11): a_pose_array_decodes_to_triples(), a_single_pose_decodes_to_one_triple(), control_word(), decode_struct(), decode_value(), FLUSH_HZ, game_piece_poses_decode_to_sevens(), Nums (+3 more)
+Cohesion: 0.11
+Nodes (12): a_pose_array_decodes_to_triples(), a_single_pose_decodes_to_one_triple(), an_empty_pose_array_is_an_empty_list(), decode_value(), FLUSH_HZ, game_piece_poses_decode_to_sevens(), handle_control(), packed() (+4 more)
 
-### Community 14 - "createRunRecorder"
-Cohesion: 0.17
-Nodes (20): cameraKeys(), createRunRecorder(), closeAttempt(), credit(), finish(), observe(), ringPush(), ringSpeed() (+12 more)
+### Community 14 - "finish"
+Cohesion: 0.40
+Nodes (5): closeAttempt(), finish(), trackAttempt(), histogramPercentile(), median()
 
 ### Community 15 - "Nt4Client"
-Cohesion: 0.14
-Nodes (13): Frame, serve(), an_empty_pose_array_is_an_empty_list(), chooser_write_reaches_server_and_active_changes_only_on_acknowledgement(), handle_binary(), handle_control(), now_micros(), Nt4Client (+5 more)
+Cohesion: 0.12
+Nodes (13): TempFile, Frame, chooser_write_reaches_server_and_active_changes_only_on_acknowledgement(), handle_binary(), now_micros(), Nt4Client, NtStatus, run_session() (+5 more)
 
-### Community 16 - "arr"
-Cohesion: 0.11
-Nodes (27): arr(), batteryReadiness(), batteryShown(), batteryVolts(), clamp01(), distinctLabels(), fmt(), fraction() (+19 more)
+### Community 16 - "paintParkInfo"
+Cohesion: 0.07
+Nodes (46): agoText(), alliance(), arr(), batteryReadiness(), batteryShown(), batteryVolts(), cadFits(), clamp01() (+38 more)
 
 ### Community 17 - "drivers.js"
 Cohesion: 0.07
-Nodes (62): applyRobotSettings(), commitRobotSetting(), controlBindings(), declaredTunables(), driversSignature(), liveTunable(), ntSet(), paintControls() (+54 more)
+Nodes (59): applyRobotSettings(), commitRobotSetting(), controlBindings(), declaredTunables(), driversSignature(), liveTunable(), ntSet(), paintControls() (+51 more)
 
 ### Community 18 - "hidePark"
-Cohesion: 0.21
-Nodes (17): fieldHandover(), fieldTileNow(), groundNow(), hidePark(), loadParkScene(), moveTile(), paintPark(), paintPart() (+9 more)
+Cohesion: 0.15
+Nodes (21): activeView(), fieldHandover(), fieldTileNow(), groundNow(), hidePark(), layout, loadParkScene(), moveTile() (+13 more)
 
 ### Community 20 - "paintLinkHistory"
 Cohesion: 0.25
@@ -221,12 +226,12 @@ Cohesion: 0.10
 Nodes (19): Autonomy 2.0 tile (1.4.0), Building it from source, CAN buses, Changes in 2.1.1, Controller keys, and a 2027 demo robot (1.4.2), Diagnostics for an agent, Documentation, Driver Station logs (+11 more)
 
 ### Community 22 - "dslog_tests.rs"
-Cohesion: 0.27
-Nodes (12): a_header_with_no_records_reports_nothing_decoded(), a_short_or_missing_file_says_so_instead_of_panicking(), a_truncated_trailing_record_is_dropped_not_decoded_from_padding(), an_unknown_version_refuses_rather_than_guessing(), battery_decodes_as_a_fixed_point_pair(), both_known_versions_parse(), dslog(), every_record_is_decoded() (+4 more)
+Cohesion: 0.26
+Nodes (11): a_header_with_no_records_reports_nothing_decoded(), a_short_or_missing_file_says_so_instead_of_panicking(), a_truncated_trailing_record_is_dropped_not_decoded_from_padding(), an_unknown_version_refuses_rather_than_guessing(), battery_decodes_as_a_fixed_point_pair(), both_known_versions_parse(), dslog(), every_record_is_decoded() (+3 more)
 
 ### Community 23 - "The Tauri icon set"
-Cohesion: 0.19
-Nodes (12): The console's own palette, The project banner, app, The app shell, The dock, The top strip, The 128px @2x application icon, The 128px application icon (+4 more)
+Cohesion: 0.16
+Nodes (14): The console's own palette, The project banner, app, VIEWS, The app shell, The dock, The four views, The top strip (+6 more)
 
 ### Community 24 - "step"
 Cohesion: 0.15
@@ -244,17 +249,17 @@ Nodes (28): createField(), blockedAt(), draw(), fadeTrail(), launchBall(), lob()
 Cohesion: 0.06
 Nodes (31): AIM, AIM_STATES, BUMP_X, DEPLOY_POSE_NAMES, DEPLOY_POSES, DEPOT, FEED_HOOD, FEED_LOWER (+23 more)
 
-### Community 28 - "ref_node_test"
-Cohesion: 0.18
+### Community 28 - "park-state.test.js"
+Cohesion: 0.19
 Nodes (7): chooserSelection(), parkIdentity(), selectedAutoStart(), shotAtFieldPose(), team(), nums(), startData()
 
 ### Community 29 - "NtValue"
-Cohesion: 0.19
-Nodes (13): bool_of(), control_word_of(), num_of(), str_of(), type_name(), NtValue, Bool, Bools (+5 more)
+Cohesion: 0.15
+Nodes (16): bool_of(), control_word_of(), num_of(), str_of(), type_name(), control_word(), decode_struct(), NtValue (+8 more)
 
-### Community 30 - "driver-station.js"
-Cohesion: 0.32
-Nodes (10): controlWordNumber(), DRIVER_STATION, FMS_INFO, hasUtilityControlWord(), nativeOrLegacy(), nativeValue(), readAlliance(), readControlWord() (+2 more)
+### Community 30 - "createRunRecorder"
+Cohesion: 0.15
+Nodes (22): gameMessage(), controlWordNumber(), DRIVER_STATION, FMS_INFO, hasUtilityControlWord(), nativeOrLegacy(), nativeValue(), readAlliance() (+14 more)
 
 ### Community 31 - "worldTriangles"
 Cohesion: 0.31
@@ -281,12 +286,12 @@ Cohesion: 0.12
 Nodes (8): source, port, root, TYPES, files, out, root, root
 
 ### Community 37 - "park3d.js"
-Cohesion: 0.05
-Nodes (71): paintCameraPart(), paintCoreHero(), partSize(), CLAY, createDeviceStage(), frame(), resize(), showModel() (+63 more)
+Cohesion: 0.10
+Nodes (29): coastAngle(), step(), cubicBezier(), dampVelocity(), describeShot(), ELEVATION_DEFAULT, ELEVATION_MAX, ELEVATION_MIN (+21 more)
 
-### Community 38 - "SetValue"
-Cohesion: 0.22
-Nodes (4): SetRequest, SetValue, Bool, Num
+### Community 38 - "devices.js"
+Cohesion: 0.12
+Nodes (23): latestSystemCheck(), cameraTables(), clampToField(), deviceSummary(), drivePath(), engagedAutopilot(), limelightFix(), matchReadiness() (+15 more)
 
 ### Community 40 - "Widgets"
 Cohesion: 0.25
@@ -305,8 +310,8 @@ Cohesion: 0.50
 Nodes (3): AppState, nt_frame(), nt_set()
 
 ### Community 44 - "paintNotices"
-Cohesion: 0.28
-Nodes (9): ago(), assistNotice(), noticeKind(), openAlertPop(), paintAlertIndicator(), paintAlertPop(), paintNotices(), paintToasts() (+1 more)
+Cohesion: 0.22
+Nodes (11): ago(), aimStickNotice(), assistNotice(), noticeKind(), openAlertPop(), paintAlertIndicator(), paintAlertPop(), paintNotices() (+3 more)
 
 ### Community 45 - "Components"
 Cohesion: 0.50
@@ -317,40 +322,40 @@ Cohesion: 0.67
 Nodes (3): floodInterior(), isWall(), seedCell()
 
 ### Community 49 - "mechanisms.js"
-Cohesion: 0.10
-Nodes (28): aimStickNotice(), trackMechanisms(), ballAt(), createAimDebounce(), FEED_RATE, FEED_TRAVEL_S, fitKeep(), hasMechanisms() (+20 more)
+Cohesion: 0.11
+Nodes (25): trackMechanisms(), ballAt(), createAimDebounce(), FEED_RATE, fitKeep(), hasMechanisms(), INTAKE_LOAD_AMPS, isEjecting() (+17 more)
 
 ### Community 50 - "runs.js"
 Cohesion: 0.09
-Nodes (28): AIM_CODE, AIM_ERROR, AIM_FIELDS, AIM_NAMES, AIM_STATE, AIM_TARGET, BATTERY_KEYS, COLUMNS (+20 more)
+Nodes (30): controlWord(), recordRun(), addRun(), AIM_CODE, AIM_ERROR, AIM_FIELDS, AIM_NAMES, AIM_STATE (+22 more)
 
 ### Community 51 - "escapeHtml"
-Cohesion: 0.18
-Nodes (25): buildCanGroups(), cameraStateWords(), canBusHtml(), coreNum(), coreRows(), duration(), escapeHtml(), paintAgentCameras() (+17 more)
+Cohesion: 0.16
+Nodes (28): buildCanGroups(), buildCanProbes(), cameraStateWords(), canBusHtml(), canShapeOf(), coreNum(), coreRows(), duration() (+20 more)
 
 ### Community 52 - "can-model.js"
 Cohesion: 0.14
 Nodes (25): barWidth(), busIndex(), busKind(), BUSY_DEVICE_COUNT, contentionWarnings(), controllerGroup(), CONTROLLERS, ERROR_PASSIVE (+17 more)
 
-### Community 53 - "surround-ui.js"
-Cohesion: 0.22
-Nodes (18): cameraRoster(), createSurroundPolicy(), createDemoCameraRenderer(), NOMINAL_MOUNTS, parseDriverView(), CAMERA_ANCHORS, cameraAnchors(), nearestCameraAnchor() (+10 more)
+### Community 53 - "createSurroundView"
+Cohesion: 0.23
+Nodes (12): createPanoramaRenderer(), parseDriverView(), CAMERA_ANCHORS, cameraAnchors(), nearestCameraAnchor(), feed(), sample(), createSurroundView() (+4 more)
 
 ### Community 54 - "demo-match.test.js"
 Cohesion: 0.09
 Nodes (18): HOPPER, RED_HUB, ROBOT, scoreTimeOfFlightAt, START_POSE, DEPOT, estimate(), FIELD (+10 more)
 
 ### Community 55 - "field3d.js"
-Cohesion: 0.08
-Nodes (25): BLUE, BOUNCE, CARPET, carve(), CHASE_EYE, CHASE_LOOK, loadFieldModel(), FILL_LIGHT (+17 more)
+Cohesion: 0.10
+Nodes (19): BLUE, BOUNCE, CARPET, carve(), CHASE_EYE, CHASE_LOOK, loadFieldModel(), FILL_LIGHT (+11 more)
 
 ### Community 56 - "driver3d.js"
-Cohesion: 0.14
-Nodes (24): applyPose(), ARRIVED_S, buildMannequin(), clamp01(), createDriver(), createDriverStage(), resize(), tick() (+16 more)
+Cohesion: 0.13
+Nodes (25): applyPose(), ARRIVED_S, buildMannequin(), clamp01(), createDriver(), createDriverStage(), resize(), tick() (+17 more)
 
 ### Community 57 - "robot3d.js"
-Cohesion: 0.08
-Nodes (56): garageShow(), paintGarageModel(), loadDriverModel(), createHopperBalls(), drawn(), fedAt(), pickupAt(), pickupStart() (+48 more)
+Cohesion: 0.18
+Nodes (23): pairPlaces(), BATTERY, buildCadRobot(), animate(), muzzleAt(), BUMPER_FADE_MS, PART, UP (+15 more)
 
 ### Community 59 - "device-cad.mjs"
 Cohesion: 0.15
@@ -369,16 +374,16 @@ Cohesion: 0.09
 Nodes (22): [0.2.0] — 2026-08-05 — Impacts and swerve tiles., [0.3.0] — 2026-08-06 — In-place updates., [0.4.0] — 2026-08-06 — About page, layout portability, shortcuts, connection history, a read-only diagnostics MCP., [0.5.0] — 2026-08-06 — Settings, and the robot's own spec sheet., [0.5.1] — 2026-08-06 — The garage, properly., [0.6.0] — 2026-08-06 — What the robot is made to do., [0.7.0] — 2026-08-06 — Search, release notes, and documentation that is true., [0.8.0] — 2026-08-06 — Less text, more robot. (+14 more)
 
 ### Community 63 - "camera.rs"
-Cohesion: 0.14
-Nodes (13): camera_frame(), jpeg(), LIMIT, MAX_BYTES, stream_url(), a_file_that_is_not_a_wpilog_is_refused_rather_than_decoded(), a_real_driver_station_session_reads(), a_session_yields_its_battery_trace() (+5 more)
+Cohesion: 0.11
+Nodes (17): camera_frame(), camera_identity(), IDENTITY_LIMIT, identity_name(), identity_url(), jpeg(), LIMIT, MAX_BYTES (+9 more)
 
-### Community 64 - "paint"
-Cohesion: 0.17
-Nodes (12): activeView(), barOverflows(), fitStatusBar(), onShow(), paint(), paintTopics(), parkWanted(), showView() (+4 more)
+### Community 64 - "createPark"
+Cohesion: 0.16
+Nodes (26): clampElevation(), closest(), createPark(), applyRobot(), applyShot(), currentShot(), draw(), finishFlight() (+18 more)
 
 ### Community 65 - "hub.js"
-Cohesion: 0.25
-Nodes (12): matchClock(), redHubActive(), redHubActive(), activeIn(), AUTO_S, clamp01(), hubPlan(), inactiveFirst() (+4 more)
+Cohesion: 0.27
+Nodes (11): matchClock(), redHubActive(), redHubActive(), activeIn(), AUTO_S, clamp01(), hubPlan(), segmentAt() (+3 more)
 
 ### Community 66 - "calibration.js"
 Cohesion: 0.29
@@ -388,13 +393,13 @@ Nodes (7): calibrationNames(), calibrationNotice(), calibrationNotices(), displa
 Cohesion: 0.31
 Nodes (10): paintRunList(), paintRunMain(), paintRuns(), runBefore(), runTracesHtml(), describeChanges(), modeLabel(), runWhen() (+2 more)
 
-### Community 68 - "surround-demo.test.js"
-Cohesion: 0.44
-Nodes (7): cameraDemoAt(), cameraDemoRoute(), cameraDemoValues(), createCameraFrameSource(), context(), demoValues(), DRIVER_VIEW_STATE
+### Community 68 - "surround-ui.js"
+Cohesion: 0.32
+Nodes (12): cameraRoster(), createSurroundPolicy(), cameraDemoAt(), cameraDemoRoute(), cameraDemoValues(), createCameraFrameSource(), createDemoCameraRenderer(), context() (+4 more)
 
 ### Community 69 - "finite"
-Cohesion: 0.40
-Nodes (10): atSpeed(), finite(), fixed(), metres(), percent(), readPose(), runCard(), runClock() (+2 more)
+Cohesion: 0.23
+Nodes (16): atSpeed(), observe(), ringPush(), ringSpeed(), finite(), fixed(), metres(), numOf() (+8 more)
 
 ### Community 70 - "robot-cad-preview.mjs"
 Cohesion: 0.18
@@ -424,6 +429,10 @@ Nodes (6): args, FILES, given, root, source, write
 Cohesion: 0.38
 Nodes (6): contents(), DEFAULT_SOURCE, log(), main(), root, WANTED
 
+### Community 77 - "hopper3d.js"
+Cohesion: 0.18
+Nodes (15): createHopperBalls(), drawn(), fedAt(), pickupAt(), pickupStart(), setCount(), step(), slotPosition() (+7 more)
+
 ### Community 78 - "core-format.js"
 Cohesion: 0.60
 Nodes (4): bytes(), level(), preEolState(), wearText()
@@ -431,6 +440,10 @@ Nodes (4): bytes(), level(), preEolState(), wearText()
 ### Community 79 - "overdrive.js"
 Cohesion: 0.48
 Nodes (4): createOverdriveDebounce(), OVERDRIVE_COOLDOWN_MS, OVERDRIVE_ENGAGE_MS, OVERDRIVE_WARP_MS
+
+### Community 80 - "device3d.js"
+Cohesion: 0.18
+Nodes (16): paintCameraPart(), paintCoreHero(), partSize(), CLAY, createDeviceStage(), frame(), resize(), showModel() (+8 more)
 
 ### Community 81 - "Mode"
 Cohesion: 0.33
@@ -440,36 +453,48 @@ Nodes (5): Mode, Gui, Help, Mcp, parse_args()
 Cohesion: 0.40
 Nodes (5): drawRunTraces(), drawTrace(), tokenAlpha(), traceSegments(), valueRange()
 
+### Community 83 - "buildRobot"
+Cohesion: 0.31
+Nodes (11): addBumpers(), arcPlate(), axle(), buildRobot(), extrudeUp(), ring(), roundedBox(), roundedRect() (+3 more)
+
 ### Community 84 - "update"
-Cohesion: 0.06
-Nodes (71): agoText(), alliance(), cadFits(), commonPrefix(), gameMessage(), history(), latestSystemCheck(), matchTime() (+63 more)
+Cohesion: 0.14
+Nodes (36): commonPrefix(), history(), motorRowsFromNt(), update(), accelLimitText(), ASSIST_WORDS, assistLevelText(), assistText() (+28 more)
+
+### Community 86 - "createRobotModel"
+Cohesion: 0.43
+Nodes (7): bumperNumbers(), createRobotModel(), applyNumbers(), applySpec(), dropNumbers(), normalizeRobot(), weave()
 
 ### Community 87 - "release.mjs"
 Cohesion: 0.11
 Nodes (18): bare, built, dirty(), dryRun, env, files, head, installer (+10 more)
 
-### Community 92 - "paintCan"
-Cohesion: 0.31
-Nodes (10): buildCanProbes(), canShapeOf(), layout, paintCan(), setFlag(), setLevel(), setText(), setWidth() (+2 more)
+### Community 88 - "surround-panorama.test.js"
+Cohesion: 0.48
+Nodes (4): PANORAMA, panoramaSample(), panoramaYaw(), sector
+
+### Community 92 - "setText"
+Cohesion: 0.53
+Nodes (6): setFlag(), setLevel(), setText(), setWidth(), writeCanBus(), writeCanPair()
 
 ### Community 95 - "createMotionFilter"
-Cohesion: 0.38
-Nodes (4): createMotionFilter(), updateTurn(), turnBetween(), direction()
+Cohesion: 0.20
+Nodes (8): createMotionFilter(), updateTurn(), turnBetween(), direction(), turn(), createShots(), step(), smooth()
 
 ### Community 96 - "ref_node_assert"
-Cohesion: 0.22
-Nodes (5): compactFigure(), spacedLabel(), number(), readLoopTiming(), ROBOT_LOOP_KEY
+Cohesion: 0.16
+Nodes (6): compactFigure(), spacedLabel(), number(), readLoopTiming(), ROBOT_LOOP_KEY, createCameraIdentityGate()
 
 ## Knowledge Gaps
 - **14 isolated node(s):** `@fontsource-variable/figtree`, `@tauri-apps/cli`, `catalyst-console`, `Gui`, `Mcp` (+9 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 610 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 614 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **7 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `update()` connect `update` to `paint`, `ref_node_assert`, `hub.js`, `app.js`, `Widgets`, `el`, `ref_node_test`, `paintCan`, `arr`, `drivers.js`, `hidePark`, `escapeHtml`, `mechanisms.js`, `overdrive.js`, `aim-target.test.js`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **Why does `update()` connect `update` to `ref_node_assert`, `hub.js`, `app.js`, `devices.js`, `Widgets`, `el`, `paintNotices`, `park-state.test.js`, `setText`, `paintParkInfo`, `mechanisms.js`, `hidePark`, `escapeHtml`, `overdrive.js`, `aim-target.test.js`, `createRunRecorder`?**
+  _High betweenness centrality (0.064) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `update()` (e.g. with `Writing your own` and `poseAge()`) actually correct?**
   _`update()` has 4 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `@fontsource-variable/figtree`, `@tauri-apps/cli`, `catalyst-console` to the rest of the system?**
@@ -477,8 +502,8 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `field-collision.mjs` be split into smaller, more focused modules?**
   _Cohesion score 0.03636363636363636 - nodes in this community are weakly interconnected._
 - **Why does `Writing your own` connect `Widgets` to `update`?**
-  _High betweenness centrality (0.043) - this node is a cross-community bridge._
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `createField()` (e.g. with `resize()` and `tick()`) actually correct?**
   _`createField()` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Should `mcp.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.12477718360071301 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.12100840336134454 - nodes in this community are weakly interconnected._
